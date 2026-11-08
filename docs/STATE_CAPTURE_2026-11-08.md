@@ -1,0 +1,110 @@
+# Full state capture — 2026-11-08 (operator: "investigate why it stopped … everything, all current state of CC and all insights on what remains … review all, no edits, no build, no tests")
+Review only. The one file written is this capture. Every number below was read from the host log, the task store, the capability-gap store, `git`, or code read this turn; anything not verified is marked **UNVERIFIED**.
+
+## 1. Why did it stop?
+* **Claude Code (this session):** nothing broke — the last turn ended because it delivered its report (build/test gate 4–5 done, span-out walk passed). No CC process, build or test is running. Three of my background **Monitors expired silently after 30 min with zero events** (`b23u3adlh`, `bjso7tgtc`, `bpk8aibqd`) although the walks they watched produced matching log lines (e.g. Stage 3/5/6/7/9/10 completion lines at 00:47–01:16). **Cause UNVERIFIED** (the `tail -F | sed -u` filter did not deliver; I found the results by reading the log directly). Lesson: do not rely on a Monitor for a long walk without a periodic direct check.
+* **The walks that "stopped":** three tasks are PAUSED by the failure doctrine (resumable via `/task/resume_run`, nothing lost): **1152** step 0 — orchestrator watchdog 300 s on `context_aggregation` (fixed in source and in the built binary); **1154** step 25 of 29 — "step produced tool-call markup (`<invoke name=`) that nothing executes" (honest refusal to accept a step that only *described* tool use); **1148** step 0 — `threed-mcp` provider step "could not run … none of 3 tools matches" (the E14/E17 defect; the fixes are compiled but not yet exercised live). **1155 completed** 6/6.
+* **The host:** running (pid 27501, the rebuilt binary). Its log has an ~11 h gap 13:20→00:20 UTC on 11-07/08: the machine was suspended (uptime 15 h); the walk in flight at that time was already paused at 13:12 for an independent reason.
+* **Scorecard (since 11-03, 17 walks):** 2 complete (12 %), 15 stopped before completion, 0 running. Reach: S2 59 %, S3 59 %, S5 53 %, S6 41 %, S7 41 %, S9 35 %, **S10 12 %**. Most of the 15 are old (8 killed by the pre-fix 1,800 s Stage 2 watchdog before 11-06); the funnel will not read healthily until several post-fix walks accumulate. Post-fix evidence is 2 walks (1154 paused at S10 step 25; 1155 complete).
+
+## 2. The concurrency worry — did the `context_aggregation` change skip or reorder anything?
+**Answer from the code (`assets/pipelines/general/context_aggregation/main.rs`): no dependency was removed; nothing is skipped.**
+* The pipeline is a chain of PHASES with real data dependencies, and the phases are still strictly sequential: (1) keyword search → seed ids; (2) traversal needs the seeds; (3) merge seeds + traversed ids (+ the request's own `known_seed_ids`) → one id list; (4) resolve each id into a container (needs the merged list); (5) `build_context_from_containers` (needs the resolved containers); (6) consciousness/coordination layers. I changed only the work INSIDE phases 2 and 4, where the items are independent of each other (one `Traverse` per seed; one `GetContainer` per id — none reads another's result).
+* **Order preserved:** each concurrent task carries its index; results are written to `per_seed[idx]` / `got[k]` and merged in the original order, with first-seen de-duplication (a `HashSet` instead of the old O(n²) `contains`, same outcome). The token-budget early stop in `resolve_containers` is applied sequentially over each wave's results, so the kept set is identical to the old loop.
+* **Two real differences, both benign but worth stating:** (a) a wave of up to 16 may fetch up to 15 containers *past* the budget stop; they are discarded (extra host work only). (b) A failed individual host call is still dropped silently per seed (unchanged behaviour). I also checked the one thing that *could* have made concurrency change results — the per-request `max_latency_ms: 2000` — and `src/zsei/traversal.rs` only *reports* elapsed time; it does not enforce `max_latency_ms`, so contention cannot truncate a traversal. Enforced bounds are only `max_hops` / `max_containers`.
+* **Why it was slow before (evidence, not guess):** 145 ContextAggregation runs in the log; the 31 since 11-07 split into 29 normal runs at 2–6 s and **two outliers of 235 s and 273 s, plus walk 1152's >300 s** (killed). After the rebuild, 30 consecutive runs: **median 1.01 s, max 1.42 s**, in walks whose span-out was just as large (≈330–510 items / 32k tokens per step). So the stall scaled with the number of seeds (each a separate `Traverse` + `GetContainer` round trip, sequential, each on a fresh `reqwest::Client`). I have **not separated** how much came from the shared client vs the concurrency (UNVERIFIED split); the combined effect is measured.
+* **Residual risk:** 16 simultaneous host calls is a host-protection bound, not a work cap; the host has no per-query back-pressure I verified, so a much larger seed set would still scale linearly (just 16× faster).
+
+## 3. The 300 s watchdog — is it progress-aware? **No, and I over-stated this earlier.**
+There are FOUR separate time bounds on a pipeline call; only two were made progress-aware:
+| Layer | Where | Behaviour now |
+|---|---|---|
+| Child process ceiling | `src/pipeline/executor.rs` `run_child_bounded` | **progress-aware**: kept while the child wrote stdout/stderr or a model call stamped within 300 s; hard ceiling 14,400 s |
+| Host adapter watchdog | `src/orchestrator/adapters.rs` (~143) | **progress-aware** but only via the *model-call stamp*; floor `max(registry, 1800)` |
+| **Orchestrator `metered_execute_raw`** | `src/orchestrator/mod.rs` ~3000 | **flat `tokio::time::timeout(300 s)`** (registry `per_call_timeout`; ×3 for pipelines 100/8/103). NOT progress-aware. This is what killed walk 1152 (`pipeline_id=21 secs=300`). Used by every `metered_execute` (context aggregation, response.rs knowledge-linker/realizer pipelines) |
+| **Orchestrator `metered_execute_resilient`** | `mod.rs` ~3579 | flat wall-clock `timeout` = per-attempt × (1 + candidates + pool); large for a long chain but NOT progress-aware |
+`context_aggregation` makes **no model calls**, so even the progress-aware layers (which key on the model stamp) could not have helped it; layer 3 killed it at exactly 300 s. My earlier statement "timeouts do not limit work that is progressing" was true of layers 1–2 only. **Decision for the operator (no edit made):** make layers 3–4 progress-aware too, with a progress signal that is *not* only model calls (e.g. the child's stdout/stderr activity or a host-call counter the pipeline bumps), otherwise a legitimately long non-model pipeline is still killed by a wall clock.
+
+## 4. Current CC / repo state
+* **Git:** a parallel agent (ZCode) committed essentially all my edits (`HEAD eb7d84e`; the 200-file working-tree diff is gone). Uncommitted now: `CHECKLIST.md`, `docs/EDIT_CAPTURE_2026-11-07.md`, `tools/e2e/span-walk.mjs`, three evidence files (walk scorecard 2026-11-08 `.md/.json`, `2026-11-08-e2e-span-walk.md`), plus this capture. Nothing of mine is unpushed work in progress.
+* **Built and verified:** host release build, `cargo test --lib` 229/229, 22 pipeline crates (text 26+3 tests), `fanout.mjs` 13/13, `fanout-coverage.mjs` 17 PASS / 13 tracked SKIP, `workspaces.mjs` 5/5, span-walk walk 1155 complete.
+* **Host runtime:** pid 27501; MCP servers: only `security-mcp` and `p2p-bridge-mcp` (plus the shared-context server) are running — `terminal-mcp`, `code-mcp`, `visual-mcp`, etc. are **not** (ports 3210–3282 refuse connections), so tool-routed steps return "tool unreachable" blocks (honest).
+* **Tasks (50):** 9 completed, **3 paused** (1148, 1152, 1154), **38 stale `queued`** (test leftovers; unresolved since earlier). **Capability gaps (33):** 15 `wanted`, 14 `not_needed`, 4 `methodology_drafted`. **Awaiting items:** 1 (`jurisdiction_confirm`, human-resolved).
+
+## 5. Insights from the span-out / code-workspace work
+1. Span-out in a walk works: every step of 1154 (24/24) and 1155 (6/6) carries `span-out:K items, T tokens, F fetched, budget filled`, the assembled context contains "Graph span-out context", and the real function names reach the model.
+2. **Span-out always fills the window share (~32k tokens) with 300–500 items and leaves a frontier of 20–2,800 unreached** — even for a two-file project. **UNVERIFIED:** whether those ~450 items are inside the project's scope or pulled from the global graph (the keyword seeds are host-wide; `project_id` scoping in aggregation is documented as "searches host-wide"). This is the most important open question about span-out in a workspace: on a 2-file project 450 items cannot all be project content.
+3. Relevance control matters more than speed: a 13-methodology word-overlap floor produced 28 AMT branches and a 29-step plan; judging the floor (strength-N) gave 17 methodologies (2 dropped) and a 6-step plan. AMT still built **44 branches** for one sentence (driven by methodologies, not by request size).
+4. Capability closure now de-duplicates; 7 of 9 invented "missing" capabilities were judged not required, 2 real ones (`code_callgraph`, `code-search-mcp`) got methodologies on the spot.
+5. The feasibility re-plan fired in 1154 (low→medium) and **inflated the plan 5→29 steps** — a re-plan designs fresh from the whole methodology set; with the floor fix the same prompt class gave 6 steps, but the re-plan's tendency to grow plans is unaddressed.
+6. A stored 29-step blueprint (45001's family) is reused by identical prompts — correct under the plain-reuse doctrine, but a bloated plan persists once stored; tests now tag prompts.
+
+## 6. What remains (no edits made this turn)
+**Defects found, unfixed:** (a) orchestrator layers 3–4 timeouts not progress-aware (§3); (b) **Stage 4 took ~18 min** for a one-sentence prompt in walk 1155 (00:45→01:03) — uninvestigated; (c) **Stage 12** consciousness `relationship` call fails (`missing field 'action'`); (d) AMT 44 branches/one sentence; (e) walk 1154 step 25 produced tool-call markup (a model-behaviour pause; resume or re-plan); (f) 38 stale queued tasks; (g) the methodology keyword index does not surface methodologies ("keyword search found none" in all 3 reporting walks → the floor path is the real path); (h) E14 rule gate, E17 tool choice not yet exercised live (no declared provider rule applied in 1154/1155); (i) Monitors silent (§1).
+**Verification not done:** analysis-reuse on a repeat walk; cross-modal once-per-pair on a multi-modality walk; `walk-completion.mjs` and `provider-step.mjs` re-run on the new binary; span-walk re-run end to end (assertions validated against task 1155 only); resume of tasks 1152/1154.
+**Operator decisions/actions (unchanged):** chunkable-call design (5 questions); `vote_reasoning` "off" A/B; `high_end` profile for EU; EU diff + deploy; OpenRouter key rotation; SSH hardening; plus the new decision in §3 (progress-aware layers 3–4, and what counts as progress for non-model pipelines).
+**Suggested order when edits are allowed:** §3 watchdog layers → verify span-out scoping (§5.2) → Stage 4 timing → Stage 12 input shape → resume/clean paused + stale tasks → re-run provider-step/walk-completion to exercise E14/E17.
+
+## 7. Addendum — independent review of ZCode's report + what was then edited (2026-11-08)
+Verified true: my fixes are in HEAD (`e1603c2`, `407a977`); CC process 4315 alive; the watchdog table; the concurrency analysis incl. the silent-panic caveat. **Corrected:** "~72 commits ahead" is wrong — `origin/main` = `586e3b9`, HEAD is exactly 9 ahead (ZCode confirmed after a fetch); the educational guide's funnel figures were stale (labelled as a snapshot now); the strength ladder (`light-2`/`flash-1`) makes every DROP gate a single vote at that setting (operator ruling pending on a floor).
+New findings, all verified from code/log: (1) **span-out is not project-scoped** — keyword rediscovery was host-wide and the frontier crossed projects; walk 1155's step 6 cited fixture graphs from earlier runs — FIXED in source (F2/F3); (2) **Stage 4 = 16.2 min with 2 ledger calls and 1 prompt call** — it is the text linking loop's sequential store round trips; fetch phase parallelised, write phase intentionally not (read-modify-write on the new graph) — F4; (3) **Stage 12 relationship call** sent flat fields instead of `summary` — F5; (4) orchestrator watchdog layers 3–4 flat — F1. All edits listed in EDIT_CAPTURE §N; none compiled yet.
+
+## 8. Update 2026-11-08 (later) — keyword / hits / ML review captured, and the WORK REGISTER
+**New review (read-only; full detail in `docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md`):** the keyword flood is **substring matching** (code 1,345 vs 77 exact; file 1,090 vs 1), not stopwords; every hit seeds at a flat 0.5 so budgets fill arbitrarily; the `keywords` field mixes meaning terms with scope/provenance markers (6,667/9,205 CoordinationEvent slots); Project/Workspace/68 ModalityGraphs have NO keywords; Stage 2 extraction output is unvalidated (17 stored `you` keywords). **Hit tracking and the ML are designed and slotted in the schema but not built** (embeddings 0, learned_associations 0, access_frequency>0: 0 on the live store; `use_ml` unread; pipeline #17 is a keyword-overlap stub with no host caller). Operator rulings recorded: not rarity-first; hits feed the ML; zero-shot expansion LAST (settlement pass); no false confidence (`confidence_threshold` retired from the design); stopwords testable but never relied on; token-aware maybe; language-neutral filler handling belongs to the ML; ML placement = pipelines (tool/MCP only for an external heavy trainer). My earlier rarity-first proposal is withdrawn.
+**WORK REGISTER (everything in flight or pending, honest status):**
+| Item | State |
+|---|---|
+| F1 progress-aware orchestrator watchdogs | EDITED, parse-checked, **uncompiled** |
+| F2/F3 span-out project/workspace scope + keyword hygiene (F3 = stoplist-based interim, to be replaced by the keyword program) | EDITED, **uncompiled** |
+| F4 Stage 4 link fetch-phase concurrency + persisted link metrics | EDITED, **uncompiled** (text crate) |
+| F5 Stage 12 relationship input contract | EDITED, **uncompiled**; `missing field 'action'` unexplained |
+| F6 span-walk SW1b/SW1c/SW7 leakage tests | EDITED (`node --check` ok), **not run** |
+| F7 guide snapshot note | DONE (docs) |
+| Build/test gate for F1–F6 | **OWED — operator-controlled** |
+| Keyword program Phase 0 (hit log, judgment-sample log, rollup, marker/term split, keyword_meta, per-container contracts) | **DESIGNED/CAPTURED, no code** — awaiting go-ahead |
+| Search door (token-aware + rank key), settlement pass A–D, Stage 2 extraction validation | designed |
+| Real custom ML (Stage 1: hashed char-n-gram encoder + ranker, pipeline, train mode, model container, promotion rule) | designed; **blocked on Phase 0 data** (no hit/label data exists) |
+| Stage 2 ML (pretrained encoder fine-tune; ONNX runtime dependency) | operator decision (third-party weights + dependency) |
+| Open defects: AMT 44 branches/sentence; feasibility re-plan inflates plans; MCP servers down; 38 stale queued tasks; paused 1148/1152/1154; blueprint "match 100%" coarse | open |
+| Operator rulings pending: DROP-gate strength floor at flash-1; EU diff+deploy; key rotation; SSH; chunkable-call design; vote_reasoning A/B; high_end profile | open (operator) |
+**No code was edited, built or run in this update.**
+
+
+## 9. Update 2026-11-08 (latest) — KEYWORD PROGRAM EDITED; work register
+Operator approved everything in the keyword/hits/ML design and confirmed retiring `confidence_threshold`. **All edits are made (uncompiled, untested; parse-checked); no build or test has run.** Full map: `docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md` §11; file list: `EDIT_CAPTURE_2026-11-07.md` §P.
+**New root-cause finding (verified in code):** the host hands pipelines a `{data, context}` envelope (`PipelineInput`); `relationship/main.rs` parsed it as the action enum → `missing field 'action' at line 1 column 425` on every Stage 12 relationship update. Fixed in #47 and #17; **67 pipeline mains parse the input directly — follow-up audit of which are host-called without unwrapping.**
+| Item | State |
+|---|---|
+| F1–F6 (watchdogs, span-out scope/hygiene, Stage 4 fetch concurrency, Stage 12 contract, span-walk tests) | EDITED, uncompiled |
+| Keyword program: hit/judgment logs, rollup, dataset builder, trainer trigger, model hook | EDITED, uncompiled |
+| Shared model core (hashed n-gram encoder, ranker, RRF fusion, sign-test promotion, registry, prepared backends) | EDITED, uncompiled (11 tests written, not run) |
+| Settlement pass A–D, Stage 2 extraction shape validation, stoplist demoted to baseline | EDITED, uncompiled |
+| Token-aware ranked search + `OZONE_SEARCH_DEFAULT` / `OZONE_KEYWORD_BACKENDS` knobs; flood-prone callers moved | EDITED, uncompiled |
+| Pipeline #17: TrainModel / ModelStatus / EncodeText / RankCandidates / TrainEmbedder / FineTunePretrained; stubs → honest refusals | EDITED, uncompiled |
+| `confidence_threshold` retired; `TraversalMLModel` redesigned | DONE in source |
+| E2E: keyword-program.mjs (K1–K9), span-walk.mjs scope tests, rerun-all updated | WRITTEN, not run |
+| **Build/test gate** (host → lib tests → crates traversal_ml, relationship, text, code, math, context_aggregation → restart → E2E → a walk → a meta-loop pass) | **OWED — operator-controlled** |
+| Real ML usefulness | blocked on real labelled hit groups (≥5 for a held-out split); trained models stay `inactive` until the sign test says yes |
+| Pretrained-encoder runtime + weights; trained embedder | PREPARED slots only — operator decision (third-party weights, runtime dependency) |
+| Not done: typed scope fields; per-modality identifier emission; project rollup refresh; AMT/graphs/actors search call sites; hotness literals (X2); EU measurement; hit-log rotation; envelope audit of the other 65 pipeline mains | open (guide §11.4) |
+| Operator rulings still pending: DROP-gate strength floor at flash-1; EU diff+deploy; key rotation; SSH; chunkable-call design; vote_reasoning A/B; high_end profile | open (operator) |
+
+## 10. Update 2026-11-08 (latest) — SECOND KEYWORD WAVE: the §9 "not done" list closed in source (uncompiled)
+Details: `KEYWORD_CAPTURE_AND_ML_GUIDE.md` §12; file list `EDIT_CAPTURE_2026-11-07.md` §Q. **No build or test has run.**
+| Item | State |
+|---|---|
+| Typed scope (`Context.scope`, central derivation on every create/update, legacy backfill pass, span-out fast path); `keyword_meta` carry-over | EDITED |
+| Generic modality identifier extraction (all 27 modalities) + FileReference extension, in settlement Pass A | EDITED |
+| Project/Workspace roll-up refresh via child-set signature | EDITED |
+| AMT / graphs / actors search sites → ranked; pipeline-17 stub remnants removed | EDITED |
+| Hit-log + judgment-log rotation; dataset reads full history | EDITED |
+| EU measurement tool (`tools/keyword-measure/measure.mjs`) | WRITTEN — the EU run is the operator's |
+| Envelope audit: 82 mains scanned, 21 built mains patched; auth, sync and 18 unbuilt left untouched (standing instruction), prompt untouched (works) | EDITED / recorded |
+| Hotness literals (~272, modality builders) | **NOT EDITED — conflicts with the standing "literals untouched" instruction; inert (never read for ranking). Operator question open** |
+| Real-model usefulness | data-blocked (needs ≥5 real labelled groups) |
+| Build/test gate (host → lib tests → crates traversal_ml, relationship, text, code, math, context_aggregation **+ the 21 envelope-patched pipelines** → restart → keyword-program / span-walk / walk-completion E2E → one meta pass: typed-scope backfill, rollup, training, settlement) | **OWED — operator-controlled** |
+Open (operator): hotness literals ruling; DROP-gate strength floor at flash-1; EU measurement run; pretrained-encoder weights + runtime; EU diff + deploy; key rotation; SSH; chunkable-call design; vote_reasoning A/B; high_end profile.
+
+## 11. Update 2026-11-08 (latest) — THIRD + FOURTH WAVE edited; BUILD AND TEST STARTED (operator unlocked the gate after capture)
+**Persistence reversed:** hit/judgment logs are never rotated or truncated (streaming rollup in ≤ 64 MiB slices with per-container aggregation; streaming two-pass dataset builder). **Hotness read for ranking** (observed packed ÷ returned in `RankFacts.hotness`, v0 key + ranker feature). **Literals removed after capture:** 239 node hotness → 0.0, 295 graded edge weights → 1.0, 11 graded confidences → 0.0 (+ eeg fabricated random), `zero_shot_simulation` no longer asks the model for a confidence (`methodology_valid` = `feasible`), biology filter reads observed hotness; manifest `docs/evidence/literal-removals/2026-11-08-removed-literals.jsonl` (545 records) + `LITERAL_REMOVAL_2026-11-08.md`. **Creation capture + origin:** `created` / `keywords_changed` at the write door, `Origin` (call site, scope, project/workspace/global, request terms, file ids) on every event, header forwarding from 34 pipelines, creation pairs in the dataset — `KEYWORD_FLOW_AND_NEEDS_GUIDE.md`.
+**Verified so far (this turn):** host `cargo build --release` OK (11 min) on the §R state; `cargo test --release --lib` **254 passed, 0 failed** (229 + 25 new: keyword_model, keyword_program, keyword_settle, request_terms, container scope). **In progress:** host rebuild with the §S state; then pipeline crates (traversal_ml, relationship, text, code, math, context_aggregation, the 18 literal-edited modalities, the 21 envelope-patched, depth), crate tests, restart, E2E (keyword-program, span-walk, walk-completion), one meta pass.

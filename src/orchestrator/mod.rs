@@ -46,6 +46,7 @@ pub mod amt_loop;
 pub mod dispatch;
 pub mod lane_split;
 pub mod request_terms;
+pub mod keyword_settle; // keyword settlement pass: verbatim capture → expansion → unanimous-drop keeper judgment (2026-11-08)
 pub mod actors;
 pub mod i_loop;
 
@@ -1557,8 +1558,26 @@ pub trait StoreAccess: Send + Sync {
         container_type: Option<&str>,
     ) -> Result<Vec<u64>, String>;
 
+    /// RANKED, TOKEN-AWARE keyword search (the `token` strategy — whole-term / whole-token matching, results ordered best-first by the
+    /// deterministic v0 key fused with every active model backend; docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md). Used by the flood-prone,
+    /// budget-limited callers (span-out, context aggregation, graph linking). Default: the plain search, so stores that do not implement
+    /// ranking keep working.
+    async fn search_ranked(
+        &self,
+        keywords: &[String],
+        container_type: Option<&str>,
+    ) -> Result<Vec<u64>, String> {
+        self.search_by_keywords(keywords, container_type).await
+    }
+
     /// Get all categories
     async fn get_categories(&self, modality: &str) -> Result<Vec<u64>, String>;
+
+    /// Enumerate container ids (optionally of one container type name) — the door the keyword settlement pass walks. Default: not
+    /// supported (an honest error, never a fake empty list).
+    async fn list_ids(&self, _container_type: Option<&str>) -> Result<Vec<u64>, String> {
+        Err("list_ids is not supported by this store".to_string())
+    }
 }
 
 // ============================================================================
@@ -1795,10 +1814,13 @@ pub(crate) fn traced<F: std::future::Future>(
     fut: F,
 ) -> impl std::future::Future<Output = F::Output> {
     let ctx = crate::trace::current_trace();
+    let origin = crate::keyword_program::current_origin();
     async move {
-        match ctx {
-            Some(c) => crate::trace::with_trace(c, fut).await,
-            None => fut.await,
+        match (ctx, origin) {
+            (Some(c), Some(o)) => crate::trace::with_trace(c, crate::keyword_program::with_origin(o, fut)).await,
+            (Some(c), None) => crate::trace::with_trace(c, fut).await,
+            (None, Some(o)) => crate::keyword_program::with_origin(o, fut).await,
+            (None, None) => fut.await,
         }
     }
 }
@@ -1933,7 +1955,10 @@ impl PromptOrchestrator {
     pub async fn orchestrate(&self, request: OrchestrationRequest) -> OrchestrationResponse {
         let ctx = crate::trace::child_or_root("orchestrate", "orchestrate");
         let trace_id = ctx.trace_id.clone();
-        crate::trace::with_trace(ctx, self.orchestrate_traced(request, trace_id)).await
+        // ORIGIN (keyword program): where this walk came from — project / workspace / global; its request terms and attached files are
+        // filled in as the walk learns them (Stage 2 / Stage 4), so every created / search / outcome event carries them.
+        let origin = crate::keyword_program::Origin::for_request("orchestrate", request.workspace_id, request.project_id, &request.prompt);
+        crate::trace::with_trace(ctx, crate::keyword_program::with_origin(origin, self.orchestrate_traced(request, trace_id))).await
     }
 
     /// Build a fresh `OrchestrationState` for `request` (model window, pipeline index,
@@ -2518,6 +2543,7 @@ impl PromptOrchestrator {
             }
         }
         state.keywords = request_terms::sanitize_keywords(&state.cleaned_prompt, all_keywords.into_iter().collect());
+        crate::keyword_program::note_request_terms(state.keywords.clone());
         state.entities = all_entities;
         state.topics = all_topics.into_iter().collect();
 
@@ -2572,6 +2598,10 @@ impl PromptOrchestrator {
             .unwrap_or_default();
 
         state.methodologies = methodology_ids;
+        // HIT capture: every methodology gathered for this request (the negative class unless it is later applied or kept)
+        for id in &state.methodologies {
+            crate::keyword_program::record_event("gathered", *id, &state.keywords, serde_json::json!({"via": "keyword-search"}));
+        }
 
         // METHODOLOGY FLOOR (operator, 2026-10-01: "methodologies created
         // should never be 0 ... methodologies and amt define steps" — an
@@ -2622,6 +2652,9 @@ impl PromptOrchestrator {
                     );
                     state.methodologies = chosen;
                     state.floor_used = true;
+                    for id in &state.methodologies {
+                        crate::keyword_program::record_event("gathered", *id, &state.keywords, serde_json::json!({"via": "floor"}));
+                    }
                 }
             }
         }
@@ -2654,7 +2687,12 @@ impl PromptOrchestrator {
                 let prompt = format!(
                     "REQUEST (the user's request, whole):\n{request}\n\nMETHODOLOGY: {name}\n{desc}\n\nQUESTION: Does this methodology clearly NOT apply to the request above — i.e. its subject matter has nothing to do with what the request asks for? Answer YES only if it is clearly irrelevant. Answer NO if it applies or you are unsure."
                 );
-                if self.confirm_yes_no_orch(state, prompt, k_validation::configured_strength()).await {
+                let strength = k_validation::configured_strength();
+                let irrelevant = self.confirm_yes_no_orch(state, prompt, strength).await;
+                // HIT/LABEL capture (keyword program): the judgment is a labelled sample, the outcome a kept/dropped hit event
+                crate::keyword_program::record_judgment("methodology_relevance", Some(id), &name, &request, "does this methodology clearly NOT apply to the request?", irrelevant, strength);
+                crate::keyword_program::record_event(if irrelevant { "dropped" } else { "kept" }, id, &state.keywords, serde_json::json!({"kind": "methodology_relevance"}));
+                if irrelevant {
                     dropped.push(id);
                 } else {
                     keep.push(id);
@@ -3011,12 +3049,9 @@ impl PromptOrchestrator {
         let result = if secs == u64::MAX {
             self.executor.execute(pipeline_id, input).await?
         } else {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(secs),
-                self.executor.execute(pipeline_id, input),
-            )
-            .await
-            {
+            // PROGRESS-AWARE (2026-11-08; walk 1152: this was a flat 300 s wall that killed a working, model-free pipeline): `secs` is a
+            // STALL budget — see `progress_bounded`.
+            match progress_bounded(secs, self.executor.execute(pipeline_id, input)).await {
                 Ok(r) => r?,
                 Err(_) => {
                     tracing::error!(
@@ -3576,7 +3611,8 @@ impl PromptOrchestrator {
             progress.clone(),
             self.metered_execute_resilient_inner(state, input, call_site),
         );
-        let timed = tokio::time::timeout(std::time::Duration::from_secs(secs), guarded).await;
+        // PROGRESS-AWARE (2026-11-08): `secs` (per-attempt × candidates) is a stall budget, not a wall clock — see `progress_bounded`.
+        let timed = progress_bounded(secs, guarded).await;
         // The walk's trail lives in `progress`, reachable only from here. Keep
         // every line on the task's thinking log (stage "walk_trail"), so the
         // attempt sequence is in the record, not only in the logs.
@@ -5913,4 +5949,32 @@ mod tests {
         );
     }
 
+}
+
+
+/// PROGRESS-AWARE WATCHDOG for orchestrator-level calls (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing
+/// work"; extended 2026-11-08 to the two layers that were still flat wall clocks — `metered_execute_raw` and
+/// `metered_execute_resilient`). `stall_secs` is the budget the call gets before progress is even checked; past it the call is kept
+/// while ANY progress signal is fresh (a model call streamed/finished in the last 300 s — `model_activity_within` — OR a pipeline
+/// queried the store in the last 300 s — `pipeline_activity_within`, the non-model signal) and is abandoned only when both are stale or
+/// at the hard ceiling `OZONE_WATCHDOG_HARD_SECS` (default 14400). Known limit: the signals are process-wide, so unrelated concurrent
+/// work can keep a genuinely hung call alive until the hard ceiling.
+async fn progress_bounded<F: std::future::Future>(stall_secs: u64, fut: F) -> Result<F::Output, ()> {
+    tokio::pin!(fut);
+    let started = std::time::Instant::now();
+    let hard: u64 = std::env::var("OZONE_WATCHDOG_HARD_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(14400);
+    loop {
+        tokio::select! {
+            out = &mut fut => return Ok(out),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                let elapsed = started.elapsed().as_secs();
+                if elapsed >= stall_secs {
+                    let working = crate::model_ledger::model_activity_within(300) || crate::model_ledger::pipeline_activity_within(300);
+                    if !working || elapsed >= hard {
+                        return Err(());
+                    }
+                }
+            }
+        }
+    }
 }

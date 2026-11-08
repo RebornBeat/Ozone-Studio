@@ -850,7 +850,7 @@ impl PromptOrchestrator {
                 .collect() // ALL prompt terms (audit #17)
         };
         if !prompt_terms.is_empty() {
-            match self.store.search_by_keywords(&prompt_terms, None).await {
+            match self.store.search_ranked(&prompt_terms, None).await { // ranked + token-aware (2026-11-08)
                 Ok(hits) => {
                     let before = ids.len();
                     for id in hits.into_iter() { // every hit (audit #17)

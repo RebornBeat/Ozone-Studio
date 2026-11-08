@@ -168,7 +168,7 @@ const HOST_CALL_CONCURRENCY: usize = 16;
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
     let client = http_client();
     let resp = client
-        .post(format!("{}/zsei/query", ozone_host()))
+        .post(format!("{}/zsei/query", ozone_host())).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&serde_json::json!({"query": query, "session_token": ""}))
         .send()
         .await
@@ -200,10 +200,17 @@ async fn fetch_container(container_id: u64) -> Option<serde_json::Value> {
 /// Keyword search — the query real per-step context aggregation needs.
 /// Returns container ids only; caller resolves each via fetch_container.
 async fn search_containers_by_keywords(keywords: &[&str], container_type: Option<&str>) -> Vec<u64> {
+    search_containers_by_keywords_with(keywords, container_type, None).await
+}
+
+/// `strategy`: `Some("token")` = token-aware + ranked (best match first — the resolve loop below keeps the FIRST ids within the token
+/// budget, so order is what decides what is kept); `None` = the host default.
+async fn search_containers_by_keywords_with(keywords: &[&str], container_type: Option<&str>, strategy: Option<&str>) -> Vec<u64> {
     let result = match zsei_query(serde_json::json!({
         "SearchContainersByKeywords": {
             "keywords": keywords,
             "container_type": container_type,
+            "strategy": strategy,
         }
     }))
     .await
@@ -770,7 +777,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     keyword_list.push(w);
                 }
             }
-            let mut seed_ids = search_containers_by_keywords(&keyword_list, None).await;
+            let mut seed_ids = search_containers_by_keywords_with(&keyword_list, None, Some("token")).await;
             // This request's own known attachment graph_ids — exact, not
             // discovered — added directly to the seed set alongside the
             // keyword-search results, so traversal below also walks

@@ -913,6 +913,12 @@ struct SpanOutRequest {
     /// Include the packed text in the response (default false: items + fan-out evidence only).
     #[serde(default)]
     include_text: bool,
+    /// Optional SCOPE (project wins over workspace): keyword seeds and relationship-reached containers under a DIFFERENT
+    /// project/workspace are skipped; `seeds` given here are trusted. Omitted = host-wide (the old behaviour).
+    #[serde(default)]
+    project_id: Option<u64>,
+    #[serde(default)]
+    workspace_id: Option<u64>,
 }
 
 /// POST /context/span_out — run the ONE span-out algorithm (best-first, token-budgeted, per-modality
@@ -938,19 +944,22 @@ async fn context_span_out(
         }
     }
     if !req.keywords.is_empty() {
-        if let Ok(ids) = store.search_by_keywords(&req.keywords, None).await {
-            for id in ids.into_iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
-                seeds.push(crate::orchestrator::span_out::SpanSeed::new(id, 0.5, "keyword"));
+        if let Ok(ids) = store.search_ranked(&req.keywords, None).await {
+            // best match first; rank-derived seed scores (ordinal, not a confidence); all hits kept (no cap)
+            let n = ids.len().max(1) as f32;
+            for (rank, id) in ids.into_iter().enumerate() {
+                seeds.push(crate::orchestrator::span_out::SpanSeed::new(id, 0.5 * (1.0 - 0.5 * (rank as f32) / n), "keyword"));
             }
         }
     }
     if seeds.is_empty() {
         return Json(serde_json::json!({"success": false, "error": "no seeds: pass `seeds` (container ids) and/or `keywords`"}));
     }
-    let r = crate::orchestrator::span_out::span_out(&store, &data_dir, seeds, req.budget_tokens.unwrap_or_else(|| {
+    let scope = crate::orchestrator::span_out::SpanScope { project_id: req.project_id, workspace_id: req.workspace_id };
+    let r = crate::orchestrator::span_out::span_out_scoped(&store, &data_dir, seeds, req.budget_tokens.unwrap_or_else(|| {
         // default from the READING model (a quarter of its window, as Stage 2/step span-out do); 8,000 only when the window is unknown
         std::env::var("OZONE_CONTEXT_LENGTH").ok().and_then(|v| v.parse::<u32>().ok()).filter(|w| *w > 0).map(|w| (w / 4).max(256)).unwrap_or(8000)
-    })).await;
+    }), Some(scope)).await;
     let mut v = serde_json::to_value(&r).unwrap_or_default();
     if !req.include_text {
         if let Some(o) = v.as_object_mut() {
@@ -1213,6 +1222,16 @@ async fn resolve_review_route(
     };
     match resolved {
         Ok(record) => {
+            // LABEL capture (keyword program): a human resolution is the strongest judgment sample there is
+            crate::keyword_program::record_judgment(
+                "decision_review",
+                None,
+                &req.review_id,
+                "",
+                "operator decision on a review row",
+                req.decision.trim().eq_ignore_ascii_case("proceed"),
+                0,
+            );
             // Close the durable awaiting item (jurisdiction_confirm) that mirrors this
             // review, so the Order / pending views stop listing it.
             for item in crate::orchestrator::awaiting::pending_actions(&data_dir) {
@@ -2166,10 +2185,34 @@ fn append_zsei_write_audit(data_dir: &str, row: &serde_json::Value) {
     }
 }
 
+/// POST /zsei/query. A pipeline is a separate process: it forwards `x-ozone-trace` (the walk's trace id, from `OZONE_TRACE_ID`) and
+/// `x-ozone-origin` (ASCII JSON of its call site / workspace / project / task, from `OZONE_ORIGIN`). The trace and origin are re-installed
+/// around the query so the keyword program's `search` / `created` / `keywords_changed` events from a pipeline join the same walk and carry
+/// the same scope as the orchestrator's own (docs/KEYWORD_FLOW_AND_NEEDS_GUIDE.md §2). Absent or empty headers = the previous behaviour.
 async fn query_zsei(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<ZseiQueryRequest>,
+) -> Json<ZseiResponse> {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).unwrap_or_default();
+    let (trace_hdr, origin_hdr) = (header("x-ozone-trace"), header("x-ozone-origin"));
+    let mut fut: std::pin::Pin<Box<dyn std::future::Future<Output = Json<ZseiResponse>> + Send>> = Box::pin(query_zsei_inner(State(state), Json(req)));
+    if let Some(origin) = crate::keyword_program::Origin::from_header(&origin_hdr) {
+        fut = Box::pin(crate::keyword_program::with_origin(origin, fut));
+    }
+    if !trace_hdr.is_empty() {
+        let mut ctx = crate::trace::TraceCtx::new_root("pipeline-store-call");
+        ctx.trace_id = trace_hdr;
+        fut = Box::pin(crate::trace::with_trace(ctx, fut));
+    }
+    fut.await
+}
+
+async fn query_zsei_inner(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ZseiQueryRequest>,
 ) -> Json<ZseiResponse> {
+    crate::model_ledger::touch_pipeline_activity(); // non-model progress signal for the orchestrator watchdogs
     let variant = req
         .query
         .as_object()
@@ -5010,6 +5053,8 @@ async fn upsert_bridge_container(
                         topics: vec!["bridge".to_string()],
                         relationships: vec![],
                         learned_associations: vec![],
+                        keyword_meta: Default::default(),
+                        scope: Default::default(),
                         embedding: None,
                     },
                     storage: crate::types::container::StoragePointers {

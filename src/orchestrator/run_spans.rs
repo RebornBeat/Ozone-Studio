@@ -168,6 +168,8 @@ fn build_container(
                 topics: vec!["consciousness".to_string()],
                 relationships,
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {

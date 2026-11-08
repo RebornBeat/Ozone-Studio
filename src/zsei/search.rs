@@ -9,6 +9,13 @@
 //! ships `exact` — whole-term equality. Traversal-based and
 //! embedding-based strategies register the same way.
 //!
+//! 2026-11-08 — `token`: TOKEN-AWARE and RANKED (docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md). Whole-term / whole-token matching (no substring flood:
+//! "file" no longer matches "profile"), no stopword list, markers meet only markers, and the result is ORDERED best-first by the deterministic v0
+//! key (scope, match class, matched terms, validation, real hit history, graph distance, recency) fused with every active model backend. It is
+//! selectable per query (`strategy: "token"`, `StoreAccess::search_ranked`) and as the global default via `OZONE_SEARCH_DEFAULT=token`; `scan`
+//! (substring + stoplist), `scan-legacy` and `exact` stay registered as selectable baselines for the evaluation harness. Every search is also
+//! logged as a HIT event (`keyword_program::record_search`) — the training data.
+//!
 //! Policy: algorithms are never removed here, only superseded — an
 //! improved implementation gets its own registration (or becomes the new
 //! default under the existing name) while whatever it replaces stays
@@ -18,6 +25,7 @@ use crate::types::container::ContainerType;
 use crate::types::ContainerID;
 use crate::types::OzoneResult;
 use super::storage::ContainerStorage;
+use crate::shared_contracts::keyword_model as km;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -172,6 +180,89 @@ impl SearchStrategy for LooseScan {
     }
 }
 
+/// TOKEN-AWARE, RANKED (see the module doc). Matches on a container's NAME, keywords and topics by whole term / whole token only, then
+/// orders the matches with `keyword_program::order_for_search` (v0 tuple + active backends, reciprocal-rank-fused).
+pub struct TokenAware;
+
+impl SearchStrategy for TokenAware {
+    fn id(&self) -> &'static str {
+        "token"
+    }
+
+    fn search(
+        &self,
+        storage: &ContainerStorage,
+        keywords: &[String],
+        type_filter: Option<ContainerType>,
+    ) -> OzoneResult<Vec<ContainerID>> {
+        let query: Vec<String> = keywords.iter().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut cands: Vec<km::Candidate> = Vec::new();
+        for id in storage.all_ids() {
+            let Some(container) = storage.load(id)? else { continue };
+            if let Some(ct) = type_filter {
+                if container.local_state.metadata.container_type != ct {
+                    continue;
+                }
+            }
+            let ctx = &container.local_state.context;
+            let name = container.local_state.metadata.name.clone().unwrap_or_default();
+            let mut terms: Vec<String> = ctx.keywords.clone();
+            terms.extend(ctx.topics.iter().cloned());
+            let Some(info) = km::match_info(&query, &name, &terms, false) else { continue };
+            let matched_keywords: Vec<String> =
+                ctx.keywords.iter().filter(|k| km::match_info(&query, "", &[(*k).clone()], false).is_some()).cloned().collect();
+            let facts = crate::keyword_program::facts_from_context(
+                info.best,
+                info.matched_terms,
+                &ctx.keyword_meta,
+                &matched_keywords,
+                container.local_state.hints.last_accessed,
+            );
+            let mut cand_terms = km::meaning_terms(&terms);
+            if cand_terms.is_empty() && !name.is_empty() {
+                cand_terms.push(name);
+            }
+            cands.push(km::Candidate { id, terms: cand_terms, facts });
+        }
+        Ok(crate::keyword_program::order_for_search(&query, &cands))
+    }
+}
+
+/// LIST ALL (2026-11-08): every container id (optionally of one type), keywords ignored — the enumeration door the keyword settlement pass
+/// needs (`StoreAccess::list_ids`). Not a search; registered so it rides the existing query surface without a new `ZSEIQuery` variant.
+pub struct ListAll;
+
+impl SearchStrategy for ListAll {
+    fn id(&self) -> &'static str {
+        "all"
+    }
+
+    fn search(
+        &self,
+        storage: &ContainerStorage,
+        _keywords: &[String],
+        type_filter: Option<ContainerType>,
+    ) -> OzoneResult<Vec<ContainerID>> {
+        let mut out = Vec::new();
+        for id in storage.all_ids() {
+            match type_filter {
+                None => out.push(id),
+                Some(ct) => {
+                    if let Some(c) = storage.load(id)? {
+                        if c.local_state.metadata.container_type == ct {
+                            out.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// Whole-term equality match (no substring) — precision-oriented.
 pub struct ExactMatch;
 
@@ -228,9 +319,17 @@ impl SearchRegistry {
         strategies.insert("scan".to_string(), Arc::new(KeywordScan) as Arc<dyn SearchStrategy>);
         strategies.insert("scan-legacy".to_string(), Arc::new(LooseScan) as Arc<dyn SearchStrategy>);
         strategies.insert("exact".to_string(), Arc::new(ExactMatch) as Arc<dyn SearchStrategy>);
+        strategies.insert("token".to_string(), Arc::new(TokenAware) as Arc<dyn SearchStrategy>);
+        strategies.insert("all".to_string(), Arc::new(ListAll) as Arc<dyn SearchStrategy>);
+        // The global default stays `scan` until the evaluation harness says otherwise; `OZONE_SEARCH_DEFAULT=token` flips it (any registered id).
+        let default = std::env::var("OZONE_SEARCH_DEFAULT")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| strategies.contains_key(v.as_str()))
+            .unwrap_or_else(|| "scan".to_string());
         Self {
             strategies: RwLock::new(strategies),
-            default: RwLock::new("scan".to_string()),
+            default: RwLock::new(default),
         }
     }
 
@@ -269,7 +368,9 @@ impl SearchRegistry {
             .or_else(|| strategies.get("scan"))
             .cloned()
             .expect("search registry must always contain the scan strategy");
-        chosen.search(storage, keywords, type_filter)
+        let ids = chosen.search(storage, keywords, type_filter)?;
+        crate::keyword_program::record_search(keywords, chosen.id(), &ids);
+        Ok(ids)
     }
 }
 

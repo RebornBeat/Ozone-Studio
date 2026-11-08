@@ -80,13 +80,27 @@ pub struct TraversalMLModel {
     
     pub trained_on_samples: u64,
     pub training_date: u64,
-    
-    pub accuracy: f32,
-    pub precision: f32,
-    pub recall: f32,
-    
+
+    /// Which interchangeable backend this model is: "hashed_ngram" | "ranker" | "pretrained" | "embedder"
+    /// (shared/contracts/keyword_model.rs). Several can be Active at once; their orderings are fused.
+    #[serde(default)]
+    pub backend: String,
+
+    /// MEASURED on a held-out split of real hit groups (never self-reported). `None` until an evaluation has run.
+    #[serde(default)]
+    pub accuracy: Option<f32>,
+    #[serde(default)]
+    pub precision: Option<f32>,
+    #[serde(default)]
+    pub recall: Option<f32>,
+    /// The held-out comparison against the deterministic v0 ordering that justified `status` (wins/losses/ties, exact sign-test p-value,
+    /// R-precision of both). Serialized `PromotionDecision` from keyword_model.rs.
+    #[serde(default)]
+    pub evaluation: Option<serde_json::Value>,
+
     pub status: MLModelStatus,
-    pub confidence_threshold: f32,
+    // RETIRED 2026-11-08 (operator ruling, no false confidence): `confidence_threshold` is gone. A model becomes Active only through the
+    // yes/no held-out promotion rule (`keyword_model::decide_promotion`), never through a confidence cut-off.
 }
 
 /// ML Model Status
@@ -97,6 +111,8 @@ pub enum MLModelStatus {
     Active,
     Inactive,
     Deprecated,
+    /// The slot and registry entry exist but the backend cannot run yet (pretrained encoder, embedder).
+    Prepared,
 }
 
 impl Default for MLModelStatus {

@@ -1195,8 +1195,11 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
     let bare = host.trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/').to_string();
     let body = serde_json::json!({"query": query, "session_token": ""}).to_string();
+    // trace + origin correlation headers (so this pipeline's store calls join the walk's hit log); header values are single-line by construction
+    let trace = std::env::var("OZONE_TRACE_ID").unwrap_or_default().replace(['\r', '\n'], "");
+    let origin = std::env::var("OZONE_ORIGIN").unwrap_or_default().replace(['\r', '\n'], "");
     let request = format!(
-        "POST /zsei/query HTTP/1.1\r\nHost: {bare}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST /zsei/query HTTP/1.1\r\nHost: {bare}\r\nContent-Type: application/json\r\nx-ozone-trace: {trace}\r\nx-ozone-origin: {origin}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(), body
     );
     tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
@@ -1311,7 +1314,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["depth".into(), "point-cloud".into(), scene_type.to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1327,9 +1330,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             timestamp_sec: Some(sp.timestamp_sec),
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/ScanPos/{}", project_id, graph_id, sp.position_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["scan-position".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["scan-position".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: DepthEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         scan_pos_nids.push((sp.position_id, sid));
         node_id += 1;
@@ -1345,7 +1348,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             depth_m: Some(dm.mean_depth_m), timestamp_sec: Some(dm.timestamp_sec),
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/DepthMap/{}", project_id, graph_id, dm.map_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["depth-map".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["depth-map".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1419,7 +1422,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
                     if p_type == "Floor" || p_type == "Road" {
                         if let Some(p_centroid) = plane_node.centroid {
                             if *c_z > p_centroid[2] + 0.05 {
-                                edges.push(DepthGraphEdge { edge_id, from_node: cid, to_node: *plane_nid, edge_type: DepthEdgeType::SupportedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                                edges.push(DepthGraphEdge { edge_id, from_node: cid, to_node: *plane_nid, edge_type: DepthEdgeType::SupportedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                                 edge_id += 1;
                             }
                         }
@@ -1431,7 +1434,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
         // Cross-modal: cluster → 3D scene (109)
         edges.push(DepthGraphEdge {
             edge_id, from_node: cid, to_node: cid,
-            edge_type: DepthEdgeType::ContributesTo3DScene, weight: 0.9,
+            edge_type: DepthEdgeType::ContributesTo3DScene, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p },
             ..Default::default()
@@ -1453,10 +1456,10 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/Object/{}", project_id, graph_id, obj.object_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["object".into(), obj.class_label.to_lowercase()],
-            hotness_score: 0.75,
+            hotness_score: 0.0,
             ..Default::default()
         });
-        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: oid, edge_type: DepthEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: oid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Classified object → source cluster
@@ -1479,12 +1482,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             volume_m3: mesh.volume_m3,
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/Mesh/{}", project_id, graph_id, mesh.mesh_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["mesh".into(), "reconstruction".into()], hotness_score: 0.8, ..Default::default()
+            keywords: vec!["mesh".into(), "reconstruction".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Mesh → 3D (109) cross-modal
-        edges.push(DepthGraphEdge { edge_id, from_node: mid, to_node: mid, edge_type: DepthEdgeType::ContributesTo3DScene, weight: 0.95, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: mid, to_node: mid, edge_type: DepthEdgeType::ContributesTo3DScene, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1499,9 +1502,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             bounding_box: Some(occ.bounding_box.clone()),
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/Occlusion/{}", project_id, graph_id, occ.region_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["occlusion".into()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["occlusion".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: oid, edge_type: DepthEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: oid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         if let Some(occluder_id) = occ.occluder_cluster_id {
@@ -1527,7 +1530,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             hotness_score: 0.6 + (chg.magnitude_m / 2.0).min(0.3),
             ..Default::default()
         });
-        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: DepthEdgeType::DetectedChange, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: DepthEdgeType::DetectedChange, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1540,11 +1543,11 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             content: format!("GeoRef: coord={:?}", analysis.coordinate_system),
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/GeoRef", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["georeferenced".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["georeferenced".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: geo_ref_nid, edge_type: DepthEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: geo_ref_nid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
-        edges.push(DepthGraphEdge { edge_id, from_node: geo_ref_nid, to_node: geo_ref_nid, edge_type: DepthEdgeType::PlottedOnGeoMap, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
+        edges.push(DepthGraphEdge { edge_id, from_node: geo_ref_nid, to_node: geo_ref_nid, edge_type: DepthEdgeType::PlottedOnGeoMap, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1562,7 +1565,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(DepthGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(DepthGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -1648,7 +1651,7 @@ pub async fn execute(input: DepthModalityAction) -> Result<DepthModalityOutput, 
                         frame.frame_id, frame.width, frame.height, mean_depth, valid_pixels as f32 / (frame.width * frame.height).max(1) as f32 * 100.0),
                     depth_m: Some(mean_depth), timestamp_sec: Some(frame.timestamp_sec),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                    keywords: vec!["depth-frame".into()], hotness_score: 0.7, ..Default::default()
+                    keywords: vec!["depth-frame".into()], hotness_score: 0.0, ..Default::default()
                 });
                 graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 next_eid += 1; next_nid += 1;
@@ -1875,7 +1878,7 @@ pub async fn execute(input: DepthModalityAction) -> Result<DepthModalityOutput, 
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -1941,7 +1944,7 @@ pub async fn execute(input: DepthModalityAction) -> Result<DepthModalityOutput, 
                     }
                     DepthHeadlessOp::FuseWithDepth { other_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
-                        graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: graph.root_node_id, edge_type: DepthEdgeType::RegisteredTo, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("other_graph_id".into(), serde_json::json!(other_graph_id)); p }, ..Default::default() });
+                        graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: graph.root_node_id, edge_type: DepthEdgeType::RegisteredTo, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("other_graph_id".into(), serde_json::json!(other_graph_id)); p }, ..Default::default() });
                     }
                     DepthHeadlessOp::ExportMesh { format, path } => {
                         // In production: serialize mesh to path
@@ -1949,7 +1952,7 @@ pub async fn execute(input: DepthModalityAction) -> Result<DepthModalityOutput, 
                     DepthHeadlessOp::CrossRegisterWith3D { graph_id_3d } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| matches!(n.node_type, DepthNodeType::ReconstructedMeshNode)) {
-                            graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: DepthEdgeType::ContributesTo3DScene, weight: 0.95, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p }, ..Default::default() });
+                            graph.edges.push(DepthGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: DepthEdgeType::ContributesTo3DScene, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }

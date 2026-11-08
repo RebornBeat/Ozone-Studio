@@ -332,6 +332,8 @@ fn build_container(
                 topics: vec!["mcp".to_string()],
                 relationships: vec![],
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {

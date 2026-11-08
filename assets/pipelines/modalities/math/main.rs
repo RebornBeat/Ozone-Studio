@@ -65,7 +65,7 @@ fn shared_http_client() -> &'static reqwest::Client {
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
     let client = shared_http_client();
     let resp = client
-        .post(format!("{}/zsei/query", ozone_host()))
+        .post(format!("{}/zsei/query", ozone_host())).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&serde_json::json!({"query": query, "session_token": ""}))
         .send()
         .await
@@ -2454,7 +2454,7 @@ async fn parse_expression(
         range: None,
         properties: vec![],
         normalized: Some(expression.to_string()),
-        confidence: 0.3, // keyword heuristic only: no AST was built, the whole input is one Symbol node
+        confidence: 0.0, // keyword heuristic only: no AST was built, the whole input is one Symbol node
     })
 }
 
@@ -2512,7 +2512,7 @@ async fn analyze_proof(
             } else {
                 StepType::Deduction
             },
-            confidence: 0.85,
+            confidence: 0.0,
         };
         steps.push(step);
     }
@@ -3080,7 +3080,7 @@ async fn link_related_containers(container_id: u64, project_id: u64, own_keyword
         "SearchContainersByKeywords": {
             "keywords": search_terms,
             "container_type": Value::Null,
-            "strategy": Value::Null
+            "strategy": "token" // token-aware + ranked (2026-11-08): no substring flood, best match first
         }
     }))
     .await

@@ -1399,7 +1399,7 @@ impl PipelineExecutor {
             }
         });
         let client = reqwest::Client::new();
-        let resp = client.post(format!("{host}/zsei/query"))
+        let resp = client.post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
             .json(&serde_json::json!({"query": {"CreateContainer": {"parent_id": project_id, "container": container}}, "session_token": ""}))
             .timeout(std::time::Duration::from_secs(30))
             .send().await.map_err(|e| e.to_string())?;
@@ -1431,7 +1431,7 @@ impl PipelineExecutor {
     async fn add_cross_modal_relationship(&self, container_id: u64, target_id: u64) -> Result<(), String> {
         let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
         let client = reqwest::Client::new();
-        let resp = client.post(format!("{host}/zsei/query"))
+        let resp = client.post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
             .json(&serde_json::json!({"query": {"GetContainer": {"container_id": container_id}}, "session_token": ""}))
             .timeout(std::time::Duration::from_secs(30))
             .send().await.map_err(|e| e.to_string())?;
@@ -1470,7 +1470,7 @@ impl PipelineExecutor {
             "discovered_via": "Manual"
         }));
 
-        let update_resp = client.post(format!("{host}/zsei/query"))
+        let update_resp = client.post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
             .json(&serde_json::json!({"query": {"UpdateContainer": {"container_id": container_id, "updates": {"context": context}}}, "session_token": ""}))
             .timeout(std::time::Duration::from_secs(30))
             .send().await.map_err(|e| e.to_string())?;
@@ -1780,7 +1780,7 @@ async fn create_graph(
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["scene".into(), "3d".into(), scene_function.to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1804,7 +1804,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Collection/{}", project_id, graph_id, coll.collection_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["collection".into(), coll.name.to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(ThreeDGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1832,7 +1832,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Mesh/{}", project_id, graph_id, mesh.mesh_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["mesh".into(), mesh.name.to_lowercase()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         mesh_id_to_nid.insert(mesh.mesh_id, mid);
         node_id += 1;
@@ -1847,7 +1847,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Armature/{}", project_id, graph_id, arm.armature_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["armature".into(), "rig".into(), arm.name.to_lowercase()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         arm_id_to_nid.insert(arm.armature_id, aid);
         node_id += 1;
@@ -1863,7 +1863,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Bone/{}", project_id, graph_id, bone.bone_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["bone".into(), bone.name.to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         bone_id_to_nid.insert(bone.bone_id, bid);
         node_id += 1;
@@ -1899,7 +1899,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Constraint/{}", project_id, graph_id, constr.constraint_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["constraint".into(), format!("{:?}", constr.constraint_type).to_lowercase()],
-            hotness_score: 0.55, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // Owner bone → constraint
         if let Some(owner_bone_id) = constr.owner_bone_id {
@@ -1921,7 +1921,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Material/{}", project_id, graph_id, mat.material_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["material".into(), mat.name.to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         mat_id_to_nid.insert(mat.material_id, mid);
         node_id += 1;
@@ -1937,7 +1937,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Action/{}", project_id, graph_id, action.action_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["action".into(), "animation".into(), action.name.to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         action_id_to_nid.insert(action.action_id, aid);
         node_id += 1;
@@ -1957,7 +1957,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Object/{}", project_id, graph_id, obj.object_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: { let mut kw = vec!["object".into(), format!("{:?}", obj.object_type).to_lowercase(), obj.name.to_lowercase()]; kw },
-            hotness_score: 0.85, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         obj_id_to_nid.insert(obj.object_id, oid);
 
@@ -2023,7 +2023,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/RigidBody/{}", project_id, graph_id, rb.rb_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["rigid-body".into(), "physics".into()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         rb_id_to_nid.insert(rb.rb_id, rid);
         if let Some(&obj_nid) = obj_id_to_nid.get(&rb.object_id) {
@@ -2042,7 +2042,7 @@ async fn create_graph(
             physics_type: Some("SoftBody".into()), mass: Some(sb.total_mass),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/SoftBody/{}", project_id, graph_id, sb.sb_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["soft-body".into(), "physics".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["soft-body".into(), "physics".into()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&obj_nid) = obj_id_to_nid.get(&sb.object_id) {
             edges.push(ThreeDGraphEdge { edge_id, from_node: obj_nid, to_node: sid, edge_type: ThreeDEdgeType::HasSoftBody, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2060,7 +2060,7 @@ async fn create_graph(
             physics_type: Some("Cloth".into()),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Cloth/{}", project_id, graph_id, cloth.cloth_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["cloth".into(), "physics".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["cloth".into(), "physics".into()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&obj_nid) = obj_id_to_nid.get(&cloth.object_id) {
             edges.push(ThreeDGraphEdge { edge_id, from_node: obj_nid, to_node: cid, edge_type: ThreeDEdgeType::HasCloth, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2078,7 +2078,7 @@ async fn create_graph(
             physics_type: Some(format!("{:?}", fluid.fluid_type)),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Fluid/{}", project_id, graph_id, fluid.fluid_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["fluid".into(), "physics".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["fluid".into(), "physics".into()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&obj_nid) = obj_id_to_nid.get(&fluid.object_id) {
             edges.push(ThreeDGraphEdge { edge_id, from_node: obj_nid, to_node: fid, edge_type: ThreeDEdgeType::HasFluid, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2096,7 +2096,7 @@ async fn create_graph(
             physics_type: Some("Particles".into()),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Particles/{}", project_id, graph_id, ps.ps_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["particles".into(), format!("{:?}", ps.particle_type).to_lowercase()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["particles".into(), format!("{:?}", ps.particle_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         ps_id_to_nid.insert(ps.ps_id, pid);
         if let Some(&obj_nid) = obj_id_to_nid.get(&ps.object_id) {
@@ -2115,7 +2115,7 @@ async fn create_graph(
             physics_type: Some(format!("{:?}", ff.field_type)),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/ForceField/{}", project_id, graph_id, ff.ff_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["force-field".into()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["force-field".into()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&obj_nid) = obj_id_to_nid.get(&ff.object_id) {
             edges.push(ThreeDGraphEdge { edge_id, from_node: obj_nid, to_node: fid, edge_type: ThreeDEdgeType::InfluencedByForce, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2137,13 +2137,13 @@ async fn create_graph(
             content: format!("Camera {:?}: focal={:.1}mm fov={:.1}° active={}", cam.camera_type, cam.focal_length, cam.fov_horizontal.to_degrees(), cam.is_active),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Camera/{}", project_id, graph_id, cam.camera_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["camera".into(), format!("{:?}", cam.camera_type).to_lowercase()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["camera".into(), format!("{:?}", cam.camera_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&obj_nid) = obj_id_to_nid.get(&cam.object_id) {
             edges.push(ThreeDGraphEdge { edge_id, from_node: obj_nid, to_node: cid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
-        edges.push(ThreeDGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ThreeDEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThreeDGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -2155,7 +2155,7 @@ async fn create_graph(
             content: format!("Light {:?}: energy={:.1}W shadow={}", light.light_type, light.energy, light.cast_shadow),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Light/{}", project_id, graph_id, light.light_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["light".into(), format!("{:?}", light.light_type).to_lowercase()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["light".into(), format!("{:?}", light.light_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&obj_nid) = obj_id_to_nid.get(&light.object_id) {
             edges.push(ThreeDGraphEdge { edge_id, from_node: obj_nid, to_node: lid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2172,7 +2172,7 @@ async fn create_graph(
             content: format!("World: {} bg={}", world.name, world.background_type),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/World", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["world".into(), "environment".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["world".into(), "environment".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(ThreeDGraphEdge { edge_id, from_node: root_id, to_node: wid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -2187,9 +2187,9 @@ async fn create_graph(
             frame_range: Some((strip.frame_start as f32, strip.frame_end as f32)),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/VSE/{}", project_id, graph_id, strip.strip_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-            keywords: vec!["vse".into(), format!("{:?}", strip.strip_type).to_lowercase()], hotness_score: 0.5, ..Default::default()
+            keywords: vec!["vse".into(), format!("{:?}", strip.strip_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ThreeDGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: ThreeDEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThreeDGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -2218,7 +2218,7 @@ async fn create_graph(
     for (from, to, etype, reason) in inferred {
         if valid_ids.contains(&from) && valid_ids.contains(&to) && from != to {
             edges.push(ThreeDGraphEdge {
-                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                 ..Default::default()
@@ -2255,7 +2255,7 @@ async fn create_graph(
                                 properties.insert(k.clone(), v.clone());
                             }
                         }
-                        edges.push(ThreeDGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::ComputedFromGeometry, version: 1, properties, ..Default::default() });
+                        edges.push(ThreeDGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::ComputedFromGeometry, version: 1, properties, ..Default::default() });
                         edge_id += 1;
                     }
                 }
@@ -2397,7 +2397,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                             content: format!("Object: {} [{:?}]", object.name, object.object_type),
                             transform: Some(object.transform.clone()), location: Some(object.location),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["object".into(), object.name.to_lowercase()], hotness_score: 0.8, ..Default::default()
+                            keywords: vec!["object".into(), object.name.to_lowercase()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: nid, edge_type: ThreeDEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; update_count += 1;
@@ -2521,7 +2521,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                             properties.insert(k.clone(), v.clone());
                         }
                     }
-                    graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::ComputedFromGeometry, version: 1, properties, ..Default::default() });
+                    graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::ComputedFromGeometry, version: 1, properties, ..Default::default() });
                     next_eid += 1;
                     added += 1;
                 }
@@ -2576,7 +2576,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                 physics_type: Some(format!("{:?}", domain)),
                 materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/PhysicsCache/{}", graph.project_id, graph_id, phys_cache_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["physics".into(), "cache".into(), format!("{:?}", domain).to_lowercase()], hotness_score: 0.75, ..Default::default()
+                keywords: vec!["physics".into(), "cache".into(), format!("{:?}", domain).to_lowercase()], hotness_score: 0.0, ..Default::default()
             });
             let root_id = graph.root_node_id;
             let next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
@@ -2652,7 +2652,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                 content: format!("CrossModal→{} graph={} link={:?}", target_modality, target_graph_id, link_type),
                 materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/CrossModal/{}", graph.project_id, graph_id, target_graph_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.7, ..Default::default()
+                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.0, ..Default::default()
             });
             let etype = match link_type {
                 CrossModalLinkType::DescribedByText        => ThreeDEdgeType::DescribedByText,
@@ -2668,7 +2668,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                 CrossModalLinkType::HapticContact          => ThreeDEdgeType::HapticContact,
                 CrossModalLinkType::VisualizedAsImage      => ThreeDEdgeType::VisualizedAsImage,
             };
-            graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
+            graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
             graph.state = GraphStateType::CrossLinked;
             graph.version += 1; graph.updated_at = now.clone();
             graph.version_notes.push(VersionNote { version: graph.version, note: format!("Linked to {} (graph {})", target_modality, target_graph_id), step_index: None, timestamp: now, change_type: ChangeType::CrossLinked });
@@ -2695,7 +2695,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                 content: format!("FusedPointCloud from {}: {} points", source_modality, point_cloud_data.len()),
                 materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/FusedPCL/{}", graph.project_id, graph_id, pc_nid)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["point-cloud".into(), source_modality.to_lowercase()], hotness_score: 0.75, ..Default::default()
+                keywords: vec!["point-cloud".into(), source_modality.to_lowercase()], hotness_score: 0.0, ..Default::default()
             });
             let etype = match source_modality.as_str() {
                 "radar"   => ThreeDEdgeType::FusedFromRadar,
@@ -2703,7 +2703,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                 "depth"   => ThreeDEdgeType::FusedFromDepth,
                 _         => ThreeDEdgeType::FusedFromDepth,
             };
-            graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: pc_nid, edge_type: etype, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, ..Default::default() });
+            graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: pc_nid, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, ..Default::default() });
             graph.version += 1; graph.updated_at = now.clone();
             executor.save_graph(&graph)?;
             Ok(ThreeDModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
@@ -2723,7 +2723,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -2761,7 +2761,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for (from, to, etype) in spatial {
                             if valid.contains(&from) && valid.contains(&to) && from != to {
-                                graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype.clone(), weight: 0.7, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                                graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype.clone(), weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                                 next_eid += 1;
                                 // LIVE NODE EVENT (2026-10-18, additive, first real
                                 // producer — see orchestration_events::OrchestrationNodeEvent's
@@ -2798,7 +2798,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                     ThreeDHeadlessOp::CrossFuseRadar { radar_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         let root_id = graph.root_node_id;
-                        graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: root_id, to_node: root_id, edge_type: ThreeDEdgeType::FusedFromRadar, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("radar_graph_id".into(), serde_json::json!(radar_graph_id)); p }, ..Default::default() });
+                        graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: root_id, to_node: root_id, edge_type: ThreeDEdgeType::FusedFromRadar, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("radar_graph_id".into(), serde_json::json!(radar_graph_id)); p }, ..Default::default() });
                     }
                     ThreeDHeadlessOp::SolveIK { armature_node_id, target_positions } => {
                         // In production: run IK solver and update bone pose matrices

@@ -55,7 +55,7 @@ fn shared_http_client() -> &'static reqwest::Client {
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
     let client = shared_http_client();
     let resp = client
-        .post(format!("{}/zsei/query", ozone_host()))
+        .post(format!("{}/zsei/query", ozone_host())).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&serde_json::json!({"query": query, "session_token": ""}))
         .send()
         .await
@@ -258,7 +258,7 @@ async fn link_related_containers(container_id: u64, project_id: u64, own_keyword
         "SearchContainersByKeywords": {
             "keywords": search_terms,
             "container_type": Value::Null,
-            "strategy": Value::Null
+            "strategy": "token" // token-aware + ranked (2026-11-08): no substring flood, best match first
         }
     }))
     .await
@@ -352,15 +352,41 @@ async fn link_related_containers(container_id: u64, project_id: u64, own_keyword
     }
 
     let mut fetch_failures = 0usize;
+    // FETCH PHASE CONCURRENCY (2026-11-08; walk 1155 Stage 4 spent 16 min in sequential one-at-a-time candidate fetches with ~no model
+    // calls): the candidates to fetch are fixed up front (de-duplicated, in the original order) and fetched in ORDER-PRESERVING waves of
+    // up to LINK_FETCH_CONCURRENCY simultaneous host calls (host protection, not a cap — every candidate is still fetched). Fetches are
+    // independent reads; the scoring below runs sequentially over the results in the original order, so `scored` is identical to the
+    // sequential loop. The WRITE phase further down is deliberately NOT parallelised: it read-modify-writes the new graph's own
+    // relationships on every iteration (concurrency there would lose edges).
+    const LINK_FETCH_CONCURRENCY: usize = 16;
+    let mut todo: Vec<(u64, Option<u32>)> = Vec::new();
     for (candidate_id, hops) in ordered {
         if candidate_id == container_id || !seen.insert(candidate_id) {
             continue;
         }
-        let candidate = match zsei_query(serde_json::json!({
-            "GetContainer": { "container_id": candidate_id }
-        }))
-        .await
-        {
+        todo.push((candidate_id, hops));
+    }
+    // (each wave is scored as soon as it arrives — fetched containers are not all held in memory at once)
+    for wave in todo.chunks(LINK_FETCH_CONCURRENCY) {
+        let mut fetched: Vec<(u64, Option<u32>, Result<serde_json::Value, String>)> = Vec::with_capacity(wave.len());
+        let mut set: tokio::task::JoinSet<(usize, Result<serde_json::Value, String>)> = tokio::task::JoinSet::new();
+        for (k, (cid, _)) in wave.iter().enumerate() {
+            let cid = *cid;
+            set.spawn(async move {
+                (k, zsei_query(serde_json::json!({ "GetContainer": { "container_id": cid } })).await)
+            });
+        }
+        let mut got: Vec<Option<Result<serde_json::Value, String>>> = (0..wave.len()).map(|_| None).collect();
+        while let Some(done) = set.join_next().await {
+            if let Ok((k, r)) = done {
+                got[k] = Some(r);
+            }
+        }
+        for (k, (cid, hops)) in wave.iter().enumerate() {
+            fetched.push((*cid, *hops, got[k].take().unwrap_or_else(|| Err("fetch task failed".to_string()))));
+        }
+    for (candidate_id, hops, fetch_result) in fetched {
+        let candidate = match fetch_result {
             Ok(v) => v,
             Err(_) => {
                 fetch_failures += 1;
@@ -398,6 +424,7 @@ async fn link_related_containers(container_id: u64, project_id: u64, own_keyword
         }
 
         scored.push((candidate_id, container_json, candidate_context, shared_count, hops));
+    }
     }
 
     // Most graph-adjacent first, then strongest overlap.
@@ -547,6 +574,9 @@ async fn link_related_containers(container_id: u64, project_id: u64, own_keyword
         "write_failures": write_failures,
         "duration_ms": started.elapsed().as_millis() as u64,
     });
+    // PERSIST the counts (2026-11-08): the metrics only rode the pipeline's return value, so a slow Stage 4 could not be explained
+    // afterwards. One line on stderr lands in host.log (the host tees pipeline stderr, and host.log is persistent).
+    eprintln!("link_related_containers: metrics {}", metrics);
     (wired, metrics)
 }
 
@@ -4315,6 +4345,7 @@ Return ONLY a valid JSON array:
         let prompt = format!(
             r#"Extract all important keywords and key phrases from this text.
 Return as a JSON array of strings. Focus on: topics, concepts, named entities, technical terms.
+Each keyword is a single word or a short phrase of AT MOST 3 words that appears in, or is directly implied by, the text. NEVER return the whole text or a whole sentence as a keyword, and do not return pronouns or filler words.
 
 TEXT:
 {}
@@ -4341,7 +4372,20 @@ RESPOND ONLY WITH JSON ARRAY: ["keyword1", "keyword2", ...]"#,
         if response.trim().is_empty() {
             return Err("empty response".to_string());
         }
-        Self::parse_json_array(response).ok_or_else(|| "invalid JSON array".to_string())
+        let parsed = Self::parse_json_array(response).ok_or_else(|| "invalid JSON array".to_string())?;
+        // SHAPE VALIDATION (2026-11-08; the extraction output used to be stored unchecked — `["you", "<the whole sentence>"]` happened live and
+        // 17 stored containers carry `you` as a keyword). Whole sentences and empty items are never keywords; if NOTHING usable is left the
+        // attempt FAILS so the retry / fallback chain asks again instead of storing garbage. No word list is involved (shape only); filler
+        // words that pass the shape check are judged later by the keyword settlement pass (unanimous strength-N drop).
+        let usable: Vec<String> = parsed
+            .into_iter()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty() && !keyword_model::is_sentence_like(k))
+            .collect();
+        if usable.is_empty() {
+            return Err("no usable keyword shapes (every item was empty or a whole sentence)".to_string());
+        }
+        Ok(usable)
     }
 
     async fn extract_keywords_from_text(&self, text: &str) -> Vec<String> {
@@ -8210,6 +8254,11 @@ mod k_validation;
 /// K-ALGORITHM loop-discipline contracts (shared — single source).
 #[path = "../../../../shared/contracts/k_loops.rs"]
 mod k_loops;
+
+/// Keyword model core (shared — single source): term SHAPE rules (markers, sentence-like items) — no word lists.
+#[path = "../../../../shared/contracts/keyword_model.rs"]
+#[allow(dead_code)]
+mod keyword_model;
 
 /// Pipeline-side model-call capture (C6-minimal, shared — single source).
 /// Every llm_execute attempt lands in

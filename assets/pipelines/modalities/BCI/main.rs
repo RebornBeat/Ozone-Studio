@@ -1344,7 +1344,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["bci".into(), "neural".into(), "decode".into()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1361,7 +1361,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Calibration", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["decoder".into(), "calibration".into(), format!("{:?}", cal.decoder_type).to_lowercase()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1411,7 +1411,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             });
         }
         sig_node_ids.insert(sig.signal_id, sid);
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: BCIEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1459,7 +1459,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             firing_rate_hz: Some(train.firing_rate_hz),
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/SpikeTrain/{}", project_id, graph_id, train.train_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["spike-train".into()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["spike-train".into()], hotness_score: 0.0, ..Default::default()
         });
         // Train → unit
         if let Some(&unit_nid) = unit_node_ids.get(&train.unit_id) {
@@ -1480,9 +1480,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             channel_id: Some(lfp.channel_id.clone()),
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/LFP/{}", project_id, graph_id, lfp.band_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["lfp".into(), lfp.band_name.to_lowercase()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["lfp".into(), lfp.band_name.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: BCIEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1497,13 +1497,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             decoded_class: epoch.decoded_label.clone(),
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/MI/{}", project_id, graph_id, epoch.epoch_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["motor-imagery".into(), epoch.cue_label.to_lowercase()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["motor-imagery".into(), epoch.cue_label.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         mi_epoch_node_ids.insert(epoch.epoch_id, eid);
         edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(ref calib_id) = calib_nid {
-            edges.push(BCIGraphEdge { edge_id, from_node: *calib_id, to_node: eid, edge_type: BCIEdgeType::CalibratedWith, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(BCIGraphEdge { edge_id, from_node: *calib_id, to_node: eid, edge_type: BCIEdgeType::CalibratedWith, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1521,10 +1521,10 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             timestamp_sec: Some(dec.timestamp_sec),
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Decoded/{}", project_id, graph_id, dec.output_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["decoded".into(), dec.decoded_class.to_lowercase()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["decoded".into(), dec.decoded_class.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         decoded_node_ids.insert(dec.output_id, did);
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: BCIEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Decoded from epoch
         if let Some(&epoch_nid) = mi_epoch_node_ids.get(&dec.epoch_id) {
@@ -1544,9 +1544,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             amplitude_uv: Some(p3.p300_amplitude_uv), timestamp_sec: None,
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/P300/{}", project_id, graph_id, p3.response_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["p300".into(), "erp".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["p300".into(), "erp".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: BCIEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(&epoch_nid) = mi_epoch_node_ids.get(&p3.epoch_id) {
             edges.push(BCIGraphEdge { edge_id, from_node: pid, to_node: epoch_nid, edge_type: BCIEdgeType::P300DetectedIn, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1564,9 +1564,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
                 sv.stimulus_freq_hz, sv.response_freq_hz, sv.snr_ratio, sv.detected),
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/SSVEP/{}", project_id, graph_id, sv.response_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["ssvep".into(), format!("{:.0}hz", sv.stimulus_freq_hz)], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["ssvep".into(), format!("{:.0}hz", sv.stimulus_freq_hz)], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: BCIEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1584,10 +1584,10 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Cog/{}", project_id, graph_id, cog.estimate_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["cognitive-state".into(), if cog.flow_state { "flow".into() } else { "non-flow".into() }],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         cog_node_ids.push(cid);
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: BCIEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1605,7 +1605,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Command/{}", project_id, graph_id, cmd.command_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["bci-command".into(), cmd.target_modality.clone(), format!("{:?}", cmd.command_type).to_lowercase()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         cmd_node_ids.insert(cmd.command_id, cid);
         edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1628,7 +1628,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
         };
         edges.push(BCIGraphEdge {
             edge_id, from_node: cid, to_node: cid,
-            edge_type: cross_edge_type, weight: 0.95,
+            edge_type: cross_edge_type, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!(&cmd.target_modality)); p.insert("command_values".into(), serde_json::json!(&cmd.command_values)); p },
             ..Default::default()
@@ -1646,9 +1646,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             timestamp_sec: Some(fb.timestamp_sec),
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Feedback/{}", project_id, graph_id, fb.event_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["feedback".into(), format!("{:?}", fb.feedback_type).to_lowercase()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["feedback".into(), format!("{:?}", fb.feedback_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: BCIEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(BCIGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(cmd_id) = fb.response_command_id {
             if let Some(&cmd_nid) = cmd_node_ids.get(&cmd_id) {
@@ -1691,7 +1691,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(BCIGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(BCIGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -1731,7 +1731,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1871,7 +1871,7 @@ pub async fn execute(input: BCIModalityAction) -> Result<BCIModalityOutput, Stri
                         timestamp_sec: Some(cmd.timestamp_sec),
                         command_type: Some(format!("{:?}", cmd.command_type)),
                         provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                        keywords: vec!["bci-command".into(), "updated".into()], hotness_score: 0.8, ..Default::default()
+                        keywords: vec!["bci-command".into(), "updated".into()], hotness_score: 0.0, ..Default::default()
                     });
                     graph.edges.push(BCIGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: BCIEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                     next_eid += 1; next_nid += 1;
@@ -2251,7 +2251,7 @@ pub async fn execute(input: BCIModalityAction) -> Result<BCIModalityOutput, Stri
                 mental_workload: decoded_state.mental_workload,
                 attention_level: decoded_state.attention_level,
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["closed-loop".into(), "decoded".into()], hotness_score: 0.85, ..Default::default()
+                keywords: vec!["closed-loop".into(), "decoded".into()], hotness_score: 0.0, ..Default::default()
             });
             graph.edges.push(BCIGraphEdge {
                 edge_id: next_eid, from_node: graph.root_node_id, to_node: state_nid,
@@ -2564,7 +2564,7 @@ pub async fn execute(input: BCIModalityAction) -> Result<BCIModalityOutput, Stri
                         if valid.contains(&from) && valid.contains(&to) && from != to {
                             graph.edges.push(BCIGraphEdge {
                                 edge_id: next_eid, from_node: from, to_node: to,
-                                edge_type: etype, weight: 0.8,
+                                edge_type: etype, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                                 ..Default::default()
@@ -2670,7 +2670,7 @@ pub async fn execute(input: BCIModalityAction) -> Result<BCIModalityOutput, Stri
                                 edge_id: next_eid,
                                 from_node: cmd_nid, to_node: cmd_nid,
                                 edge_type: BCIEdgeType::CommandsKinematicJoint,
-                                weight: 0.9,
+                                weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromCrossModal,
                                 version: 1,
                                 properties: {
@@ -2695,7 +2695,7 @@ pub async fn execute(input: BCIModalityAction) -> Result<BCIModalityOutput, Stri
                                 edge_id: next_eid,
                                 from_node: cmd_nid, to_node: cmd_nid,
                                 edge_type: BCIEdgeType::FeedsControlSystem,
-                                weight: 0.9,
+                                weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromCrossModal,
                                 version: 1,
                                 properties: {

@@ -1516,7 +1516,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1609,7 +1609,7 @@ async fn create_graph(
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["proteomics".into(), "proteome".into(), analysis.organism.as_deref().unwrap_or("").to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1700,7 +1700,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Structure/{}", project_id, graph_id, struc.structure_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["structure".into(), format!("{:?}", struc.structure_method).to_lowercase()]; if let Some(ref p) = struc.pdb_id { kw.push(p.to_lowercase()); } kw },
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         struct_nid.insert(struc.structure_id, sid);
         if let Some(&prot_n) = prot_nid.get(&struc.protein_id) {
@@ -1722,7 +1722,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Domain/{}", project_id, graph_id, dom.domain_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["domain".into(), dom.domain_name.to_lowercase()]; if let Some(ref p) = dom.pfam_id { kw.push(p.to_lowercase()); } kw },
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         domain_nid.insert(dom.domain_id, did);
         if let Some(&prot_n) = prot_nid.get(&dom.protein_id) {
@@ -1743,7 +1743,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/ActiveSite/{}", project_id, graph_id, site.site_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["active-site".into(), "catalytic".into()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         if let Some(&prot_n) = prot_nid.get(&site.protein_id) {
             edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: sid, edge_type: ProteomicsEdgeType::HasActiveSite, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1763,7 +1763,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/BindingSite/{}", project_id, graph_id, site.site_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["binding-site".into(), format!("{:?}", site.site_type).to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         binding_nid.insert(site.site_id, sid);
         if let Some(&prot_n) = prot_nid.get(&site.protein_id) {
@@ -1787,7 +1787,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/PTM/{}", project_id, graph_id, ptm.ptm_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["ptm".into(), format!("{:?}", ptm.modification_type).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         ptm_nid.insert(ptm.ptm_id, pid);
         if let Some(&prot_n) = prot_nid.get(&ptm.protein_id) {
@@ -1872,10 +1872,10 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Complex/{}", project_id, graph_id, cx.complex_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["complex".into(), cx.name.to_lowercase()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         complex_nid.insert(cx.complex_id, cid);
-        edges.push(ProteomicsGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ProteomicsEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ProteomicsGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ProteomicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         for &sub_prot_id in &cx.subunit_ids {
             if let Some(&sub_nid) = prot_nid.get(&sub_prot_id) {
@@ -1898,7 +1898,7 @@ async fn create_graph(
                 materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/GO/{}", project_id, graph_id, ann.go_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
                 keywords: vec!["go-term".into(), format!("{:?}", ann.namespace).to_lowercase(), ann.go_name.to_lowercase()],
-                hotness_score: 0.55, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             go_nid.insert(ann.go_id.clone(), new_nid);
             node_id += 1;
@@ -1908,7 +1908,7 @@ async fn create_graph(
         if let Some(&prot_n) = prot_nid.get(&ann.protein_id) {
             edges.push(ProteomicsGraphEdge {
                 edge_id, from_node: prot_n, to_node: gid,
-                edge_type: ProteomicsEdgeType::AnnotatedWith, weight: 0.9,
+                edge_type: ProteomicsEdgeType::AnnotatedWith, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("evidence".into(), serde_json::json!(&ann.evidence_code)); p },
                 ..Default::default()
@@ -1929,7 +1929,7 @@ async fn create_graph(
                 materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Pathway/{}", project_id, graph_id, path.pathway_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
                 keywords: vec!["pathway".into(), format!("{:?}", path.database).to_lowercase(), path.pathway_name.to_lowercase()],
-                hotness_score: 0.6, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             pathway_nid.insert(path.pathway_id.clone(), new_nid);
             node_id += 1;
@@ -1939,7 +1939,7 @@ async fn create_graph(
         if let Some(&prot_n) = prot_nid.get(&path.protein_id) {
             edges.push(ProteomicsGraphEdge {
                 edge_id, from_node: prot_n, to_node: pw_nid_val,
-                edge_type: ProteomicsEdgeType::ParticipatesIn, weight: 0.85,
+                edge_type: ProteomicsEdgeType::ParticipatesIn, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                 properties: { let mut p = HashMap::new(); if let Some(ref role) = path.role_in_pathway { p.insert("role".into(), serde_json::json!(role)); } p },
                 ..Default::default()
@@ -1949,7 +1949,7 @@ async fn create_graph(
             // Cross-modal: pathway → biology graph (111)
             edges.push(ProteomicsGraphEdge {
                 edge_id, from_node: pw_nid_val, to_node: pw_nid_val,
-                edge_type: ProteomicsEdgeType::InBiologyPathway, weight: 0.8,
+                edge_type: ProteomicsEdgeType::InBiologyPathway, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("biology")); p },
                 ..Default::default()
@@ -1970,7 +1970,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Enzyme/{}", project_id, graph_id, enz.activity_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["enzyme".into(), enz.ec_number.clone()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         enzyme_nid.insert(enz.activity_id, eid);
         if let Some(&prot_n) = prot_nid.get(&enz.protein_id) {
@@ -1980,7 +1980,7 @@ async fn create_graph(
             // Cross-modal: enzyme mechanism → chemistry (106)
             edges.push(ProteomicsGraphEdge {
                 edge_id, from_node: eid, to_node: eid,
-                edge_type: ProteomicsEdgeType::MechanismInChemistry, weight: 0.85,
+                edge_type: ProteomicsEdgeType::MechanismInChemistry, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("chemistry")); p.insert("ec_number".into(), serde_json::json!(&enz.ec_number)); p },
                 ..Default::default()
@@ -2002,12 +2002,12 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Expression/{}", project_id, graph_id, expr.expression_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["expression".into(), expr.condition.to_lowercase()],
-            hotness_score: 0.5, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         if let Some(&prot_n) = prot_nid.get(&expr.protein_id) {
             edges.push(ProteomicsGraphEdge {
                 edge_id, from_node: prot_n, to_node: eid,
-                edge_type: ProteomicsEdgeType::ExpressedIn, weight: 0.8,
+                edge_type: ProteomicsEdgeType::ExpressedIn, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                 properties: { let mut p = HashMap::new(); if let Some(ref t) = expr.tissue { p.insert("tissue".into(), serde_json::json!(t)); } p.insert("condition".into(), serde_json::json!(&expr.condition)); p },
                 ..Default::default()
@@ -2033,7 +2033,7 @@ async fn create_graph(
             ..Default::default()
         });
         if let Some(&prot_n) = prot_nid.get(&de.protein_id) {
-            edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: deid, edge_type: ProteomicsEdgeType::DifferentiallyExpressed, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: deid, edge_type: ProteomicsEdgeType::DifferentiallyExpressed, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -2051,14 +2051,14 @@ async fn create_graph(
                 materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Location/{}", project_id, graph_id, new_nid)),
                 provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
                 keywords: vec!["subcellular".into(), loc.location.to_lowercase()],
-                hotness_score: 0.5, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             loc_nid_map.insert(loc.location.clone(), new_nid);
             node_id += 1;
             new_nid
         });
         if let Some(&prot_n) = prot_nid.get(&loc.protein_id) {
-            edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: lnid, edge_type: ProteomicsEdgeType::LocalizedTo, weight: 0.85, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: lnid, edge_type: ProteomicsEdgeType::LocalizedTo, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -2075,10 +2075,10 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/MSId/{}", project_id, graph_id, ms_id.identification_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["mass-spec".into(), "identification".into(), ms_id.accession.to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         if let Some(&prot_n) = prot_nid.get(&ms_id.protein_id) {
-            edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: mid, edge_type: ProteomicsEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(ProteomicsGraphEdge { edge_id, from_node: prot_n, to_node: mid, edge_type: ProteomicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -2088,7 +2088,7 @@ async fn create_graph(
     for (&prot_data_id, &prot_n) in &prot_nid {
         edges.push(ProteomicsGraphEdge {
             edge_id, from_node: prot_n, to_node: prot_n,
-            edge_type: ProteomicsEdgeType::CodingSequenceIn, weight: 0.9,
+            edge_type: ProteomicsEdgeType::CodingSequenceIn, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("dna")); p },
             ..Default::default()
@@ -2110,7 +2110,7 @@ async fn create_graph(
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(ProteomicsGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(ProteomicsGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -2195,9 +2195,9 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
                             content: format!("PTM {:?}: pos={}{}", ptm.modification_type, ptm.amino_acid, ptm.residue_position),
                             residue_position: Some(ptm.residue_position),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["ptm".into()], hotness_score: 0.65, ..Default::default()
+                            keywords: vec!["ptm".into()], hotness_score: 0.0, ..Default::default()
                         });
-                        graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ProteomicsEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ProteomicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     ProteomicsUpdate::AddInteraction { interaction } => {
@@ -2207,7 +2207,7 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                             keywords: vec!["ppi".into()], hotness_score: 0.6 + interaction.combined_score * 0.3, ..Default::default()
                         });
-                        graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ProteomicsEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ProteomicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     _ => { next_nid += 0; } // other updates handled similarly
@@ -2435,7 +2435,7 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -2488,14 +2488,14 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
                     ProteomicsOperation::CrossLinkToDNA { dna_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| matches!(n.node_type, ProteomicsNodeType::ProteinNode)) {
-                            graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: ProteomicsEdgeType::CodingSequenceIn, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("dna_graph_id".into(), serde_json::json!(dna_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: ProteomicsEdgeType::CodingSequenceIn, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("dna_graph_id".into(), serde_json::json!(dna_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
                     ProteomicsOperation::CrossLinkToChemistry { chem_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| matches!(n.node_type, ProteomicsNodeType::EnzymeNode)) {
-                            graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: ProteomicsEdgeType::MechanismInChemistry, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("chem_graph_id".into(), serde_json::json!(chem_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: ProteomicsEdgeType::MechanismInChemistry, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("chem_graph_id".into(), serde_json::json!(chem_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }

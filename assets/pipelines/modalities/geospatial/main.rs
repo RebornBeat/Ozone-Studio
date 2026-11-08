@@ -1272,7 +1272,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1364,7 +1364,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["geospatial".into(), "map".into(), analysis.crs.clone()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1449,7 +1449,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
         for pt in r.geometry.points.iter().step_by(r.geometry.points.len().max(1) / 3 + 1) {
             for (reg_data, &(_, reg_nid)) in analysis.regions.iter().zip(region_node_ids.iter()) {
                 if point_in_polygon(pt, &reg_data.polygon.exterior) {
-                    edges.push(GeoGraphEdge { edge_id, from_node: rn_id, to_node: reg_nid, edge_type: GeoEdgeType::RoutesThrough, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                    edges.push(GeoGraphEdge { edge_id, from_node: rn_id, to_node: reg_nid, edge_type: GeoEdgeType::RoutesThrough, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                     edge_id += 1;
                     break;
                 }
@@ -1474,7 +1474,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Location/{}", project_id, graph_id, loc.location_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["location".into(), format!("{:?}", loc.location_type).to_lowercase()]; if let Some(ref n) = loc.name { kw.push(n.to_lowercase()); } kw },
-            hotness_score: 0.7,
+            hotness_score: 0.0,
             embedding_hint: Some(format!("location: {} type: {:?} at ({:.4},{:.4})", loc.name.as_deref().unwrap_or("unknown"), loc.location_type, loc.point.lat, loc.point.lon)),
             timestamp: loc.timestamp,
             ..Default::default()
@@ -1507,10 +1507,10 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/POI/{}", project_id, graph_id, poi.poi_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["poi".into(), poi.poi_type.to_lowercase(), poi.name.to_lowercase()],
-            hotness_score: 0.65,
+            hotness_score: 0.0,
             ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: GeoEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
@@ -1541,7 +1541,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
         // POI inside which region
         for (reg_data, &(_, reg_nid)) in analysis.regions.iter().zip(region_node_ids.iter()) {
             if point_in_polygon(&poi.point, &reg_data.polygon.exterior) {
-                edges.push(GeoGraphEdge { edge_id, from_node: reg_nid, to_node: pid, edge_type: GeoEdgeType::ContainsPOI, weight: 0.9, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                edges.push(GeoGraphEdge { edge_id, from_node: reg_nid, to_node: pid, edge_type: GeoEdgeType::ContainsPOI, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                 edge_id += 1;
                 break;
             }
@@ -1567,10 +1567,10 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
                 if let Some(ref et) = traj.entity_type { kw.push(et.to_lowercase()); }
                 kw
             },
-            hotness_score: 0.75,
+            hotness_score: 0.0,
             ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: GeoEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Trajectory through regions
@@ -1578,7 +1578,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
         for tp in &sample_points {
             for (reg_data, &(_, reg_nid)) in analysis.regions.iter().zip(region_node_ids.iter()) {
                 if point_in_polygon(&tp.point, &reg_data.polygon.exterior) {
-                    edges.push(GeoGraphEdge { edge_id, from_node: tid, to_node: reg_nid, edge_type: GeoEdgeType::TrajectoryPassesThrough, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                    edges.push(GeoGraphEdge { edge_id, from_node: tid, to_node: reg_nid, edge_type: GeoEdgeType::TrajectoryPassesThrough, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                     edge_id += 1;
                     break;
                 }
@@ -1599,7 +1599,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Terrain/{}", project_id, graph_id, terrain.model_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["terrain".into(), format!("{:?}", terrain.model_type).to_lowercase()],
-            hotness_score: 0.8,
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: tmid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1607,12 +1607,12 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
 
         // Routes affected by terrain
         for &(_, route_nid) in &route_node_ids {
-            edges.push(GeoGraphEdge { edge_id, from_node: tmid, to_node: route_nid, edge_type: GeoEdgeType::ElevationAffects, weight: 0.6, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+            edges.push(GeoGraphEdge { edge_id, from_node: tmid, to_node: route_nid, edge_type: GeoEdgeType::ElevationAffects, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
             edge_id += 1;
         }
 
         // Terrain cross-modal: → Depth (115) DSM/DTM
-        edges.push(GeoGraphEdge { edge_id, from_node: tmid, to_node: tmid, edge_type: GeoEdgeType::AnchorDepthCloud, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("depth")); p }, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: tmid, to_node: tmid, edge_type: GeoEdgeType::AnchorDepthCloud, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("depth")); p }, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1628,9 +1628,9 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Coverage/{}", project_id, graph_id, cov.coverage_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["coverage".into(), cov.mode.to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: GeoEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1645,15 +1645,15 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             area_km2: Some(vs.visible_area_km2 as f64),
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Viewshed/{}", project_id, graph_id, vs.viewshed_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["viewshed".into(), "visibility".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["viewshed".into(), "visibility".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: vid, edge_type: GeoEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: vid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Locations visible from this viewshed
         for (loc_data, &(_, loc_nid)) in analysis.locations.iter().zip(location_node_ids.iter()) {
             if point_in_polygon(&loc_data.point, &vs.polygon.exterior) {
-                edges.push(GeoGraphEdge { edge_id, from_node: vid, to_node: loc_nid, edge_type: GeoEdgeType::VisibleFrom, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                edges.push(GeoGraphEdge { edge_id, from_node: vid, to_node: loc_nid, edge_type: GeoEdgeType::VisibleFrom, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }
@@ -1674,7 +1674,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             hotness_score: 0.5 + match fz.risk_level { RiskLevel::VeryHigh => 0.4, RiskLevel::High => 0.3, RiskLevel::Moderate => 0.2, _ => 0.0 },
             ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: GeoEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Locations within flood zone
@@ -1698,9 +1698,9 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Change/{}", project_id, graph_id, chg.change_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["change".into(), format!("{:?}", chg.change_type).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: GeoEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1716,13 +1716,13 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Place/{}", project_id, graph_id, place.place_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["geocoded".into(), place.place_type.to_lowercase()],
-            hotness_score: 0.6,
+            hotness_score: 0.0,
             ..Default::default()
         });
-        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: GeoEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Cross-modal: geocoded from text (100)
-        edges.push(GeoGraphEdge { edge_id, from_node: pid, to_node: pid, edge_type: GeoEdgeType::DescribedByText, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("text")); p.insert("query".into(), serde_json::json!(&place.query)); p }, ..Default::default() });
+        edges.push(GeoGraphEdge { edge_id, from_node: pid, to_node: pid, edge_type: GeoEdgeType::DescribedByText, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("text")); p.insert("query".into(), serde_json::json!(&place.query)); p }, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1739,7 +1739,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(GeoGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(GeoGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -1833,7 +1833,7 @@ pub async fn execute(input: GeoModalityAction) -> Result<GeoModalityOutput, Stri
                             content: format!("Added {}: {}", feature.feature_type, feature.feature_id),
                             point: feature.point.clone(), provisional: false,
                             provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec![feature.feature_type.to_lowercase()], hotness_score: 0.7,
+                            keywords: vec![feature.feature_type.to_lowercase()], hotness_score: 0.0,
                             ..Default::default()
                         });
                         graph.edges.push(GeoGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2219,7 +2219,7 @@ Return ONLY valid JSON:
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(GeoGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(GeoGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -2288,11 +2288,11 @@ Return ONLY valid JSON:
                             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Overlay/{}", graph.project_id, graph.graph_id, other_graph_id)),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                             keywords: vec!["overlay".into(), format!("{:?}", operation).to_lowercase()],
-                            hotness_score: 0.7, ..Default::default()
+                            hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(GeoGraphEdge {
                             edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid,
-                            edge_type: GeoEdgeType::Contains, weight: 0.8,
+                            edge_type: GeoEdgeType::Contains, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                             properties: {
                                 let mut p = HashMap::new();
@@ -2319,7 +2319,7 @@ Return ONLY valid JSON:
                         for text_nid in &text_node_ids {
                             graph.edges.push(GeoGraphEdge {
                                 edge_id: next_eid, from_node: graph.root_node_id, to_node: graph.root_node_id,
-                                edge_type: GeoEdgeType::DescribedByText, weight: 0.8,
+                                edge_type: GeoEdgeType::DescribedByText, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                                 properties: {
                                     let mut p = HashMap::new();

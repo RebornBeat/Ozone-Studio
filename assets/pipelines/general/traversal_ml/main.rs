@@ -17,6 +17,13 @@ use std::env;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+// The keyword model core (tokens, match classes, v0 rank key, hashed n-gram encoder, ranker, promotion, registry) — the SAME file the host
+// search door uses for inference (shared/contracts/keyword_model.rs). This pipeline is where TRAINING and EVALUATION run (taxonomy: the model is
+// Ozone's own computation, so it is a pipeline, not an MCP — docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md §6.4).
+#[path = "../../../../shared/contracts/keyword_model.rs"]
+#[allow(dead_code)]
+mod keyword_model;
+
 // ========== Input Types ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,63 +200,6 @@ fn traverse_structural(
     results
 }
 
-fn traverse_semantic(
-    start: u64,
-    similarity_threshold: f32,
-    max_results: u32,
-) -> Vec<TraversalResult> {
-    // In a full implementation, this would:
-    // 1. Get embedding for start container
-    // 2. Search embedding index for similar containers
-    // 3. Return sorted by similarity
-    
-    // Simplified: Use keyword overlap as proxy for semantic similarity
-    let mut results = Vec::new();
-    
-    if let Some(start_info) = load_container(start) {
-        let zsei_path = env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".to_string());
-        let index_path = format!("{}/indices/code_index.json", zsei_path);
-        
-        if let Ok(content) = std::fs::read_to_string(&index_path) {
-            if let Ok(index) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(containers) = index.get("containers").and_then(|c| c.as_array()) {
-                    for container in containers.iter().take(max_results as usize * 2) {
-                        if let Some(id) = container.get("container_id").and_then(|c| c.as_u64()) {
-                            if id == start { continue; }
-                            
-                            let keywords: Vec<String> = container.get("keywords")
-                                .and_then(|k| k.as_array())
-                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
-                                .unwrap_or_default();
-                            
-                            // Calculate keyword overlap
-                            let overlap = start_info.keywords.iter()
-                                .filter(|k| keywords.contains(k))
-                                .count() as f32;
-                            let max_keywords = start_info.keywords.len().max(keywords.len()).max(1) as f32;
-                            let similarity = overlap / max_keywords;
-                            
-                            if similarity >= similarity_threshold {
-                                results.push(TraversalResult {
-                                    container_id: id,
-                                    distance: 1.0 - similarity,
-                                    path: vec![start, id],
-                                    relevance_score: similarity,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
-    results.truncate(max_results as usize);
-    
-    results
-}
-
 fn find_path(source: u64, target: u64, max_hops: u16) -> Option<Vec<u64>> {
     let mut visited: HashSet<u64> = HashSet::new();
     let mut queue: VecDeque<(u64, Vec<u64>)> = VecDeque::new();
@@ -308,17 +258,18 @@ pub async fn execute(input: TraversalInput) -> Result<TraversalOutput, String> {
             })
         }
         
-        TraversalInput::TraverseSemantic { start_container, similarity_threshold, max_results } => {
-            let results = traverse_semantic(start_container, similarity_threshold, max_results);
-            
+        TraversalInput::TraverseSemantic { .. } => {
+            // 2026-11-08: the former body was a keyword-overlap stub reading a `indices/code_index.json` that nothing writes — it returned an
+            // EMPTY success, which looked like "no similar containers". Semantic ranking is now done by the active encoders over candidates the
+            // HOST supplies (`RankCandidates`); there is no pipeline-side index to scan. Honest refusal instead of a fake result.
             Ok(TraversalOutput {
-                success: true,
-                results,
+                success: false,
+                results: vec![],
                 total_visited: 0,
-                error: None,
+                error: Some("TraverseSemantic has no pipeline-side index: use the RankCandidates action with host-supplied candidates (active encoders: see ModelStatus)".to_string()),
             })
         }
-        
+
         TraversalInput::TraverseContextual { start_container, context_type, max_results } => {
             // Filter by modality
             let filters = vec![TraversalFilter {
@@ -338,12 +289,16 @@ pub async fn execute(input: TraversalInput) -> Result<TraversalOutput, String> {
         
         TraversalInput::TraverseHybrid { start_container, modes, weights, max_results } => {
             let mut all_results: HashMap<u64, TraversalResult> = HashMap::new();
+            let mut unavailable_modes: Vec<String> = Vec::new();
             
             for (mode, weight) in modes.iter().zip(weights.iter()) {
                 let results = match mode.as_str() {
                     "structural" => traverse_structural(start_container, 5, max_results, &[]),
-                    "semantic" => traverse_semantic(start_container, 0.3, max_results),
-                    _ => vec![],
+                    // the keyword-overlap "semantic" stub was removed 2026-11-08: reported as unavailable, never faked
+                    other => {
+                        unavailable_modes.push(other.to_string());
+                        vec![]
+                    }
                 };
                 
                 for mut r in results {
@@ -362,57 +317,25 @@ pub async fn execute(input: TraversalInput) -> Result<TraversalOutput, String> {
                 success: true,
                 results,
                 total_visited: 0,
-                error: None,
+                error: if unavailable_modes.is_empty() {
+                    None
+                } else {
+                    Some(format!("hybrid mode(s) not available from this pipeline: {} (semantic similarity = RankCandidates over host-supplied candidates)", unavailable_modes.join(", ")))
+                },
             })
         }
         
-        TraversalInput::TraverseMLGuided { query, modality, max_results } => {
-            // ML-guided uses keyword matching as simplified implementation
-            let keywords: Vec<&str> = query.split_whitespace().collect();
-            let zsei_path = env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".to_string());
-            let index_path = format!("{}/indices/code_index.json", zsei_path);
-            
-            let mut results = Vec::new();
-            
-            if let Ok(content) = std::fs::read_to_string(&index_path) {
-                if let Ok(index) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(containers) = index.get("containers").and_then(|c| c.as_array()) {
-                        for container in containers {
-                            if let Some(id) = container.get("container_id").and_then(|c| c.as_u64()) {
-                                let container_keywords: Vec<String> = container.get("keywords")
-                                    .and_then(|k| k.as_array())
-                                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_lowercase())).collect())
-                                    .unwrap_or_default();
-                                
-                                let matches = keywords.iter()
-                                    .filter(|k| container_keywords.iter().any(|ck| ck.contains(&k.to_lowercase())))
-                                    .count();
-                                
-                                if matches > 0 {
-                                    results.push(TraversalResult {
-                                        container_id: id,
-                                        distance: 0.0,
-                                        path: vec![id],
-                                        relevance_score: matches as f32 / keywords.len().max(1) as f32,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
-            results.truncate(max_results as usize);
-            
+        TraversalInput::TraverseMLGuided { .. } => {
+            // 2026-11-08: the former body was keyword matching over the same non-existent index, presented as "ML-guided". The real ML path is
+            // `RankCandidates` (fused v0 + active encoders + learned ranker) and `TrainModel`; this mode refuses honestly.
             Ok(TraversalOutput {
-                success: true,
-                results,
+                success: false,
+                results: vec![],
                 total_visited: 0,
-                error: None,
+                error: Some("TraverseMLGuided is replaced by RankCandidates (inference) and TrainModel (training); no pipeline-side index exists".to_string()),
             })
         }
-        
+
         TraversalInput::FindPath { source, target, max_hops } => {
             if let Some(path) = find_path(source, target, max_hops) {
                 Ok(TraversalOutput {
@@ -438,6 +361,7 @@ pub async fn execute(input: TraversalInput) -> Result<TraversalOutput, String> {
         
         TraversalInput::GetRelated { container_id, relation_types, limit } => {
             let mut results = Vec::new();
+            let mut similar_unavailable = false;
             
             if let Some(info) = load_container(container_id) {
                 // Get parent if requested
@@ -464,10 +388,10 @@ pub async fn execute(input: TraversalInput) -> Result<TraversalOutput, String> {
                     }
                 }
                 
-                // Get similar if requested
+                // "similar" has no pipeline-side index (the keyword-overlap stub was removed 2026-11-08); similarity is the active
+                // encoders' job over host-supplied candidates (RankCandidates) — reported below, never faked.
                 if relation_types.contains(&"similar".to_string()) {
-                    let similar = traverse_semantic(container_id, 0.5, limit);
-                    results.extend(similar);
+                    similar_unavailable = true;
                 }
             }
             
@@ -477,9 +401,121 @@ pub async fn execute(input: TraversalInput) -> Result<TraversalOutput, String> {
                 success: true,
                 results,
                 total_visited: 0,
-                error: None,
+                error: if similar_unavailable {
+                    Some("relation 'similar' is not available from this pipeline: use RankCandidates with host-supplied candidates".to_string())
+                } else {
+                    None
+                },
             })
         }
+    }
+}
+
+// ========== KEYWORD MODEL ACTIONS (2026-11-08) ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankCandidateInput {
+    pub id: u64,
+    pub terms: Vec<String>,
+    pub facts: keyword_model::RankFacts,
+}
+
+/// Actions of the real model pipeline. A SEPARATE tagged enum so the legacy traversal actions keep parsing unchanged; `main` tries this
+/// one first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum ModelAction {
+    /// Train the hashed n-gram encoder + ranker on a dataset the host built from the real hit log, evaluate the fused system on its
+    /// held-out groups against the deterministic v0 ordering, and register the result (active only if the held-out sign test says yes).
+    TrainModel {
+        dataset_path: String,
+        models_dir: String,
+        #[serde(default)]
+        params: Option<keyword_model::TrainParams>,
+        #[serde(default)]
+        now: Option<u64>,
+    },
+    /// The registry: every model, its kind, status and MEASURED evaluation; which encoders/ranker are active.
+    ModelStatus { models_dir: String },
+    /// Encode a text with every active, runnable encoder (diagnostics).
+    EncodeText { models_dir: String, text: String },
+    /// INFERENCE: order host-supplied candidates with v0 + every available active encoder + the active ranker, fused by reciprocal rank.
+    RankCandidates { models_dir: String, query_terms: Vec<String>, candidates: Vec<RankCandidateInput> },
+    /// PREPARED (not runnable yet): train an embedder at a data scale where that is meaningful.
+    TrainEmbedder {
+        #[serde(default)]
+        spec: Option<serde_json::Value>,
+    },
+    /// PREPARED (not runnable yet): fine-tune a small pretrained sentence encoder on Ozone's hit pairs.
+    FineTunePretrained {
+        #[serde(default)]
+        spec: Option<serde_json::Value>,
+    },
+}
+
+fn run_model_action(action: ModelAction) -> serde_json::Value {
+    use std::path::Path;
+    match action {
+        ModelAction::TrainModel { dataset_path, models_dir, params, now } => {
+            let groups = match keyword_model::read_dataset(Path::new(&dataset_path)) {
+                Ok(g) => g,
+                Err(e) => return serde_json::json!({"success": false, "error": e}),
+            };
+            let now = now.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0));
+            match keyword_model::train_and_evaluate(&groups, Path::new(&models_dir), now, &params.unwrap_or_default()) {
+                Ok(report) => serde_json::json!({"success": true, "report": report}),
+                Err(e) => serde_json::json!({"success": false, "error": e}),
+            }
+        }
+        ModelAction::ModelStatus { models_dir } => {
+            let mut reg = keyword_model::ModelRegistry::load(Path::new(&models_dir));
+            reg.ensure_prepared_slots();
+            let active: Vec<String> = reg.models.iter().filter(|m| m.status == "active").map(|m| m.id.clone()).collect();
+            serde_json::json!({"success": true, "registry": reg, "active": active})
+        }
+        ModelAction::EncodeText { models_dir, text } => {
+            let encs = keyword_model::load_active_encoders(Path::new(&models_dir));
+            let mut out = Vec::new();
+            for e in &encs {
+                match e.encode(&text) {
+                    Ok(v) => out.push(serde_json::json!({"id": e.id(), "kind": e.kind(), "dim": e.dim(), "vector": v})),
+                    Err(err) => out.push(serde_json::json!({"id": e.id(), "kind": e.kind(), "available": false, "error": err})),
+                }
+            }
+            serde_json::json!({"success": true, "encoders": out})
+        }
+        ModelAction::RankCandidates { models_dir, query_terms, candidates } => {
+            let dir = Path::new(&models_dir);
+            let encs = keyword_model::load_active_encoders(dir);
+            let ranker = keyword_model::load_active_ranker(dir);
+            let cands: Vec<keyword_model::Candidate> =
+                candidates.into_iter().map(|c| keyword_model::Candidate { id: c.id, terms: c.terms, facts: c.facts }).collect();
+            let refs: Vec<&dyn keyword_model::TermEncoder> = encs.iter().map(|b| b.as_ref()).collect();
+            let order = keyword_model::order_candidates(&query_terms, &cands, &refs, ranker.as_ref());
+            serde_json::json!({
+                "success": true,
+                "order": order,
+                "backends": {
+                    "v0": true,
+                    "encoders": encs.iter().map(|e| e.id().to_string()).collect::<Vec<_>>(),
+                    "ranker": ranker.as_ref().map(|r| r.id.clone()),
+                }
+            })
+        }
+        ModelAction::TrainEmbedder { spec } => serde_json::json!({
+            "success": false,
+            "available": false,
+            "error": "TrainEmbedder is PREPARED, not runnable: it needs a labelled corpus large enough to learn from (see docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md §6.3) and a trained artifact to register as an active `embedder` backend",
+            "requires": ["dataset built from the real hit log (keyword_training_set.jsonl)", "enough real labelled groups for a held-out evaluation", "artifact registered through ModelRegistry (kind=embedder)"],
+            "spec_received": spec,
+        }),
+        ModelAction::FineTunePretrained { spec } => serde_json::json!({
+            "success": false,
+            "available": false,
+            "error": "FineTunePretrained is PREPARED, not runnable: it needs third-party pretrained weights (an operator decision) and an inference runtime linked into the build",
+            "requires": ["operator approval to download a small multilingual sentence encoder (384-dim, matching embedding_dimension)", "an inference runtime (dependency decision)", "dataset from the real hit log + a held-out evaluation"],
+            "spec_received": spec,
+        }),
     }
 }
 
@@ -495,7 +531,28 @@ fn main() {
         }
     }
     
-    let input: TraversalInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    // The host's executor hands pipelines the `{data, context}` ENVELOPE; accept it or a flat input.
+    let raw: serde_json::Value = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+        eprintln!("Parse error: {}", e);
+        std::process::exit(1);
+    });
+    let inner = raw.get("data").cloned().unwrap_or(raw);
+    match serde_json::from_value::<ModelAction>(inner.clone()) {
+        Ok(model_action) => {
+            println!("{}", serde_json::to_string(&run_model_action(model_action)).unwrap_or_else(|e| format!("{{\"success\":false,\"error\":\"{e}\"}}")));
+            return;
+        }
+        Err(e) => {
+            // An input that NAMES a model action but does not fit it must say so — falling through to the legacy traversal parser produced a
+            // misleading "unknown variant `TrainModel`" error (found by the E2E).
+            let named = inner.get("action").and_then(|a| a.as_str()).unwrap_or("");
+            if ["TrainModel", "ModelStatus", "EncodeText", "RankCandidates", "TrainEmbedder", "FineTunePretrained"].contains(&named) {
+                println!("{}", serde_json::json!({"success": false, "error": format!("{named}: invalid input: {e}")}));
+                std::process::exit(1);
+            }
+        }
+    }
+    let input: TraversalInput = serde_json::from_value(inner).unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });

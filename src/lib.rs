@@ -58,6 +58,9 @@ pub mod zsei;
 #[path = "../shared/contracts/mod.rs"]
 pub mod shared_contracts;
 
+/// KEYWORD PROGRAM (hit/judgment logs, rollup, dataset builder, model hook, trainer trigger) — docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md.
+pub mod keyword_program;
+
 /// K-ALGORITHM typed registry facade.
 pub mod k_registry;
 
@@ -718,6 +721,8 @@ impl OzoneRuntime {
                                 topics: vec!["jurisdiction".to_string()],
                                 relationships: vec![],
                                 learned_associations: vec![],
+                                keyword_meta: Default::default(),
+                                scope: Default::default(),
                                 embedding: None,
                             },
                             storage: StoragePointers {

@@ -626,3 +626,9 @@ each model (or model-class) is itself callable as a tool
 gated, rippled — or runs latent inside Analyze. Image identification on
 this graph is then composable: add a model = add a registry entry + a
 graph-expansion behavior, zero host changes.
+
+
+## §14. Placement decision — the custom keyword/traversal ML (2026-11-08)
+Taxonomy test applied (is it Ozone's own computation, or a capability Ozone consumes?): the model is intrinsic to search/traversal — its slots live in the core container schema (hints, `Context.embedding`, `TraversalMLModel`) — so **inference and training are PIPELINES** (Ozone's own, shipped and versioned with it; replaces the stub #17), the **model artifact is a graph citizen** (a `TraversalMLModel` container with MEASURED held-out metrics, registered like `detection_models/registry.json`). A **tool/MCP** is warranted only for an *external* heavy trainer (e.g. a Python fine-tune of a third-party encoder) — then `NEW_MCP_GUIDE.md` Pattern A and its §6 checklist apply unchanged (security model first; reads data only through the gate; locked by default; a tested refusal path; platform/version tags; `/mcp/call` only; one ledger row + one ripple; launch story; contract container). Full design: `KEYWORD_CAPTURE_AND_ML_GUIDE.md` §6.4.
+
+**Implemented 2026-11-08 (uncompiled):** the placement above is now source — `shared/contracts/keyword_model.rs` (shared core, used in-process by the host search door), pipeline #17 `traversal_ml` (training/evaluation/inference actions, replacing its stubs), `keyword_program.rs` (host orchestration), model artifacts under `zsei_data/models/keyword/` with a registry and graph-citizen containers. No MCP/tool was created; `NEW_MCP_GUIDE.md` applies only if an external trainer is ever added.

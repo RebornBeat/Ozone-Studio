@@ -45,18 +45,34 @@ for (const f of ["pipeline_app.py", "stages.py"]) {
   if (g?.graph_id) graphIds.push(g.graph_id);
 }
 s.check("SW1", "both code files became modality graphs in the project", graphIds.length === 2, JSON.stringify(graphIds));
+// DECOY (2026-11-08, span-out scoping): the SAME code in a SECOND project of another workspace. A scoped span-out must never reach it.
+const ws2 = out(await pipeline(6, { action: "CreateWorkspace", name: `E2E SpanWalk decoy ${tag}`, description: "decoy" }));
+const pr2 = out(await pipeline(6, { action: "CreateProject", workspace_id: ws2?.workspace?.id, name: `Decoy code ${tag}`, description: "" }));
+const decoyIds = [];
+for (const f of ["pipeline_app.py", "stages.py"]) {
+  const code = fs.readFileSync(`${dir}/${f}`, "utf8");
+  const an = out(await pipeline(101, { action: { type: "Analyze", code, language: null, file_path: `${dir}/${f}` } }, { project_id: pr2?.project?.id, workspace_id: ws2?.workspace?.id }))?.analysis;
+  const g = out(await pipeline(101, { action: { type: "CreateGraph", analysis_result: an, project_id: pr2?.project?.id, link_to_existing: false } }, { project_id: pr2?.project?.id, workspace_id: ws2?.workspace?.id }));
+  if (g?.graph_id) decoyIds.push(g.graph_id);
+}
+s.check("SW1b", "decoy twin graphs created in a different workspace", decoyIds.length === 2, JSON.stringify(decoyIds));
+const scoped = (await http("POST", "/context/span_out", { keywords: ["run_report", "ingest_records", "normalize_records"], project_id: projId, workspace_id: wsId, budget_tokens: 8000, include_text: false })).json;
+const scopedIds = (scoped.items ?? []).map((i) => i.id);
+s.check("SW1c", "SCOPED span-out (project_id) never reaches the decoy project's graphs and finds the project's own", !decoyIds.some((d) => scopedIds.includes(d)) && graphIds.some((g) => scopedIds.includes(g)), `own=${graphIds.filter((g) => scopedIds.includes(g))} decoyHit=${decoyIds.filter((d) => scopedIds.includes(d))} out_of_scope=${scoped.out_of_scope}`);
 const sp = (await http("POST", "/context/span_out", { seeds: graphIds, budget_tokens: 4000, include_text: true })).json;
 s.check("SW2", "direct span-out from the code graphs is entry-rooted (run_report/main → ingest → normalize → score)", sp.success === true && /ingest_records/.test(sp.text ?? "") && /score_records/.test(sp.text ?? ""), String(sp.text ?? "").slice(0, 120));
 
 const r = await orchestrate({ prompt: `Using the code in this project (${tag}), explain the order in which run_report calls its helper functions and what each one does.`, project_id: projId, workspace_id: wsId, consciousness_enabled: false }, { pollMs: 15000, maxMs: Number(process.env.WALK_MAX_MS ?? 3600000) });
 s.check("SW3", "the walk finished", r.state && r.state !== "timeout" && r.state !== "running", JSON.stringify({ state: r.state, task: r.task_id, err: String(r.error ?? "").slice(0, 120) }));
 const taskId = Number(r.task_id ?? (String(r.error ?? "").match(/task (\d+)/) ?? [])[1] ?? 0);
-const t = taskId ? (await http("POST", "/task/get", { task_id: taskId })).json : null;
+const t = taskId ? (await http("POST", "/task/get", { task_id: taskId, session_token: "" })).json : null;
 const steps = t?.task?.steps ?? t?.steps ?? [];
 const withSpan = steps.filter((st) => (st.context_sources ?? []).some((c) => /^span-out:\d+ items/.test(c)));
 s.check("SW4", "step contexts carry span-out provenance (span-out:K items, T tokens, F fetched)", withSpan.length > 0, `${withSpan.length}/${steps.length} steps; ${JSON.stringify(steps.map((x) => x.context_sources).slice(0, 3))}`);
 const ctxText = steps.map((st) => st.context_assembled ?? "").join("\n");
 s.check("SW5", "the assembled step context holds the graph span-out text with the real functions", /Graph span-out context/.test(ctxText) && /ingest_records/.test(ctxText), ctxText.slice(0, 120));
-const answer = JSON.stringify(r.result ?? r.response ?? r.output ?? r);
+const answer = String(r.response ?? r.result?.response ?? "");
+const ctxGraphIds = [...ctxText.matchAll(/ModalityGraph: [^\n]*code graph[^\n]*\(id (\d+)\)/g)].map((m) => Number(m[1]));
+s.check("SW7", "the walk's step contexts hold ONLY this project's code graphs (no decoy twin, no graphs from earlier runs)", ctxGraphIds.length > 0 && ctxGraphIds.every((id) => graphIds.includes(id)) && !decoyIds.some((d) => ctxGraphIds.includes(d)), `graphs seen in contexts: ${[...new Set(ctxGraphIds)]}`);
 s.check("SW6", "the delivered answer names the real call order (ingest_records → normalize_records → score_records)", /ingest_records/.test(answer) && /normalize_records/.test(answer) && /score_records/.test(answer), answer.slice(0, 200));
 process.exit(s.finish() ? 1 : 0);

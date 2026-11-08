@@ -1084,7 +1084,7 @@ async fn analyze_eeg(
             start_time: 10.5,
             end_time: 12.0,
             channels: vec!["O1".to_string(), "O2".to_string()],
-            confidence: 0.92,
+            confidence: 0.0,
             amplitude: Some(45.0),
             frequency: Some(10.0),
             properties: HashMap::new(),
@@ -1096,7 +1096,7 @@ async fn analyze_eeg(
             start_time: 120.0,
             end_time: 121.5,
             channels: vec!["Cz".to_string(), "C3".to_string(), "C4".to_string()],
-            confidence: 0.85,
+            confidence: 0.0,
             amplitude: Some(30.0),
             frequency: Some(12.0),
             properties: HashMap::new(),
@@ -1184,7 +1184,7 @@ async fn detect_events(
             start_time: (i as f32 + 1.0) * 10.0,
             end_time: (i as f32 + 1.0) * 10.0 + 1.0,
             channels: vec!["Cz".to_string()],
-            confidence: 0.85,
+            confidence: 0.0,
             amplitude: Some(50.0),
             frequency: Some(10.0),
             properties: HashMap::new(),
@@ -1332,7 +1332,7 @@ async fn stage_sleep(
                 start_time: i as f32 * epoch_len,
                 end_time: (i + 1) as f32 * epoch_len,
                 stage,
-                confidence: 0.85 + rand_float() * 0.1,
+                confidence: 0.0,
             }
         })
         .collect();
@@ -1445,7 +1445,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()

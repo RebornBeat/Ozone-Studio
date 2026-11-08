@@ -283,6 +283,8 @@ mod tests {
                     topics: vec![],
                     relationships: vec![],
                     learned_associations: vec![],
+                    keyword_meta: Default::default(),
+                    scope: Default::default(),
                     embedding: None,
                 },
                 storage: StoragePointers {

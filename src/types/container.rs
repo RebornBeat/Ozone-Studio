@@ -242,6 +242,86 @@ pub struct Context {
     pub relationships: Vec<Relation>,
     pub learned_associations: Vec<Association>,
     pub embedding: Option<Vec<f32>>,
+    /// KEYWORD PROGRAM sidecar (2026-11-08, docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md §4): per-term provenance and REAL hit counts, keyed by
+    /// the term exactly as it appears in `keywords`. Written only by the keyword settlement/rollup passes (one batched write, one ripple) —
+    /// never per search. Absent on legacy containers (`serde(default)`), and omitted from the file when empty.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub keyword_meta: std::collections::BTreeMap<String, TermMeta>,
+    /// TYPED SCOPE (2026-11-08): the authoritative, structured form of the `ws:N` / `proj:N` / `scope:global` markers that used to live only
+    /// in `keywords`. Filled centrally on every create/update (`ContainerScope::from_markers`) when empty, so every writer — legacy or new —
+    /// gets it without a code change. The markers stay in `keywords` as the compatibility surface (graph-event scope filtering, chat-session
+    /// lookups) until their readers migrate; the meaning-term pool and search ignore them by shape.
+    #[serde(default, skip_serializing_if = "ContainerScope::is_empty")]
+    pub scope: ContainerScope,
+}
+
+/// Workspace / project / global scope of a container, as typed fields.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ContainerScope {
+    #[serde(default)]
+    pub workspace_id: Option<u64>,
+    #[serde(default)]
+    pub project_id: Option<u64>,
+    /// Visible at every scope (`scope:global`).
+    #[serde(default)]
+    pub global: bool,
+}
+
+impl ContainerScope {
+    pub fn is_empty(&self) -> bool {
+        self.workspace_id.is_none() && self.project_id.is_none() && !self.global
+    }
+
+    /// Derive the typed scope from marker keywords: `ws:N` (N > 0), `proj:N` (N > 0), `scope:global`. Anything else is ignored.
+    pub fn from_markers(keywords: &[String]) -> Self {
+        let mut out = ContainerScope::default();
+        for k in keywords {
+            let k = k.trim();
+            if k == "scope:global" {
+                out.global = true;
+            } else if let Some(n) = k.strip_prefix("ws:").and_then(|v| v.parse::<u64>().ok()) {
+                if n > 0 {
+                    out.workspace_id = Some(n);
+                }
+            } else if let Some(n) = k.strip_prefix("proj:").and_then(|v| v.parse::<u64>().ok()) {
+                if n > 0 {
+                    out.project_id = Some(n);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Provenance + validation + real hit counts for ONE keyword (no scores, no confidence — counts of observed events and a yes/no).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct TermMeta {
+    /// "verbatim" | "extracted" | "expansion" | "name" | "identifier" | "rollup" | "" (unknown / legacy).
+    #[serde(default)]
+    pub source: String,
+    /// Strength-N judgment "is this a true content-bearing keyword for this container": Some(true) = affirmed, Some(false) = unanimously
+    /// rejected (the term is then removed from `keywords` by the settlement pass), None = not judged yet.
+    #[serde(default)]
+    pub validated: Option<bool>,
+    #[serde(default)]
+    pub hits: TermHits,
+}
+
+/// Counts of real events for one (term → this container) pair, from the append-only hit log (`zsei_data/keyword_hits.jsonl`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct TermHits {
+    #[serde(default)]
+    pub returned: u64,
+    #[serde(default)]
+    pub packed: u64,
+    #[serde(default)]
+    pub kept: u64,
+    #[serde(default)]
+    pub dropped: u64,
+    #[serde(default)]
+    pub applied: u64,
+    #[serde(default)]
+    pub human: u64,
 }
 
 /// Relationship between containers (§6.2)
@@ -1637,4 +1717,30 @@ pub struct BreakingChangeInfo {
     pub description: String,
     pub affected_apis: Vec<String>,
     pub migration_guide: Option<String>,
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[test]
+    fn typed_scope_is_derived_from_marker_keywords() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(ContainerScope::from_markers(&k(&["tool_call", "no scope here"])).is_empty());
+        let s = ContainerScope::from_markers(&k(&["ws:3", "proj:7", "x"]));
+        assert_eq!((s.workspace_id, s.project_id, s.global), (Some(3), Some(7), false));
+        assert!(ContainerScope::from_markers(&k(&["scope:global"])).global);
+        // `ws:0` means "no workspace" (the coordination mirror writes it for unscoped events)
+        assert!(ContainerScope::from_markers(&k(&["ws:0"])).is_empty());
+        assert!(ContainerScope::from_markers(&k(&["ws:abc", "proj:"])).is_empty());
+    }
+
+    #[test]
+    fn scope_and_keyword_meta_are_omitted_from_the_file_when_empty_and_default_on_load() {
+        let c = Context::default();
+        let v = serde_json::to_value(&c).unwrap();
+        assert!(v.get("scope").is_none() && v.get("keyword_meta").is_none(), "empty sidecars add nothing to a legacy-shaped file");
+        let back: Context = serde_json::from_value(serde_json::json!({"categories": [], "methodologies": [], "keywords": [], "topics": [], "relationships": [], "learned_associations": [], "embedding": null})).unwrap();
+        assert!(back.scope.is_empty() && back.keyword_meta.is_empty());
+    }
 }

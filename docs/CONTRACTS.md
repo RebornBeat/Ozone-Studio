@@ -206,6 +206,7 @@ These hold across every contract above:
 | K taxonomy + presets | `shared/contracts/k_registry.rs` |
 | K validation | `shared/contracts/k_validation.rs` |
 | K loop discipline | `shared/contracts/k_loops.rs` |
+| Keyword model (tokens/shape rules, match classes, v0 rank key, hashed n-gram encoder, ranker, RRF fusion, held-out promotion, model registry, prepared pretrained/embedder backends) | `shared/contracts/keyword_model.rs` |
 | K search strategies | `src/zsei/search.rs` |
 | Host facade | `src/k_registry.rs` |
 | Pipeline serve mode | `assets/pipelines/shared/ozone_serve.rs` |
@@ -252,3 +253,7 @@ one vocabulary across ripple, monitor, and AMT context.
 `UnverifiedNode` (build-time), `GraphRipple` (living-graph writes),
 `Continuation` (fork lineage). All consume through one review loop with
 methodology guidance + fallback escalation.
+
+
+## Keyword model contract (2026-11-08)
+`shared/contracts/keyword_model.rs` is included by the host (`shared_contracts::keyword_model`, used IN-PROCESS by the search door) and by pipeline #17 `traversal_ml` (training / evaluation / inference actions) and the text modality (shape rules) via `#[path]`. Contract: nothing here reports a confidence or probability — only orderings and measured yes/no promotion; backends (`TermEncoder`) are interchangeable and run together by rank fusion; a backend that cannot run returns `Err` and is skipped (never a fabricated vector). Event/log contract (`keyword_program.rs`): append-only, never rotated — `keyword_hits.jsonl` events `search`, `created`, `keywords_changed`, `packed`, `gathered`, `kept`, `dropped`, `applied`, `human` (each with trace + origin) and `judgment_samples.jsonl`. See `KEYWORD_FLOW_AND_NEEDS_GUIDE.md`.

@@ -1240,7 +1240,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1380,7 +1380,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["cad".into(), "parametric".into(), function_class.to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1396,11 +1396,11 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Material/{}", project_id, graph_id, mat.material_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["material".into(), mat.name.to_lowercase(), format!("{:?}", mat.material_class).to_lowercase()],
-            hotness_score: 0.65,
+            hotness_score: 0.0,
             embedding_hint: Some(format!("material: {} class: {:?}", mat.name, mat.material_class)),
             ..Default::default()
         });
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: CADEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         mat_name_to_nid.insert(mat.name.clone(), mid);
         node_id += 1;
@@ -1421,7 +1421,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Part/{}", project_id, graph_id, part.part_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["part".into(), part.name.to_lowercase()]; if let Some(ref pn) = part.part_number { kw.push(pn.clone()); } kw },
-            hotness_score: 0.85, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1488,7 +1488,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Assembly/{}", project_id, graph_id, asm.assembly_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["assembly".into(), asm.name.to_lowercase()],
-            hotness_score: 0.9, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1506,7 +1506,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Instance/{}", project_id, graph_id, comp.instance_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["instance".into(), comp.instance_name.to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
 
         // Instance → parent assembly
@@ -1579,11 +1579,11 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Sketch/{}", project_id, graph_id, sketch.sketch_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["sketch".into(), sketch.name.to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // Sketch → part
         if let Some(&part_nid) = part_id_to_nid.get(&sketch.part_id) {
-            edges.push(CADGraphEdge { edge_id, from_node: part_nid, to_node: sid, edge_type: CADEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(CADGraphEdge { edge_id, from_node: part_nid, to_node: sid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         // Feature driven by sketch
@@ -1609,9 +1609,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Constraint/{}", project_id, graph_id, constr.constraint_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["constraint".into(), format!("{:?}", constr.constraint_type).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: CADEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Constraint ConstrainedBy components
@@ -1628,7 +1628,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
         if matches!(constr.constraint_type, AssemblyConstraintType::GearMate { .. } | AssemblyConstraintType::RackPinion { .. } | AssemblyConstraintType::ScrewMate { .. }) {
             edges.push(CADGraphEdge {
                 edge_id, from_node: cid, to_node: cid,
-                edge_type: CADEdgeType::ProvidesJointGeometry, weight: 0.9,
+                edge_type: CADEdgeType::ProvidesJointGeometry, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p.insert("constraint_type".into(), serde_json::json!(format!("{:?}", constr.constraint_type))); p },
                 ..Default::default()
@@ -1654,9 +1654,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Dim/{}", project_id, graph_id, dim.dimension_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["dimension".into(), format!("{:?}", dim.dim_type).to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: CADEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(feat_id) = dim.feature_id {
             if let Some(&feat_nid) = feat_id_to_nid.get(&feat_id) {
@@ -1681,9 +1681,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Tol/{}", project_id, graph_id, tol.tolerance_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["tolerance".into(), format!("{:?}", tol.tolerance_type).to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: CADEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Tolerance → dimensions
@@ -1716,9 +1716,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/GDT/{}", project_id, graph_id, gdt.frame_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["gdt".into(), format!("{:?}", gdt.characteristic).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: gid, edge_type: CADEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: gid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1732,14 +1732,14 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             mass_kg: Some(mp.mass_kg),
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/MassProps/{}", project_id, graph_id, mp.part_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["mass-properties".into(), "inertia".into()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["mass-properties".into(), "inertia".into()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&part_nid) = part_id_to_nid.get(&mp.part_id) {
             edges.push(CADGraphEdge { edge_id, from_node: part_nid, to_node: mpid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         // MassProps cross-modal: → control system (122) for dynamics model
-        edges.push(CADGraphEdge { edge_id, from_node: mpid, to_node: mpid, edge_type: CADEdgeType::ProvidesActuatorSpec, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p }, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: mpid, to_node: mpid, edge_type: CADEdgeType::ProvidesActuatorSpec, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p }, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1751,9 +1751,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             content: format!("DrawView {:?}: {} scale={:.3}", view.view_type, view.name, view.scale),
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/DrawView/{}", project_id, graph_id, view.view_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["drawing".into(), format!("{:?}", view.view_type).to_lowercase()], hotness_score: 0.5, ..Default::default()
+            keywords: vec!["drawing".into(), format!("{:?}", view.view_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: vid, edge_type: CADEdgeType::Contains, weight: 0.5, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: vid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1769,13 +1769,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             mass_kg: bom_entry.unit_mass_kg,
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/BOM/{}", project_id, graph_id, bom_entry.entry_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["bom".into(), bom_entry.part_number.to_lowercase()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["bom".into(), bom_entry.part_number.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&part_nid) = bom_entry.part_id.and_then(|id| part_id_to_nid.get(&id)) {
             edges.push(CADGraphEdge { edge_id, from_node: bid, to_node: part_nid, edge_type: CADEdgeType::References, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
-        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: bid, edge_type: CADEdgeType::Contains, weight: 0.5, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: bid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1793,7 +1793,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(CADGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(CADGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -2060,9 +2060,9 @@ pub async fn execute(input: CADModalityAction) -> Result<CADModalityOutput, Stri
                 content: format!("CrossModal→{} graph={}", target_modality, target_graph_id),
                 materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/CrossModal/{}", graph.project_id, graph_id, target_graph_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.7, ..Default::default()
+                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.0, ..Default::default()
             });
-            graph.edges.push(CADGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
+            graph.edges.push(CADGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
             graph.state = GraphStateType::CrossLinked;
             graph.version += 1; graph.updated_at = now.clone();
             graph.version_notes.push(VersionNote { version: graph.version, note: format!("Linked to {} (graph {})", target_modality, target_graph_id), step_index: None, timestamp: now, change_type: ChangeType::CrossLinked });
@@ -2166,7 +2166,7 @@ pub async fn execute(input: CADModalityAction) -> Result<CADModalityOutput, Stri
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(CADGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(CADGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -2212,7 +2212,7 @@ pub async fn execute(input: CADModalityAction) -> Result<CADModalityOutput, Stri
                     CADHeadlessOp::CrossLinkTo3D { graph_id_3d } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         let root_id = graph.root_node_id;
-                        graph.edges.push(CADGraphEdge { edge_id: next_eid, from_node: root_id, to_node: root_id, edge_type: CADEdgeType::ParametricGeneratesMesh, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p }, ..Default::default() });
+                        graph.edges.push(CADGraphEdge { edge_id: next_eid, from_node: root_id, to_node: root_id, edge_type: CADEdgeType::ParametricGeneratesMesh, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p }, ..Default::default() });
                     }
                     _ => {}
                 }

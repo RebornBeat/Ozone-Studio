@@ -75,7 +75,7 @@ pub async fn run_methodology_meta_loop(
         let mut stats = PassStats::default();
         let outcome = crate::trace::with_trace(
             ctx.clone(),
-            async {
+            crate::keyword_program::with_origin(crate::keyword_program::Origin::actor("meta-loop"), async {
                 // 1) SUFFICIENCY REVIEW of queued requests → raises "new"/"modify" gaps; 2) act on every open gap.
                 if let Err(e) = review_methodology_requests_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await {
                     tracing::warn!(error = %e, "Methodology meta-loop: sufficiency review failed");
@@ -83,8 +83,32 @@ pub async fn run_methodology_meta_loop(
                 }
                 // 1b) QUALITY AUDIT (E18): thin methodologies raise `modify` gaps that the drafting pass below acts on.
                 audit_methodology_quality_once(&store, &mut stats).await;
-                review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await
-            },
+                let gaps_result = review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
+                // 3) KEYWORD PROGRAM (2026-11-08): fold new hit events into the containers, retrain the models when the hit log grew, then
+                //    settle keywords (verbatim capture → zero-shot expansion → unanimous-drop keeper judgment). After the gap work so
+                //    methodology drafting is never delayed by it.
+                let rolled = crate::keyword_program::rollup_once(&store).await;
+                if rolled.events > 0 {
+                    stats.candidates_consumed += rolled.containers_updated as u64;
+                    stats.notes.push(format!("keyword rollup: {} events folded into {} containers ({} failed)", rolled.events, rolled.containers_updated, rolled.failures));
+                }
+                match crate::keyword_program::train_if_data_grew(&executor, &store).await {
+                    Ok(report) => {
+                        if report.get("success").and_then(|s| s.as_bool()) == Some(true) {
+                            stats.notes.push(format!(
+                                "keyword model training: {}",
+                                report.pointer("/report/message").and_then(|m| m.as_str()).unwrap_or("done")
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "keyword model training failed — retried when the hit log grows");
+                        stats.notes.push(format!("keyword model training failed: {e}"));
+                    }
+                }
+                crate::orchestrator::keyword_settle::settle_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
+                gaps_result
+            }),
         )
         .await;
         if let Err(e) = outcome {
@@ -104,7 +128,7 @@ pub async fn run_methodology_meta_loop(
 /// The window of the model that will READ a detached meta call: the first usable entry of the meta fallback chain (its configured
 /// `context_length`, e.g. 32,000 for the `openrouter/free` router), else the host default. Windowing follows the READING model, not the
 /// largest configured number — a prompt sized for 128k would overflow a 32k member the router picks.
-fn reader_window(available_models: &[AvailableModel], meta_fallback: &ModelFallbackConfig) -> (usize, &'static str) {
+pub(crate) fn reader_window(available_models: &[AvailableModel], meta_fallback: &ModelFallbackConfig) -> (usize, &'static str) {
     meta_fallback
         .order
         .iter()
@@ -115,7 +139,7 @@ fn reader_window(available_models: &[AvailableModel], meta_fallback: &ModelFallb
 }
 
 /// A methodology's current content, WHOLE: (name, keywords, content-file JSON text). Read from the container + its content file.
-async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> Option<(String, Vec<String>, String)> {
+pub(crate) async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> Option<(String, Vec<String>, String)> {
     let c = store.get_container(id).await.ok().flatten()?;
     let name = c.pointer("/local_state/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let kws: Vec<String> = c

@@ -291,3 +291,17 @@ build pass should sweep for remaining CARGO_MANIFEST_DIR runtime uses.
 
 
 > **Correction 2026-11-02 (operator directive):** PDF/Office text extraction is NOT built into the text pipeline (no `pdf-extract`/`zip` crate dependency). It is a tool — `tools/document-mcp` (:3282: `document_extract`, `document_info`, `document_images`, `document_formats`; poppler `pdftotext`, `unzip`+XML, LibreOffice for legacy `.doc`, tesseract OCR only if installed) — that the text pipeline calls through `/mcp/call`, the same way the image modality uses visual-mcp's YOLO/OCR/depth. Register with `node tools/register-browser-tools.mjs document`.
+
+
+## 2026-11-08 — hit tracking and the custom ML (designed, slotted in the schema, NOT built) — see `KEYWORD_CAPTURE_AND_ML_GUIDE.md`
+* `TraversalHints.{access_frequency, hotness_score, last_accessed, centroid, ml_prediction_weight}`, `Context.{learned_associations, embedding}`, `IntegrityData.semantic_fingerprint`, `StoragePointers.vector_index_ref`, `DiscoveryMethod::MLPrediction`, `Traverse.use_ml`, `TraversalMLModel`, `TraversalTrainingSample` (`src/types/container.rs`, `src/types/context.rs`, `src/types/zsei.rs`): **measured on the live local store — embeddings 0, learned_associations 0, access_frequency>0: 0; `use_ml` always false and unread.** Pipeline #17 `TraversalML` = keyword-overlap stubs ("Simplified … as proxy"), no host caller.
+* Not built: the hit event log, the hit rollup into hints, per-term provenance/hit sidecar, the keyword settlement pass, the rank key, the learned ranker/encoder, the model container + promotion rule.
+* Doctrine delta: `TraversalMLModel.confidence_threshold` is retired from the design (no false confidence); promotion = yes/no held-out evaluation.
+
+
+## 2026-11-08 (later) — status change: hit tracking and the custom ML are now EDITED in source (uncompiled)
+Built in source: hit/judgment logs, rollup into `keyword_meta`/hints, dataset builder, trainer trigger, hashed n-gram encoder + ranker (pure Rust, shared module), model registry + graph-citizen containers, prepared pretrained/embedder backends, token-aware ranked search, settlement pass, stub replacement in pipeline 17. STILL designed-not-built: pretrained-encoder runtime and weights (operator), a trained embedder, typed scope fields, per-modality identifier emission at creation, hotness literal removal in modality builders, incremental dataset building, hit-log rotation. See `KEYWORD_CAPTURE_AND_ML_GUIDE.md` §11.4.
+
+
+## 2026-11-08 (second wave) — status
+Now EDITED in source (uncompiled): typed scope (central derivation + backfill), generic modality identifier extraction, roll-up refresh signature, remaining search sites moved to ranked, hit-log rotation, measurement tool, envelope fix in 21 built pipeline mains. STILL designed-not-built / open: removing markers from `keywords` (readers must migrate first), pretrained-encoder runtime + weights, trained embedder, incremental dataset building, the envelope fix for auth / sync / 18 unbuilt mains (when they are built), the ~272 modality hotness literals (standing instruction), children-keyword-change detection for the roll-up.

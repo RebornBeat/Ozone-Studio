@@ -3491,9 +3491,11 @@ Return ONLY valid JSON with a single one-word answer:
         // graph-first linkers' output). An UNTYPED keyword search joins
         // those as additional hop seeds: still keyword-gated entry, but the
         // expansion itself is edge-driven, reaching zero-keyword content.
+        // ranked + token-aware (2026-11-08): the untyped keyword hits join as hop seeds best-match-first (flood-prone: "code" matched 1,345
+        // containers by substring)
         match self
             .store
-            .search_by_keywords(&search_keywords, None)
+            .search_ranked(&search_keywords, None)
             .await
         {
             Ok(hits) => {

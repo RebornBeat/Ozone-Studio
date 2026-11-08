@@ -122,6 +122,8 @@ fn build_chat_container(
                 topics: vec!["chat".to_string()],
                 relationships: vec![],
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {

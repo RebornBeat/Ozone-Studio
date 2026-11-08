@@ -214,7 +214,6 @@ Analyze the task requirements and methodology coverage.
 Return JSON with exactly these fields:
 {
     "feasible": true/false,
-    "confidence": 0.0-1.0,
     "coverage": 0.0-1.0,
     "estimated_steps": number,
     "missing": ["list of gaps"],
@@ -239,7 +238,6 @@ Return JSON with exactly these fields:
     let parsed: serde_json::Value = serde_json::from_str(&response)
         .unwrap_or_else(|_| serde_json::json!({
             "feasible": true,
-            "confidence": 0.7,
             "coverage": 0.8,
             "estimated_steps": 5,
             "missing": [],
@@ -249,7 +247,7 @@ Return JSON with exactly these fields:
     
     Ok(SimulationResult {
         feasible: parsed.get("feasible").and_then(|f| f.as_bool()).unwrap_or(true),
-        confidence: parsed.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.7) as f32,
+        confidence: 0.0, // RETIRED 2026-11-08 (no false confidence): the model is no longer asked for one; the field stays for wire compatibility. `feasible` (yes/no) is the verdict.
         estimated_steps: parsed.get("estimated_steps").and_then(|e| e.as_u64()).unwrap_or(5) as u32,
         estimated_time_secs: parsed.get("estimated_steps").and_then(|e| e.as_u64()).unwrap_or(5) as u32 * 10,
         methodology_coverage: parsed.get("coverage").and_then(|c| c.as_f64()).unwrap_or(0.8) as f32,
@@ -346,7 +344,7 @@ fn basic_validation(task: &TaskSignature, methodologies: &[serde_json::Value]) -
     
     SimulationResult {
         feasible: coverage > 0.3,
-        confidence: coverage,
+        confidence: 0.0, // RETIRED 2026-11-08: `methodology_coverage` carries the measured coverage; confidence is not a thing
         estimated_steps: 5,
         estimated_time_secs: 30,
         methodology_coverage: coverage,
@@ -399,7 +397,7 @@ pub async fn execute(input: ZeroShotSimInput) -> Result<ZeroShotSimOutput, Strin
                 success: true,
                 simulation: Some(simulation.clone()),
                 preview: None,
-                methodology_valid: Some(simulation.confidence >= 0.7),
+                methodology_valid: Some(simulation.feasible), // yes/no verdict, not a confidence cut-off (2026-11-08)
                 blueprint_valid: None,
                 error: None,
             })
@@ -420,7 +418,7 @@ pub async fn execute(input: ZeroShotSimInput) -> Result<ZeroShotSimOutput, Strin
             
             let simulation = SimulationResult {
                 feasible: valid,
-                confidence: if valid { 0.85 } else { 0.4 },
+                confidence: 0.0, // RETIRED 2026-11-08: the verdict is `feasible` (yes/no)
                 estimated_steps: blueprint.get("steps").and_then(|s| s.as_array()).map(|a| a.len()).unwrap_or(5) as u32,
                 estimated_time_secs: 30,
                 methodology_coverage: 0.9,
@@ -505,7 +503,7 @@ fn main() {
         }
     }
     
-    let input: ZeroShotSimInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    let input: ZeroShotSimInput = serde_json::from_value(ozone_unwrap_envelope(&input_json)).unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });
@@ -530,5 +528,23 @@ fn ozone_input_arg(raw: &str) -> String {
             std::process::exit(1);
         }),
         _ => raw.to_string(),
+    }
+}
+
+
+/// The host executor hands every pipeline a `{data, context}` ENVELOPE (`PipelineInput`); the action lives in `data`. Parsing the envelope
+/// as the action enum fails with "missing field `action`" (live: the Stage 12 relationship update). Accepts the envelope or a flat input;
+/// only a top-level object holding BOTH an object `data` and a `context` is treated as an envelope. (2026-11-08 envelope audit.)
+#[allow(dead_code)]
+fn ozone_unwrap_envelope(raw: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(raw).unwrap_or_else(|e| {
+        eprintln!("Parse error: {}", e);
+        std::process::exit(1);
+    });
+    let is_envelope = v.get("context").is_some() && v.get("data").map(|d| d.is_object()).unwrap_or(false);
+    if is_envelope {
+        v.get("data").cloned().unwrap_or(v)
+    } else {
+        v
     }
 }

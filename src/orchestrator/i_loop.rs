@@ -101,7 +101,10 @@ pub async fn run_i_loop(
         let mut stats = PassStats::default();
         let outcome = crate::trace::with_trace(
             ctx.clone(),
-            run_one_reflection(&executor, &store, &available_models, &meta_fallback, &mut stats),
+            crate::keyword_program::with_origin(
+                crate::keyword_program::Origin::actor("i-loop"),
+                run_one_reflection(&executor, &store, &available_models, &meta_fallback, &mut stats),
+            ),
         )
         .await;
         if let Err(e) = outcome {
@@ -532,6 +535,8 @@ async fn persist_reflection(
                 topics: vec!["consciousness".to_string()],
                 relationships: vec![],
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {

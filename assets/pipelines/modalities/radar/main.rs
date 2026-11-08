@@ -1331,7 +1331,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1484,7 +1484,7 @@ async fn create_graph(
             change_type: ChangeType::Created,
         }],
         keywords: vec!["radar".into(), "scene".into()],
-        hotness_score: 1.0,
+        hotness_score: 0.0,
         provenance: EdgeProvenance::DerivedFromPrompt,
         ..Default::default()
     });
@@ -1511,7 +1511,7 @@ async fn create_graph(
             provisional_status: ProvisionalStatus::Finalized,
             version: 1,
             keywords: vec!["platform".into(), platform.platform_type.clone()],
-            hotness_score: 0.8,
+            hotness_score: 0.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             ..Default::default()
         });
@@ -1552,7 +1552,7 @@ async fn create_graph(
             provisional_status: ProvisionalStatus::Finalized,
             version: 1,
             keywords: vec!["range-doppler".into(), "map".into()],
-            hotness_score: 0.9,
+            hotness_score: 0.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             ..Default::default()
         });
@@ -1675,7 +1675,7 @@ async fn create_graph(
                 provisional_status: ProvisionalStatus::Validated,
                 version: 1,
                 keywords: vec!["velocity".into(), "doppler".into()],
-                hotness_score: 0.7,
+                hotness_score: 0.0,
                 provenance: EdgeProvenance::DerivedFromPrompt,
                 ..Default::default()
             });
@@ -1750,7 +1750,7 @@ async fn create_graph(
                     "track".into(),
                     format!("{:?}", track.track_state).to_lowercase(),
                 ],
-                hotness_score: 0.85,
+                hotness_score: 0.0,
                 provenance: EdgeProvenance::DerivedFromPrompt,
                 ..Default::default()
             });
@@ -1819,7 +1819,7 @@ async fn create_graph(
                 "image".into(),
                 format!("{:?}", sar.polarization).to_lowercase(),
             ],
-            hotness_score: 0.75,
+            hotness_score: 0.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             ..Default::default()
         });
@@ -1858,7 +1858,7 @@ async fn create_graph(
                     "sar-feature".into(),
                     format!("{:?}", feat.feature_type).to_lowercase(),
                 ],
-                hotness_score: 0.65,
+                hotness_score: 0.0,
                 provenance: EdgeProvenance::DerivedFromPrompt,
                 ..Default::default()
             });
@@ -1901,7 +1901,7 @@ async fn create_graph(
                 "weather".into(),
                 format!("{:?}", weather.precipitation_type).to_lowercase(),
             ],
-            hotness_score: 0.7,
+            hotness_score: 0.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             ..Default::default()
         });
@@ -1938,7 +1938,7 @@ async fn create_graph(
             provisional_status: ProvisionalStatus::Validated,
             version: 1,
             keywords: vec!["material".into(), "signature".into()],
-            hotness_score: 0.65,
+            hotness_score: 0.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             ..Default::default()
         });
@@ -1964,7 +1964,7 @@ async fn create_graph(
             from_node: root_id,
             to_node: sid,
             edge_type: RadarEdgeType::Contains,
-            weight: 0.8,
+            weight: 1.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             version: 1,
             ..Default::default()
@@ -1991,7 +1991,7 @@ async fn create_graph(
             provisional_status: ProvisionalStatus::Validated,
             version: 1,
             keywords: vec!["point-cloud".into(), "3d-reconstruction".into()],
-            hotness_score: 0.75,
+            hotness_score: 0.0,
             provenance: EdgeProvenance::DerivedFromPrompt,
             ..Default::default()
         });
@@ -2061,7 +2061,7 @@ async fn create_graph(
                 from_node: from_id,
                 to_node: to_id,
                 edge_type,
-                weight: 0.8,
+                weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook,
                 version: 1,
                 properties: {
@@ -2287,7 +2287,7 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
                         provisional_status: ProvisionalStatus::Validated,
                         version: 1,
                         keywords: vec!["target".into(), "updated".into()],
-                        hotness_score: 0.9,
+                        hotness_score: 0.0,
                         provenance: EdgeProvenance::DerivedFromPrompt,
                         ..Default::default()
                     });
@@ -2643,7 +2643,7 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
                                 from_node: from,
                                 to_node: to,
                                 edge_type: etype,
-                                weight: 0.8,
+                                weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromHook,
                                 version: 1,
                                 properties: {

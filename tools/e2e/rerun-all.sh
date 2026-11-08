@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.." || exit 1
 OUT=docs/evidence/test-runs; mkdir -p "$OUT"
 STAMP=$(date -u +%F)
 SUMMARY="$OUT/$STAMP-rerun-summary.md"
-SUITES=("$@"); [ ${#SUITES[@]} -eq 0 ] && SUITES=(modalities mcp-contract jurisdiction marketplace fanout meta-ripple methodology-sufficiency provider-step)
+SUITES=("$@"); [ ${#SUITES[@]} -eq 0 ] && SUITES=(modalities mcp-contract jurisdiction marketplace fanout meta-ripple methodology-sufficiency provider-step keyword-program span-walk walk-completion)
 {
   echo "# E2E rerun summary — $STAMP (started $(date -u +%T)Z)"
   echo; echo "host: $(curl -s -m5 localhost:50051/health | head -c 120)"

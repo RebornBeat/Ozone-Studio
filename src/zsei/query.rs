@@ -394,9 +394,39 @@ impl QueryProcessor {
         container.global_state.container_id = new_id;
         container.global_state.parent_id = parent_id;
         container.global_state.version = 1;
+        // typed scope: from the marker keywords when the writer set them; otherwise — for CONTENT containers — from the ORIGIN of the
+        // work (the project / workspace the request or pipeline ran for). Found live: graphs a pipeline created "in a project" were parented to
+        // a project id that is not a graph container, so the ancestry walk saw them as unscoped and a project-scoped span-out leaked a
+        // sibling project's graphs; the origin carries the scope the host actually ran the work for. Global-knowledge types (methodologies,
+        // blueprints, tools, jurisdiction rules, categories, roots …) stay global whatever their origin — their origin is recorded on the
+        // `created` event, not baked into their scope.
+        if container.local_state.context.scope.is_empty() {
+            container.local_state.context.scope =
+                crate::types::container::ContainerScope::from_markers(&container.local_state.context.keywords);
+        }
+        if container.local_state.context.scope.is_empty() {
+            let ty = format!("{:?}", container.local_state.metadata.container_type);
+            let global_knowledge = matches!(
+                ty.as_str(),
+                "Methodology" | "Blueprint" | "Pipeline" | "McpEntity" | "JurisdictionRuleSet" | "Category" | "Modality" | "Project" | "Workspace"
+            ) || ty.ends_with("Root");
+            if !global_knowledge {
+                if let Some(o) = crate::keyword_program::current_origin() {
+                    if o.project_id.is_some() || o.workspace_id.is_some() {
+                        container.local_state.context.scope = crate::types::container::ContainerScope {
+                            workspace_id: o.workspace_id,
+                            project_id: o.project_id,
+                            global: false,
+                        };
+                    }
+                }
+            }
+        }
         
         // Store the container
         storage.store(&container)?;
+        // KEYWORD PROGRAM: every creation (host writer or pipeline) leaves a `created` event with its origin — the first hit
+        crate::keyword_program::record_created(new_id, &container);
         
         // Update parent's child list
         if let Some(mut parent) = storage.load(parent_id)? {
@@ -425,13 +455,23 @@ impl QueryProcessor {
     ) -> OzoneResult<()> {
         let mut container = storage.load(container_id)?
             .ok_or_else(|| crate::types::OzoneError::NotFound(format!("Container {} not found", container_id)))?;
+        let keywords_before = container.local_state.context.keywords.clone();
         
         // Apply updates based on what's provided
         if let Some(metadata) = updates.metadata {
             container.local_state.metadata = metadata;
         }
-        if let Some(context) = updates.context {
+        if let Some(mut context) = updates.context {
+            // A writer that rebuilt the context without the keyword program's counters must not wipe them: carry the stored
+            // `keyword_meta` over when the update brings none. (A writer that DOES send it — settlement, rollup — is taken as is.)
+            if context.keyword_meta.is_empty() {
+                context.keyword_meta = container.local_state.context.keyword_meta.clone();
+            }
             container.local_state.context = context;
+        }
+        if container.local_state.context.scope.is_empty() {
+            container.local_state.context.scope =
+                crate::types::container::ContainerScope::from_markers(&container.local_state.context.keywords);
         }
         if let Some(storage_ptrs) = updates.storage {
             container.local_state.storage = storage_ptrs;
@@ -440,6 +480,9 @@ impl QueryProcessor {
             container.local_state.hints = hints;
         }
         
+        // KEYWORD PROGRAM: the keyword lifecycle — what an update added to / removed from the container's keywords
+        crate::keyword_program::record_keywords_changed(container_id, &keywords_before, &container.local_state.context.keywords);
+
         // Increment version and update timestamp
         container.global_state.version += 1;
         container.local_state.metadata.updated_at = now();

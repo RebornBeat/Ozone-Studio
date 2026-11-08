@@ -532,6 +532,8 @@ pub(crate) async fn persist_insight(
                 topics: vec![],
                 relationships: vec![],
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {

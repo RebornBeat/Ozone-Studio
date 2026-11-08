@@ -473,3 +473,13 @@ remain, in the order a review should consider them (each only after the mechanic
 **Status update (same day, implemented uncompiled):** E13 methodology relevance filter (`mod.rs` Stage 3), E14 rule-condition gate (`stages.rs::gate_rule_applicability`), E15 post-simulation feasibility re-plan, E17 provider tool choice by the model (`provider_tool_choice`). Remaining: E16, E18, E19. Details: `EDIT_CAPTURE_2026-11-07.md` §J.
 
 **Status (third pass):** E16 keyword re-ask, E18 methodology quality audit, E19 call-site key table now implemented (uncompiled) — the whole E13–E19 backlog is edited; see `EDIT_CAPTURE_2026-11-07.md` §K.
+
+## 2026-11-08 addendum — keyword SETTLEMENT (operator: "the zero-shot expansion is left at the end … it identifies all true keywords to remain, validates what are hits, then the scoring function")
+| # | Where | Zero-shot or deterministic | Question / rule | Status |
+|---|---|---|---|---|
+| E20 | after container creation (meta-loop actor, off the walk path) | deterministic | Pass A verbatim capture of identifiers/names/terms — never filtered | design — `KEYWORD_CAPTURE_AND_ML_GUIDE.md` §5 |
+| E21 | same | zero-shot (batched, adds only) | Pass B expansion: synonyms / aliases / request phrasings / translations | design |
+| E22 | same | zero-shot yes/no strength-N, **drop only on unanimous NO** | Pass C "is this a true content-bearing keyword for this container?" — removes garbage (`you`, whole sentences) at the source; every judgment logged as a labelled sample | design |
+| E23 | request side, once per request | zero-shot (generalises E16) | the request's keywords pass the same A→B→C; cached with the request graph | design |
+| E24 | Stage 2 extraction (`extract_keywords_attempt`) | deterministic shape check + E22 | the extraction output is currently UNVALIDATED (temp 0.2, single sample) | design |
+Rule restated: adds need no unanimity; drops need strength-N unanimity; scores are counts/ranks of observed events, never model confidence.

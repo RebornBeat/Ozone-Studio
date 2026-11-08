@@ -85,6 +85,8 @@ pub struct SpanOutResult {
     pub budget_filled: bool,
     pub fetch_cap_hit: bool,
     pub frontier_left: usize,
+    /// Containers reached (keyword seeds / relationship frontier) but skipped because they live under a DIFFERENT project/workspace.
+    pub out_of_scope: usize,
 }
 
 const SCORE_FLOOR: f32 = 0.02;
@@ -291,6 +293,108 @@ pub async fn span_out(
     seeds: Vec<SpanSeed>,
     token_budget: u32,
 ) -> SpanOutResult {
+    span_out_scoped(store, data_dir, seeds, token_budget, None).await
+}
+
+/// WORKSPACE / PROJECT SCOPE for a span-out (2026-11-08; live walk 1155 cited fixture graphs from OTHER projects: the keyword
+/// rediscovery and the relationship frontier were host-wide). `project_id` wins over `workspace_id`. A container is IN scope when its
+/// ancestry reaches the scoped project (or, for a workspace scope, the scoped workspace) OR reaches no project/workspace at all
+/// (global knowledge: methodologies, pipelines, consciousness …). It is OUT of scope when it lives under a DIFFERENT project/workspace —
+/// such a container is neither rendered nor expanded through. Run-owned seeds (attached files, prompt/chunk/modality graphs, AMT,
+/// blueprint, methodologies) are trusted and never filtered; `None`/empty scope = the old host-wide behaviour.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SpanScope {
+    pub project_id: Option<u64>,
+    pub workspace_id: Option<u64>,
+}
+
+impl SpanScope {
+    fn active(&self) -> bool {
+        self.project_id.is_some() || self.workspace_id.is_some()
+    }
+    /// `(project, workspace)` = the first Project / Workspace ancestor of a container (None when it has none).
+    fn admits(&self, found: (Option<u64>, Option<u64>)) -> bool {
+        let (proj, ws) = found;
+        if let Some(p) = self.project_id {
+            return match (proj, ws) {
+                (Some(q), _) => q == p,
+                (None, Some(w)) => Some(w) == self.workspace_id,
+                (None, None) => true,
+            };
+        }
+        if let Some(w) = self.workspace_id {
+            return match ws {
+                Some(x) => x == w,
+                None => proj.is_none(),
+            };
+        }
+        true
+    }
+}
+
+/// Walk a container's ancestry (cycle-guarded, no depth cap) to its first Project and first Workspace ancestor; memoised per call.
+async fn ancestry_scope(
+    store: &Arc<dyn StoreAccess>,
+    container: &serde_json::Value,
+    cache: &mut std::collections::HashMap<u64, (Option<u64>, Option<u64>)>,
+) -> (Option<u64>, Option<u64>) {
+    // FAST PATH (2026-11-08): the typed scope (`Context.scope`, filled centrally on every write from the marker keywords) answers without
+    // walking the ancestry. `global` = visible everywhere = out of no scope.
+    {
+        let tp = container.pointer("/local_state/context/scope/project_id").and_then(|v| v.as_u64());
+        let tw = container.pointer("/local_state/context/scope/workspace_id").and_then(|v| v.as_u64());
+        let tg = container.pointer("/local_state/context/scope/global").and_then(|v| v.as_bool()).unwrap_or(false);
+        if tp.is_some() || tw.is_some() {
+            return (tp, tw);
+        }
+        if tg {
+            return (None, None);
+        }
+    }
+    let mut project: Option<u64> = None;
+    let mut workspace: Option<u64> = None;
+    let mut visited: HashSet<u64> = HashSet::new();
+    let mut cur = container.clone();
+    loop {
+        let id = cur.pointer("/global_state/container_id").and_then(|v| v.as_u64()).unwrap_or(0);
+        if id != 0 && !visited.insert(id) {
+            break; // cycle
+        }
+        if let Some(hit) = cache.get(&id).filter(|_| id != 0) {
+            project = project.or(hit.0);
+            workspace = workspace.or(hit.1);
+            break;
+        }
+        match cur.pointer("/local_state/metadata/container_type").and_then(|t| t.as_str()) {
+            Some("Project") if project.is_none() => project = Some(id),
+            Some("Workspace") if workspace.is_none() => workspace = Some(id),
+            _ => {}
+        }
+        let parent = cur.pointer("/global_state/parent_id").and_then(|v| v.as_u64()).unwrap_or(0);
+        if parent == 0 || (project.is_some() && workspace.is_some()) {
+            break;
+        }
+        match store.get_container(parent).await {
+            Ok(Some(c)) => cur = c,
+            _ => break,
+        }
+    }
+    let own = container.pointer("/global_state/container_id").and_then(|v| v.as_u64()).unwrap_or(0);
+    if own != 0 {
+        cache.insert(own, (project, workspace));
+    }
+    (project, workspace)
+}
+
+pub async fn span_out_scoped(
+    store: &Arc<dyn StoreAccess>,
+    data_dir: &str,
+    seeds: Vec<SpanSeed>,
+    token_budget: u32,
+    scope: Option<SpanScope>,
+) -> SpanOutResult {
+    let scope = scope.filter(|s| s.active());
+    let mut scope_cache: std::collections::HashMap<u64, (Option<u64>, Option<u64>)> = std::collections::HashMap::new();
     let cap = fetch_cap(token_budget);
     let mut heap: BinaryHeap<Frontier> = BinaryHeap::new();
     let mut seen: HashSet<u64> = HashSet::new();
@@ -316,6 +420,17 @@ pub async fn span_out(
         }
         result.fetched += 1;
         let Ok(Some(container)) = store.get_container(node.id).await else { continue };
+        // scope: run-owned seeds are trusted; keyword seeds and everything reached through relationships must be in scope
+        if let Some(sc) = &scope {
+            let trusted = node.via.starts_with("seed:") && node.via != "seed:keyword";
+            if !trusted {
+                let found = ancestry_scope(store, &container, &mut scope_cache).await;
+                if !sc.admits(found) {
+                    result.out_of_scope += 1;
+                    continue; // not rendered, not expanded through
+                }
+            }
+        }
         let Some(r) = render(data_dir, &container) else { continue };
         if is_infrastructure(&r.container_type) {
             continue; // never rendered, never expanded through
@@ -427,22 +542,33 @@ impl super::PromptOrchestrator {
             seeds.push(SpanSeed::new(*id, 0.6, "methodology"));
         }
         // Keyword rediscovery for this step's own terms (branch-derived keywords first).
-        let mut kws: Vec<String> = step.context_requirements.iter().cloned().collect();
-        for w in step.description.split_whitespace() {
-            if !kws.iter().any(|k| k == w) {
-                kws.push(w.to_string());
+        // KEYWORD HYGIENE (2026-11-08): the raw whitespace tokens of the step text (stopwords, punctuation attached) used to be searched
+        // host-wide; now branch-derived keywords as given + the description's CONTENT words (request_terms, same rule as Stage 2/3).
+        let mut kws: Vec<String> = step.context_requirements.iter().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect();
+        for w in super::request_terms::content_words(&step.description) {
+            if !kws.iter().any(|k| k.eq_ignore_ascii_case(&w)) {
+                kws.push(w);
             }
         }
         if !kws.is_empty() {
-            if let Ok(ids) = self.store.search_by_keywords(&kws, None).await {
-                for id in ids.into_iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
-                    seeds.push(SpanSeed::new(id, 0.5, "keyword"));
+            // ranked + token-aware (2026-11-08): best match first, so the window fills with the best hits, not an arbitrary slice
+            if let Ok(ids) = self.store.search_ranked(&kws, None).await {
+                // rank-derived seed scores (ordinal, NOT a confidence): the best hit seeds highest, the last lowest; all hits kept (no cap)
+                let n = ids.len().max(1) as f32;
+                for (rank, id) in ids.into_iter().enumerate() {
+                    seeds.push(SpanSeed::new(id, 0.5 * (1.0 - 0.5 * (rank as f32) / n), "keyword"));
                 }
             }
         }
         let budget = (state.model_context_limit / 4).max(256);
-        let r = span_out(&self.store, &self.data_dir, seeds, budget).await;
-        tracing::info!(
+        // SCOPE (2026-11-08): a request made inside a project/workspace spans out only through that scope (+ global knowledge).
+        let scope = SpanScope { project_id: state.request.project_id, workspace_id: state.request.workspace_id };
+        let r = span_out_scoped(&self.store, &self.data_dir, seeds, budget, Some(scope)).await;
+        // HIT capture: everything that made it into this step's window was PACKED (used as context)
+        for item in &r.items {
+            crate::keyword_program::record_event("packed", item.id, &kws, serde_json::json!({"via": item.via, "step": step.step_index}));
+        }
+        tracing::info!(out_of_scope = r.out_of_scope, 
             step = step.step_index,
             items = r.items.len(),
             tokens = r.tokens,

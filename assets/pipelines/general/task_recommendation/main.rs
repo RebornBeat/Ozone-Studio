@@ -26,7 +26,7 @@ pub struct TaskRecommendOutput {
 
 pub async fn execute(input: TaskRecommendInput) -> Result<TaskRecommendOutput, String> {
     let recs = vec![
-        TaskRecommendation { task_type: "code_review".into(), description: "Review recent changes".into(), confidence: 0.8, blueprint_id: Some(1) },
+        TaskRecommendation { task_type: "code_review".into(), description: "Review recent changes".into(), confidence: 0.0, blueprint_id: Some(1) },
     ];
     Ok(TaskRecommendOutput { success: true, recommendations: Some(recs), error: None })
 }
@@ -35,7 +35,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut input_json = String::new();
     for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); } }
-    let input: TaskRecommendInput = serde_json::from_str(&input_json).unwrap_or_else(|e| { eprintln!("Parse error: {}", e); std::process::exit(1); });
+    let input: TaskRecommendInput = serde_json::from_value(ozone_unwrap_envelope(&input_json)).unwrap_or_else(|e| { eprintln!("Parse error: {}", e); std::process::exit(1); });
     let rt = tokio::runtime::Runtime::new().unwrap();
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap()),
@@ -53,5 +53,23 @@ fn ozone_input_arg(raw: &str) -> String {
             std::process::exit(1);
         }),
         _ => raw.to_string(),
+    }
+}
+
+
+/// The host executor hands every pipeline a `{data, context}` ENVELOPE (`PipelineInput`); the action lives in `data`. Parsing the envelope
+/// as the action enum fails with "missing field `action`" (live: the Stage 12 relationship update). Accepts the envelope or a flat input;
+/// only a top-level object holding BOTH an object `data` and a `context` is treated as an envelope. (2026-11-08 envelope audit.)
+#[allow(dead_code)]
+fn ozone_unwrap_envelope(raw: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(raw).unwrap_or_else(|e| {
+        eprintln!("Parse error: {}", e);
+        std::process::exit(1);
+    });
+    let is_envelope = v.get("context").is_some() && v.get("data").map(|d| d.is_object()).unwrap_or(false);
+    if is_envelope {
+        v.get("data").cloned().unwrap_or(v)
+    } else {
+        v
     }
 }

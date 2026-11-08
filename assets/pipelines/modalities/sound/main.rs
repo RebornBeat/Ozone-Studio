@@ -1375,7 +1375,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1470,7 +1470,7 @@ async fn create_graph(
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["sound".into(), "bioacoustics".into(), "reconstruction".into()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1486,7 +1486,7 @@ async fn create_graph(
         materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Metadata", project_id, graph_id)),
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         keywords: { let mut kw = vec!["metadata".into()]; if let Some(ref h) = analysis.recording_metadata.habitat_type { kw.push(h.to_lowercase()); } kw },
-        hotness_score: 0.6, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: meta_nid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
     edge_id += 1; node_id += 1;
@@ -1503,9 +1503,9 @@ async fn create_graph(
             amplitude_db: Some(ambient.noise_floor_db),
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Ambient", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["ambient".into(), "noise".into()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["ambient".into(), "noise".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: anid, edge_type: SoundEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: anid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1519,7 +1519,7 @@ async fn create_graph(
                 scene.bioacoustic_index, scene.normalized_difference_soundscape_index),
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Scene", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["acoustic-scene".into(), "soundscape".into()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["acoustic-scene".into(), "soundscape".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: snid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1535,9 +1535,9 @@ async fn create_graph(
                 idx.frequency_range_hz.0, idx.frequency_range_hz.1, idx.interpretation),
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Index/{}", project_id, graph_id, idx.index_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["soundscape-index".into(), idx.index_name.to_lowercase()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["soundscape-index".into(), idx.index_name.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: iid, edge_type: SoundEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: iid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1559,7 +1559,7 @@ async fn create_graph(
                 kw.extend(sp.scientific_name.to_lowercase().split_whitespace().map(String::from));
                 kw
             },
-            hotness_score: 0.8,
+            hotness_score: 0.0,
             embedding_hint: Some(format!("species: {} scientific: {} group: {:?}", sp.common_name, sp.scientific_name, sp.taxonomic_group)),
             ..Default::default()
         });
@@ -1594,7 +1594,7 @@ async fn create_graph(
         // Species → biology cross-modal
         edges.push(SoundGraphEdge {
             edge_id, from_node: spid, to_node: spid,
-            edge_type: SoundEdgeType::LinksToSpeciesBiology, weight: 0.9,
+            edge_type: SoundEdgeType::LinksToSpeciesBiology, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("biology")); p.insert("scientific_name".into(), serde_json::json!(&sp.scientific_name)); p },
             ..Default::default()
@@ -1605,7 +1605,7 @@ async fn create_graph(
         if matches!(sp.taxonomic_group, TaxonomicGroup::Cetacea) {
             edges.push(SoundGraphEdge {
                 edge_id, from_node: spid, to_node: spid,
-                edge_type: SoundEdgeType::MarineVocalizationToSonar, weight: 0.8,
+                edge_type: SoundEdgeType::MarineVocalizationToSonar, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("sonar")); p },
                 ..Default::default()
@@ -1628,10 +1628,10 @@ async fn create_graph(
             bearing_deg: ind.home_bearing_deg,
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Individual/{}", project_id, graph_id, ind.individual_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["individual".into(), "identity".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["individual".into(), "identity".into()], hotness_score: 0.0, ..Default::default()
         });
         individual_node_ids.insert(ind.individual_id, iid);
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: iid, edge_type: SoundEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: iid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Individual → species
@@ -1693,7 +1693,7 @@ async fn create_graph(
         // Response to another vocalization
         if let Some(resp_id) = voc.response_to_id {
             if let Some(&resp_nid) = voc_node_ids.get(&resp_id) {
-                edges.push(SoundGraphEdge { edge_id, from_node: vid, to_node: resp_nid, edge_type: SoundEdgeType::ResponseTo, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edges.push(SoundGraphEdge { edge_id, from_node: vid, to_node: resp_nid, edge_type: SoundEdgeType::ResponseTo, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }
@@ -1711,7 +1711,7 @@ async fn create_graph(
         if voc_b.start_sec - voc_a.end_sec < 5.0 { // within 5 seconds: sequential
             edges.push(SoundGraphEdge {
                 edge_id, from_node: nid_a, to_node: nid_b,
-                edge_type: SoundEdgeType::PrecedesInSequence, weight: 0.7,
+                edge_type: SoundEdgeType::PrecedesInSequence, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("gap_sec".into(), serde_json::json!(voc_b.start_sec - voc_a.end_sec)); p },
                 ..Default::default()
@@ -1722,7 +1722,7 @@ async fn create_graph(
         if voc_b.start_sec < voc_a.end_sec {
             edges.push(SoundGraphEdge {
                 edge_id, from_node: nid_a, to_node: nid_b,
-                edge_type: SoundEdgeType::OverlapsWith, weight: 0.8,
+                edge_type: SoundEdgeType::OverlapsWith, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("overlap_sec".into(), serde_json::json!(voc_a.end_sec - voc_b.start_sec)); p },
                 ..Default::default()
@@ -1747,7 +1747,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Unit/{}", project_id, graph_id, unit.unit_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["unit".into(), format!("{:?}", unit.unit_type).to_lowercase()],
-            hotness_score: 0.5, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         if let Some(&parent_vid) = voc_node_ids.get(&unit.vocalization_id) {
             edges.push(SoundGraphEdge { edge_id, from_node: parent_vid, to_node: uid, edge_type: SoundEdgeType::ConsistsOf, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1776,10 +1776,10 @@ async fn create_graph(
                 if let Some(ref sn) = sig.species_name { kw.push(sn.to_lowercase()); }
                 kw
             },
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         sig_node_ids.insert(sig.signature_id, sid);
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: SoundEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Signature → species node
@@ -1800,7 +1800,7 @@ async fn create_graph(
     for voc in &analysis.vocalizations {
         if let Some(sig_id) = voc.acoustic_signature_id {
             if let (Some(&voc_nid), Some(&sig_nid)) = (voc_node_ids.get(&voc.vocalization_id), sig_node_ids.get(&sig_id)) {
-                edges.push(SoundGraphEdge { edge_id, from_node: voc_nid, to_node: sig_nid, edge_type: SoundEdgeType::MatchesSignature, weight: 0.85, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edges.push(SoundGraphEdge { edge_id, from_node: voc_nid, to_node: sig_nid, edge_type: SoundEdgeType::MatchesSignature, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }
@@ -1820,7 +1820,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/EchoSeq/{}", project_id, graph_id, seq.sequence_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["echolocation".into(), "bat".into(), format!("{:?}", seq.sequence_type).to_lowercase()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         echo_seq_node_ids.insert(seq.sequence_id, esid);
         edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: esid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1851,7 +1851,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Pulse/{}", project_id, graph_id, pulse.pulse_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["echolocation".into(), "pulse".into(), format!("{:?}", pulse.pulse_type).to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // Pulse → sequence
         if let Some(seq_id) = pulse.sequence_id {
@@ -1875,15 +1875,15 @@ async fn create_graph(
             bearing_deg: Some(loc.bearing_deg), distance_m: Some(loc.estimated_distance_m),
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Loc/{}", project_id, graph_id, loc.localization_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["localization".into(), "source".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["localization".into(), "source".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: SoundEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Localization → vocalization
         if let Some(voc_id) = loc.vocalization_id {
             if let Some(&voc_nid) = voc_node_ids.get(&voc_id) {
-                edges.push(SoundGraphEdge { edge_id, from_node: voc_nid, to_node: lid, edge_type: SoundEdgeType::LocalizedAt, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edges.push(SoundGraphEdge { edge_id, from_node: voc_nid, to_node: lid, edge_type: SoundEdgeType::LocalizedAt, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }
@@ -1891,7 +1891,7 @@ async fn create_graph(
         if loc.geo_location.is_some() {
             edges.push(SoundGraphEdge {
                 edge_id, from_node: lid, to_node: lid,
-                edge_type: SoundEdgeType::PlottedOnGeoMap, weight: 0.85,
+                edge_type: SoundEdgeType::PlottedOnGeoMap, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p },
                 ..Default::default()
@@ -1912,9 +1912,9 @@ async fn create_graph(
             distance_m: Some(path.distance_m),
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/PropPath/{}", project_id, graph_id, path.path_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["propagation".into(), format!("{:?}", path.medium).to_lowercase()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["propagation".into(), format!("{:?}", path.medium).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: SoundEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1932,9 +1932,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/SoundReconstruction/Project_{}/Graph_{}/Event/{}", project_id, graph_id, ev.event_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["sound-event".into(), format!("{:?}", ev.event_type).to_lowercase()],
-            hotness_score: 0.5, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: SoundEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1962,7 +1962,7 @@ async fn create_graph(
     for (from, to, etype, reason) in inferred {
         if valid_ids.contains(&from) && valid_ids.contains(&to) && from != to {
             edges.push(SoundGraphEdge {
-                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                 ..Default::default()
@@ -2074,7 +2074,7 @@ pub async fn execute(input: SoundReconstructionAction) -> Result<SoundReconstruc
                         start_sec: Some(voc.start_sec), end_sec: Some(voc.end_sec),
                         peak_freq_hz: Some(voc.peak_freq_hz), amplitude_db: Some(voc.amplitude_db),
                         provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                        keywords: vec!["vocalization".into(), "updated".into()], hotness_score: 0.8, ..Default::default()
+                        keywords: vec!["vocalization".into(), "updated".into()], hotness_score: 0.0, ..Default::default()
                     });
                     graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                     next_eid += 1; next_nid += 1;
@@ -2085,7 +2085,7 @@ pub async fn execute(input: SoundReconstructionAction) -> Result<SoundReconstruc
                         content: format!("Updated species: {}", sp.common_name),
                         species_name: Some(sp.common_name.clone()),
                         provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                        keywords: vec!["species".into(), sp.common_name.to_lowercase()], hotness_score: 0.8, ..Default::default()
+                        keywords: vec!["species".into(), sp.common_name.to_lowercase()], hotness_score: 0.0, ..Default::default()
                     });
                     graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                     next_eid += 1; next_nid += 1;
@@ -2417,7 +2417,7 @@ Return ONLY valid JSON:
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -2472,14 +2472,14 @@ Return ONLY valid JSON:
                     SoundHeadlessOp::CrossLinkToBiology { bio_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| matches!(n.node_type, SoundNodeType::SpeciesNode)) {
-                            graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: SoundEdgeType::LinksToSpeciesBiology, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("bio_graph_id".into(), serde_json::json!(bio_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: SoundEdgeType::LinksToSpeciesBiology, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("bio_graph_id".into(), serde_json::json!(bio_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
                     SoundHeadlessOp::CrossLinkToGeo { geo_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| n.geo_location.is_some()) {
-                            graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: SoundEdgeType::PlottedOnGeoMap, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(SoundGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: SoundEdgeType::PlottedOnGeoMap, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }

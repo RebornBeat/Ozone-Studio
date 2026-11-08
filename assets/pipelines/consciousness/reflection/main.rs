@@ -826,7 +826,7 @@ fn main() {
         }
     }
     
-    let input: ReflectionInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    let input: ReflectionInput = serde_json::from_value(ozone_unwrap_envelope(&input_json)).unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });
@@ -851,5 +851,23 @@ fn ozone_input_arg(raw: &str) -> String {
             std::process::exit(1);
         }),
         _ => raw.to_string(),
+    }
+}
+
+
+/// The host executor hands every pipeline a `{data, context}` ENVELOPE (`PipelineInput`); the action lives in `data`. Parsing the envelope
+/// as the action enum fails with "missing field `action`" (live: the Stage 12 relationship update). Accepts the envelope or a flat input;
+/// only a top-level object holding BOTH an object `data` and a `context` is treated as an envelope. (2026-11-08 envelope audit.)
+#[allow(dead_code)]
+fn ozone_unwrap_envelope(raw: &str) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(raw).unwrap_or_else(|e| {
+        eprintln!("Parse error: {}", e);
+        std::process::exit(1);
+    });
+    let is_envelope = v.get("context").is_some() && v.get("data").map(|d| d.is_object()).unwrap_or(false);
+    if is_envelope {
+        v.get("data").cloned().unwrap_or(v)
+    } else {
+        v
     }
 }

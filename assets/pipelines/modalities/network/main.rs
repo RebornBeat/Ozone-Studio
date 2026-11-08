@@ -1307,7 +1307,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["network".into(), "topology".into(), format!("{:?}", analysis.topology_type).to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1325,7 +1325,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Subnet/{}", project_id, graph_id, sn.subnet_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: { let mut kw = vec!["subnet".into(), sn.cidr.clone()]; if let Some(ref n) = sn.name { kw.push(n.to_lowercase()); } kw },
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
         // first real producer). Fire-and-forget, detached, never slows
@@ -1368,9 +1368,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/VLAN/{}", project_id, graph_id, vlan.vlan_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: { let mut kw = vec!["vlan".into(), format!("vlan{}", vlan.vlan_id)]; if let Some(ref n) = vlan.name { kw.push(n.to_lowercase()); } kw },
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: NetworkEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // VLAN → subnets
         for sn_id in &vlan.subnet_ids {
@@ -1395,9 +1395,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Zone/{}", project_id, graph_id, zone.zone_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["security-zone".into(), zone.name.to_lowercase(), format!("{:?}", zone.trust_level).to_lowercase()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: znid, edge_type: NetworkEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: znid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Zone → subnets
         for sn_id in &zone.subnet_ids {
@@ -1450,7 +1450,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
         }
         // Cross-modal: geo-referenced host → geospatial (117)
         if host.geo_location.is_some() {
-            edges.push(NetworkGraphEdge { edge_id, from_node: hnid, to_node: hnid, edge_type: NetworkEdgeType::GeoReferenced, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
+            edges.push(NetworkGraphEdge { edge_id, from_node: hnid, to_node: hnid, edge_type: NetworkEdgeType::GeoReferenced, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
             edge_id += 1;
         }
         host_id_to_nid.insert(host.host_id, hnid);
@@ -1470,7 +1470,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
                 materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Router/{}", project_id, graph_id, router.router_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                 keywords: vec!["router".into(), "routing".into()],
-                hotness_score: 0.85, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             edges.push(NetworkGraphEdge { edge_id, from_node: host_nid, to_node: rnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; node_id += 1;
@@ -1487,7 +1487,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
                     sw.port_count, sw.vlan_count, sw.is_l3, sw.vendor.as_deref().unwrap_or("?")),
                 materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Switch/{}", project_id, graph_id, sw.switch_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["switch".into(), "l2".into()], hotness_score: 0.75, ..Default::default()
+                keywords: vec!["switch".into(), "l2".into()], hotness_score: 0.0, ..Default::default()
             });
             edges.push(NetworkGraphEdge { edge_id, from_node: host_nid, to_node: swnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; node_id += 1;
@@ -1504,7 +1504,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
                     fw.rule_count, fw.nat_rules, fw.vpn_tunnels, fw.vendor.as_deref().unwrap_or("?")),
                 materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Firewall/{}", project_id, graph_id, fw.fw_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["firewall".into(), "security".into()], hotness_score: 0.9, ..Default::default()
+                keywords: vec!["firewall".into(), "security".into()], hotness_score: 0.0, ..Default::default()
             });
             edges.push(NetworkGraphEdge { edge_id, from_node: host_nid, to_node: fwnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
@@ -1548,10 +1548,10 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             edges.push(NetworkGraphEdge { edge_id, from_node: h_nid, to_node: svnid, edge_type: NetworkEdgeType::ServesOver, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: svnid, edge_type: NetworkEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: svnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Cross-modal: service → code (101)
-        edges.push(NetworkGraphEdge { edge_id, from_node: svnid, to_node: svnid, edge_type: NetworkEdgeType::ImplementedByCode, weight: 0.7, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("code")); p }, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: svnid, to_node: svnid, edge_type: NetworkEdgeType::ImplementedByCode, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("code")); p }, ..Default::default() });
         edge_id += 1;
         svc_id_to_nid.insert(svc.service_id, svnid);
         node_id += 1;
@@ -1593,7 +1593,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             hotness_score: if peer.state == BGPSessionState::Established { 0.75 } else { 0.5 },
             ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: pnid, edge_type: NetworkEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: pnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Find local router and link BGPPeersWith
         for router in &analysis.routers {
@@ -1627,7 +1627,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             hotness_score: (flow.bytes as f32 / 1_000_000.0).min(0.95).max(0.4),
             ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: fnid, edge_type: NetworkEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: fnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Src host → flow
         if let Some(src_host) = analysis.hosts.iter().find(|h| h.ip_addresses.contains(&flow.src_ip)) {
@@ -1651,7 +1651,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             hotness_score: match anomaly.severity { AnomalySeverity::Critical => 0.98, AnomalySeverity::High => 0.88, AnomalySeverity::Medium => 0.75, _ => 0.55 },
             ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: anid, edge_type: NetworkEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: anid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Anomaly → affected hosts
         for &affected_hid in &anomaly.affected_host_ids {
@@ -1673,9 +1673,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/VPC/{}", project_id, graph_id, vpc.vpc_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["cloud".into(), "vpc".into(), vpc.cloud_provider.to_lowercase(), vpc.region.to_lowercase()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: NetworkEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1695,7 +1695,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             hotness_score: if k8s_svc.service_type == K8sServiceType::LoadBalancer { 0.85 } else { 0.65 },
             ..Default::default()
         });
-        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: knid, edge_type: NetworkEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: knid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1714,7 +1714,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
             edges.push(NetworkGraphEdge {
-                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                 ..Default::default()
@@ -1760,7 +1760,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1912,7 +1912,7 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                             criticality: Some(format!("{:?}", host.criticality)),
                             is_internal: Some(host.is_internal), geo_location: host.geo_location,
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["host".into()], hotness_score: 0.7, ..Default::default()
+                            keywords: vec!["host".into()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
@@ -1946,9 +1946,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                             health_status: Some(format!("{:?}", service.health_status)),
                             is_internal: Some(!service.is_exposed_externally),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["service".into(), service.name.to_lowercase()], hotness_score: 0.7, ..Default::default()
+                            keywords: vec!["service".into(), service.name.to_lowercase()], hotness_score: 0.0, ..Default::default()
                         });
-                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     NetworkUpdate::RemoveService { service_id } => {
@@ -1961,9 +1961,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                             ip_address: Some(flow.src_ip.clone()), port: flow.dst_port,
                             protocol: Some(format!("{:?}", flow.protocol)), bytes: Some(flow.bytes),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["flow".into()], hotness_score: 0.6, ..Default::default()
+                            keywords: vec!["flow".into()], hotness_score: 0.0, ..Default::default()
                         });
-                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     NetworkUpdate::UpdateSecurityZone { zone_id, trust_level } => {
@@ -1977,9 +1977,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                             node_id: next_nid, node_type: NetworkNodeType::AnomalyNode,
                             content: format!("Anomaly {:?} [{:?}]: {}", anomaly.anomaly_type, anomaly.severity, anomaly.description.chars().take(50).collect::<String>()),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["anomaly".into()], hotness_score: 0.85, ..Default::default()
+                            keywords: vec!["anomaly".into()], hotness_score: 0.0, ..Default::default()
                         });
-                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     NetworkUpdate::UpdateRoutingEntry { entry } => {
@@ -1995,9 +1995,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                                 content: format!("Route: {} via {} metric={} {:?}", entry.prefix, entry.next_hop, entry.metric, entry.protocol),
                                 cidr: Some(entry.prefix.clone()), ip_address: Some(entry.next_hop.clone()),
                                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                                keywords: vec!["route".into(), entry.prefix.clone()], hotness_score: 0.5, ..Default::default()
+                                keywords: vec!["route".into(), entry.prefix.clone()], hotness_score: 0.0, ..Default::default()
                             });
-                            graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.5, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                            graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                             next_eid += 1; next_nid += 1;
                         }
                     }
@@ -2425,7 +2425,7 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                         if valid.contains(&from) && valid.contains(&to) && from != to {
                             graph.edges.push(NetworkGraphEdge {
                                 edge_id: next_eid, from_node: from, to_node: to,
-                                edge_type: etype, weight: 0.8,
+                                edge_type: etype, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                                 ..Default::default()
@@ -2463,7 +2463,7 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                         content: format!("CrossModal→{} graph={}", target_modality, target_graph_id),
                         materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/CrossModal/{}", graph.project_id, graph_id, target_graph_id)),
                         provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                        keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.7, ..Default::default()
+                        keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.0, ..Default::default()
                     });
                     let etype = match target_modality.as_str() {
                         "3d"         => NetworkEdgeType::PlacedIn3D,
@@ -2473,7 +2473,7 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                         "control"    => NetworkEdgeType::ControlPlaneOf,
                         _            => NetworkEdgeType::Contains,
                     };
-                    graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
+                    graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
                 }
             }
             graph.updated_at = now;
@@ -2593,7 +2593,7 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                         for h_nid in geo_host_nids {
                             graph.edges.push(NetworkGraphEdge {
                                 edge_id: next_eid, from_node: h_nid, to_node: h_nid,
-                                edge_type: NetworkEdgeType::GeoReferenced, weight: 0.9,
+                                edge_type: NetworkEdgeType::GeoReferenced, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id)); p },
                                 ..Default::default()
@@ -2635,7 +2635,7 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                         for h_nid in host_nids {
                             graph.edges.push(NetworkGraphEdge {
                                 edge_id: next_eid, from_node: h_nid, to_node: h_nid,
-                                edge_type: NetworkEdgeType::PlacedIn3D, weight: 0.75,
+                                edge_type: NetworkEdgeType::PlacedIn3D, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("three_d_graph_id".into(), serde_json::json!(three_d_graph_id)); p },
                                 ..Default::default()

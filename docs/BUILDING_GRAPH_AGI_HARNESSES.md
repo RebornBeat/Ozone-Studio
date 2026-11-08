@@ -6,6 +6,13 @@
 > root causes. The system is the worked example; the numbers are real (sources:
 > `walk_metrics.jsonl`, `tools/walk-scorecard/scorecard.mjs`, `docs/WALK_COMPLETION_GUIDE.md`,
 > `docs/MASTER_TEST_GUIDE.md`).
+>
+> **Snapshot note (2026-11-08).** The funnel figures below (15 walks, Nov 3–7: stage 2 median 19 min, step-execution reach 7%) are a
+> dated SNAPSHOT, kept because they are what drove the fixes. The live source is the scorecard (`tools/walk-scorecard/scorecard.mjs`):
+> on 17 walks it now reads stage 2 median 12.8 min and step-execution reach 12%, and the walks run after the fixes cleared stage 2 in
+> 0.4 s and 107 s — the old stage-2 kills were a wall-clock watchdog, since made progress-aware. The costs that now dominate are stage 4
+> (a sequential store-linking loop), stage 5 (AMT branch count) and plan size. That the numbers moved is the lesson: a finding drove a
+> fix and the funnel moved. Re-run the scorecard before quoting any figure.
 
 ---
 

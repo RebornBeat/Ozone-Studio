@@ -28,7 +28,7 @@ fn ozone_host() -> String {
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/zsei/query", ozone_host()))
+        .post(format!("{}/zsei/query", ozone_host())).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&serde_json::json!({"query": query, "session_token": ""}))
         .send()
         .await

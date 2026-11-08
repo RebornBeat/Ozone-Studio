@@ -1461,7 +1461,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["imu".into(), format!("{:?}", analysis.sensor_model).to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1473,7 +1473,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             analysis.sensor_model, analysis.accel_range_g, analysis.gyro_range_dps, analysis.sample_rate_hz),
         materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Sensor", project_id, graph_id)),
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
-        keywords: vec!["sensor".into(), format!("{:?}", analysis.sensor_model).to_lowercase()], hotness_score: 0.7, ..Default::default()
+        keywords: vec!["sensor".into(), format!("{:?}", analysis.sensor_model).to_lowercase()], hotness_score: 0.0, ..Default::default()
     });
     edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: sensor_nid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
     edge_id += 1; node_id += 1;
@@ -1489,7 +1489,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
                 cal.calibration_temperature_c),
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Calibration", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["calibration".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["calibration".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(IMUGraphEdge { edge_id, from_node: sensor_nid, to_node: cal_nid, edge_type: IMUEdgeType::CalibrationAppliedTo, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1507,17 +1507,17 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             quaternion: Some(ahrs.final_attitude), euler_deg: Some(final_euler),
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/AHRS", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["ahrs".into(), "attitude".into(), format!("{:?}", ahrs.algorithm).to_lowercase()], hotness_score: 0.85, ..Default::default()
+            keywords: vec!["ahrs".into(), "attitude".into(), format!("{:?}", ahrs.algorithm).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: anid, edge_type: IMUEdgeType::EstimatesAttitude, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // AHRS → kinematics cross-modal
-        edges.push(IMUGraphEdge { edge_id, from_node: anid, to_node: anid, edge_type: IMUEdgeType::FeedsKinematicModel, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p }, ..Default::default() });
+        edges.push(IMUGraphEdge { edge_id, from_node: anid, to_node: anid, edge_type: IMUEdgeType::FeedsKinematicModel, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p }, ..Default::default() });
         edge_id += 1;
 
         // AHRS → control system cross-modal
-        edges.push(IMUGraphEdge { edge_id, from_node: anid, to_node: anid, edge_type: IMUEdgeType::FeedsControlSystem, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p }, ..Default::default() });
+        edges.push(IMUGraphEdge { edge_id, from_node: anid, to_node: anid, edge_type: IMUEdgeType::FeedsControlSystem, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p }, ..Default::default() });
         edge_id += 1;
 
         ahrs_nid = Some(anid);
@@ -1535,17 +1535,17 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             position: Some(traj.final_position),
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Trajectory", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["trajectory".into(), "dead-reckoning".into()], hotness_score: 0.8, ..Default::default()
+            keywords: vec!["trajectory".into(), "dead-reckoning".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: tnid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Trajectory → geo map cross-modal
-        edges.push(IMUGraphEdge { edge_id, from_node: tnid, to_node: tnid, edge_type: IMUEdgeType::PlottedOnGeoMap, weight: 0.8, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
+        edges.push(IMUGraphEdge { edge_id, from_node: tnid, to_node: tnid, edge_type: IMUEdgeType::PlottedOnGeoMap, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
         edge_id += 1;
 
         // Trajectory → 3D scene cross-modal
-        edges.push(IMUGraphEdge { edge_id, from_node: tnid, to_node: tnid, edge_type: IMUEdgeType::TrajectoryIn3DScene, weight: 0.75, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
+        edges.push(IMUGraphEdge { edge_id, from_node: tnid, to_node: tnid, edge_type: IMUEdgeType::TrajectoryIn3DScene, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
         edge_id += 1;
 
         // Trajectory waypoints (sampled — first/last/middle 10)
@@ -1571,7 +1571,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
                 materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Trajectory/WP/{}", project_id, graph_id, wi)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                 keywords: if wp.is_stationary { vec!["waypoint".into(), "zupt".into()] } else { vec!["waypoint".into()] },
-                hotness_score: 0.55, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             edges.push(IMUGraphEdge { edge_id, from_node: prev_wp_nid, to_node: wp_nid, edge_type: IMUEdgeType::DeadReckoningFrom, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; prev_wp_nid = wp_nid; node_id += 1;
@@ -1587,7 +1587,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
                 timestamp_sec: Some(zupt.start_sec),
                 materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/ZUPT/{}", project_id, graph_id, zupt.event_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["zupt".into(), "stationary".into()], hotness_score: 0.5, ..Default::default()
+                keywords: vec!["zupt".into(), "stationary".into()], hotness_score: 0.0, ..Default::default()
             });
             edges.push(IMUGraphEdge { edge_id, from_node: tnid, to_node: znid, edge_type: IMUEdgeType::ZUPTCorrectedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; node_id += 1;
@@ -1608,7 +1608,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             motion_class: Some(format!("{:?}", mc.dominant_motion)),
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Motion", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["motion".into(), format!("{:?}", mc.dominant_motion).to_lowercase()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["motion".into(), format!("{:?}", mc.dominant_motion).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: mnid, edge_type: IMUEdgeType::ClassifiedAsMotion, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; motion_nid = Some(mnid); node_id += 1;
@@ -1628,7 +1628,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             keywords: vec!["event".into(), format!("{:?}", ev.event_type).to_lowercase()],
             hotness_score: 0.6 + (ev.magnitude / 10.0).clamp(0.0, 0.3), ..Default::default()
         });
-        edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: enid, edge_type: IMUEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: enid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
         (ev.event_id, enid)
     }).collect();
@@ -1685,13 +1685,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             dominant_freq_hz: Some(vs.peak_freq_hz),
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Vib/{}", project_id, graph_id, vs.spectrum_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["vibration".into(), format!("{:?}", vs.axis).to_lowercase()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["vibration".into(), format!("{:?}", vs.axis).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: IMUEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Correlate vibration with step events
         for &(_, ev_nid) in event_node_ids.iter().filter(|(eid, _)| analysis.imu_events.iter().any(|e| e.event_id == *eid && matches!(e.event_type, EventType::Step))) {
-            edges.push(IMUGraphEdge { edge_id, from_node: vnid, to_node: ev_nid, edge_type: IMUEdgeType::CorrelatesWithStep, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(IMUGraphEdge { edge_id, from_node: vnid, to_node: ev_nid, edge_type: IMUEdgeType::CorrelatesWithStep, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1710,14 +1710,14 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Joint/{}", project_id, graph_id, ja.estimate_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["joint-angle".into(), ja.joint_id.to_lowercase(), format!("{:?}", ja.joint_type).to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: janid, edge_type: IMUEdgeType::JointLinksSegments, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Joint angle → kinematics cross-modal
         edges.push(IMUGraphEdge {
             edge_id, from_node: janid, to_node: janid,
-            edge_type: IMUEdgeType::FeedsKinematicModel, weight: 0.9,
+            edge_type: IMUEdgeType::FeedsKinematicModel, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p.insert("joint_id".into(), serde_json::json!(&ja.joint_id)); p },
             ..Default::default()
@@ -1741,7 +1741,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
         quaternion: analysis.ahrs_output.as_ref().map(|a| a.final_attitude),
         materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/PlatformState", project_id, graph_id)),
         provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-        keywords: vec!["platform-state".into(), "pose".into()], hotness_score: 0.8, ..Default::default()
+        keywords: vec!["platform-state".into(), "pose".into()], hotness_score: 0.0, ..Default::default()
     });
     edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: ps_nid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
     edge_id += 1;
@@ -1756,7 +1756,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
     // Platform state → control system cross-modal
     edges.push(IMUGraphEdge {
         edge_id, from_node: ps_nid, to_node: ps_nid,
-        edge_type: IMUEdgeType::FeedsControlSystem, weight: 0.9,
+        edge_type: IMUEdgeType::FeedsControlSystem, weight: 1.0,
         provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
         properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p },
         ..Default::default()
@@ -1786,7 +1786,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
             edges.push(IMUGraphEdge {
-                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                 ..Default::default()
@@ -1831,7 +1831,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -2045,7 +2045,7 @@ pub async fn execute(input: IMUModalityAction) -> Result<IMUModalityOutput, Stri
                     timestamp_sec: Some(t_start), duration_sec: Some((t_end - t_start) as f32),
                     accel: Some(accel_mean), magnitude: Some(peak_g),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                    keywords: vec!["window".into(), "updated".into()], hotness_score: 0.75, ..Default::default()
+                    keywords: vec!["window".into(), "updated".into()], hotness_score: 0.0, ..Default::default()
                 });
                 graph.edges.push(IMUGraphEdge {
                     edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid,
@@ -2700,7 +2700,7 @@ pub async fn execute(input: IMUModalityAction) -> Result<IMUModalityOutput, Stri
                         if valid.contains(&from) && valid.contains(&to) && from != to {
                             graph.edges.push(IMUGraphEdge {
                                 edge_id: next_eid, from_node: from, to_node: to,
-                                edge_type: etype, weight: 0.8,
+                                edge_type: etype, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                                 ..Default::default()
@@ -2785,7 +2785,7 @@ pub async fn execute(input: IMUModalityAction) -> Result<IMUModalityOutput, Stri
                         let root_id = graph.root_node_id;
                         graph.edges.push(IMUGraphEdge {
                             edge_id: next_eid, from_node: root_id, to_node: root_id,
-                            edge_type: IMUEdgeType::PlottedOnGeoMap, weight: 0.85,
+                            edge_type: IMUEdgeType::PlottedOnGeoMap, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                             properties: { let mut p = HashMap::new(); p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id)); p },
                             ..Default::default()
@@ -2802,7 +2802,7 @@ pub async fn execute(input: IMUModalityAction) -> Result<IMUModalityOutput, Stri
                         for nid in joint_nids {
                             graph.edges.push(IMUGraphEdge {
                                 edge_id: next_eid, from_node: nid, to_node: nid,
-                                edge_type: IMUEdgeType::FeedsKinematicModel, weight: 0.9,
+                                edge_type: IMUEdgeType::FeedsKinematicModel, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("kine_graph_id".into(), serde_json::json!(kine_graph_id)); p },
                                 ..Default::default()

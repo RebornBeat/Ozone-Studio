@@ -511,6 +511,19 @@ pub fn proven_recent_days() -> u64 {
     std::env::var("OZONE_PROVEN_RECENT_DAYS").ok().and_then(|v| v.parse().ok()).filter(|d| *d > 0).unwrap_or(7)
 }
 
+/// NON-MODEL progress signal (2026-11-08): epoch ms of the last store query a pipeline made through the host (`POST /zsei/query`).
+/// A pipeline that does no model calls (context_aggregation, text linking …) shows it is working by reading/writing the store; the
+/// orchestrator watchdogs treat that as progress, exactly like a streaming model call. In-memory only (resets on restart).
+static PIPELINE_ACTIVITY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn touch_pipeline_activity() {
+    PIPELINE_ACTIVITY_MS.store(now_ms(), std::sync::atomic::Ordering::Relaxed);
+}
+/// True when any pipeline queried the store within the last `secs` seconds.
+pub fn pipeline_activity_within(secs: u64) -> bool {
+    let last = PIPELINE_ACTIVITY_MS.load(std::sync::atomic::Ordering::Relaxed);
+    last != 0 && now_ms().saturating_sub(last) < secs.saturating_mul(1000)
+}
+
 /// True when a model call made progress within the last `secs` seconds.
 pub fn model_activity_within(secs: u64) -> bool {
     now_ms().saturating_sub(last_model_activity_ms()) < secs.saturating_mul(1000)

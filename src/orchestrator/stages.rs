@@ -233,6 +233,9 @@ impl PromptOrchestrator {
         // STAGE 3: Gather Methodologies (methodology set + categories ONLY —
         // no AMT construction here; that is Stage 5's job alone).
         tracing::info!(stage = 3, "Stage 3 (Gather Methodologies) starting");
+        // ORIGIN (keyword program): the files the scope is handling are known now — every methodology created from here on (base, closure,
+        // meta) records them as its first-hit files; the request's usable keywords were noted at the end of Stage 2.
+        crate::keyword_program::note_files(state.file_graphs.values().copied());
         self.gather_methodologies(state).await?;
 
         // STAGE 4 (part A): File graph classification — AFTER text processing
@@ -308,6 +311,17 @@ impl PromptOrchestrator {
                 let replanned = self.stage_3_blueprint_assignment(state).await;
                 state.replan = false;
                 replanned?;
+            }
+        }
+
+        // HIT capture: the methodologies the final plan's steps actually carry were APPLIED (the strongest positive label)
+        {
+            let mut applied: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+            for st in &state.blueprint_steps {
+                applied.extend(st.methodology_ids.iter().copied());
+            }
+            for id in applied {
+                crate::keyword_program::record_event("applied", id, &state.keywords, serde_json::json!({"blueprint": state.blueprint_id}));
             }
         }
 
@@ -800,7 +814,14 @@ impl PromptOrchestrator {
             let prompt = format!(
                 "REQUEST (the user's request, whole):\n{request}\n\nA methodology RULE (its condition/outcome) that would call the provider \"{name}\":\n{rule_text}\n\nQUESTION: Does this rule clearly NOT apply to the request above — i.e. the situation the rule describes is not what this request asks for, so calling \"{name}\" would be irrelevant to it? Answer YES only if the rule is clearly irrelevant. Answer NO if the rule applies or you are unsure."
             );
-            let not_applicable = self.confirm_yes_no_orch(state, prompt, crate::shared_contracts::k_validation::configured_strength()).await;
+            let strength = crate::shared_contracts::k_validation::configured_strength();
+            let not_applicable = self.confirm_yes_no_orch(state, prompt, strength).await;
+            // HIT/LABEL capture (keyword program): a labelled sample + a kept/dropped event on the methodology that declared the rule
+            let method_id = state.tool_manifest[i]["methodology_id"].as_u64().unwrap_or(0);
+            crate::keyword_program::record_judgment("rule_applicability", if method_id != 0 { Some(method_id) } else { None }, &rule_text, &request, "does this rule clearly NOT apply to the request?", not_applicable, strength);
+            if method_id != 0 {
+                crate::keyword_program::record_event(if not_applicable { "dropped" } else { "kept" }, method_id, &state.keywords, serde_json::json!({"kind": "rule_applicability", "rule_ref": rule_ref}));
+            }
             if let Some(o) = state.tool_manifest[i].as_object_mut() {
                 if not_applicable {
                     o.insert("applicability".to_string(), serde_json::json!("not_applicable"));
@@ -853,7 +874,9 @@ impl PromptOrchestrator {
             let prompt = format!(
                 "REQUEST (the user's request, whole):\n{request}\n\nTHE PLAN'S STEPS:\n{plan}\n\nCAPABILITY the plan reports as MISSING: \"{name}\"\n\nQUESTION: Can the request above be fully and correctly completed WITHOUT this capability? Answer YES if it is not genuinely necessary — i.e. it only adds thoroughness, process, validation or polish beyond what the request actually asks. Answer NO only if the request cannot be completed correctly without it."
             );
-            let droppable = self.confirm_yes_no_orch(state, prompt, crate::shared_contracts::k_validation::configured_strength()).await;
+            let strength = crate::shared_contracts::k_validation::configured_strength();
+            let droppable = self.confirm_yes_no_orch(state, prompt, strength).await;
+            crate::keyword_program::record_judgment("capability_necessity", None, &name, &request, "can the request be completed WITHOUT this capability?", droppable, strength);
             if droppable {
                 state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
                 super::tool_binding::set_gap_status(&name, "not_needed", "judged not required to fulfil the request (strength-5 yes/no)", "capability-closure");
@@ -3840,12 +3863,18 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         };
 
         // Update relationship if we know the user
+        // Conforms to pipeline 47's contract (`RecordInteraction { user_id, summary: InteractionSummary }`; the old flat fields made
+        // every Stage 12 relationship update fail to parse — live walk 1155). Only REAL values are sent: the outcome, the topics, a
+        // timestamp; no quality score or tone is invented (absent fields default in the pipeline).
         let relationship_input = serde_json::json!({
             "action": "RecordInteraction",
             "user_id": state.request.user_id,
-            "interaction_type": "task_completion",
-            "outcome": if state.final_response.is_some() { "positive" } else { "negative" },
-            "topics": state.topics.clone()
+            "summary": {
+                "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+                "topic": state.topics.join(", "),
+                "task_types": ["task_completion"],
+                "outcome": if state.final_response.is_some() { "positive" } else { "negative" },
+            }
         });
 
         // Pipeline 47 = RelationshipDevelopment

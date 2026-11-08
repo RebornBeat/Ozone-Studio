@@ -824,3 +824,10 @@ The label is the call-site key stored in `model_ledger.jsonl`; walk-level votes 
 | `capability_closure_draft` | stages.rs:902 | #21 methodology drafted for a necessary missing capability |
 | `meta_loop_methodology_review` / `_modify` | meta_loop.rs | #19/#20 sufficiency review / modify |
 Votes (no own label; site = the question): `rule_gate` (stages.rs `gate_rule_applicability`), `methodology_relevance` (mod.rs Stage 3 relevance filter), capability necessity (stages.rs `close_capability_gaps`), AMT neighbourhood merge (amt.rs), text-modality validations (text main.rs). Deterministic, no call: E18 methodology quality audit (meta_loop.rs `audit_methodology_quality_once`).
+
+## 19. 2026-11-08 — keyword program call sites (uncompiled)
+| # | Label / site | Kind | Purpose |
+|---|---|---|---|
+| 26 | `keyword_settle` (`keyword_settle.rs`, one call per unsettled container, via the meta loop; chunked to the reading model's window by `assemble`) | zero-shot, adds only | EXPANSION (synonyms / aliases / request phrasings / translations) + PROPOSED non-keywords among the existing terms |
+| 27 | `keyword_keeper` vote (`keyword_settle.rs::vote_not_keyword`, ledger label = the vote's own `walk:pipeline-9`) | strength-N yes/no, **drop only on unanimous YES** | "is X NOT a true keyword for this container?" — every vote also logged as a judgment sample |
+Deterministic (no call): hit/judgment logging, rollup, dataset builder, token-aware search, v0 rank key, encoder/ranker inference, training (pipeline 17, pure Rust). Retired: the keyword-overlap stubs in pipeline 17. E20–E24 (ZERO_SHOT_EXPANSION_GUIDE) are now implemented in source (E20 = settlement Pass A, E21 = Pass B, E22 = Pass C, E24 = extraction shape validation; E23 request-side expansion = the existing E16 re-ask, not yet routed through Pass C).

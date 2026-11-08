@@ -1006,6 +1006,18 @@ impl PipelineExecutor {
                 cmd.env(k, v);
             }
         }
+        // ORIGIN for the keyword program (ASCII-only by construction — it travels in an HTTP header): which pipeline this is and the scope
+        // the host ran it for. The pipeline forwards it as `x-ozone-origin` on its /zsei/query calls.
+        {
+            let name = pipeline_path.file_stem().and_then(|s| s.to_str()).unwrap_or("pipeline").to_string();
+            let origin = serde_json::json!({
+                "call_site": name,
+                "workspace_id": input.context.workspace_id,
+                "project_id": input.context.project_id,
+                "task_id": input.context.task_context_id,
+            });
+            cmd.env("OZONE_ORIGIN", origin.to_string());
+        }
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _cancel_on_drop = CancelOnDrop(cancel.clone());
         let output = tokio::task::spawn_blocking(move || {

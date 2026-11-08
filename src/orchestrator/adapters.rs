@@ -467,6 +467,42 @@ impl super::StoreAccess for ZseiStoreAdapter {
         }
     }
 
+    async fn list_ids(&self, container_type: Option<&str>) -> Result<Vec<u64>, String> {
+        let q = ZSEIQuery::SearchContainersByKeywords {
+            keywords: Vec::new(),
+            container_type: container_type.map(String::from),
+            strategy: Some("all".to_string()),
+        };
+        let zsei = self.zsei.read().await;
+        let result = zsei.query(q).await.map_err(|e| e.to_string())?;
+        match result {
+            ZSEIQueryResult::Containers(ids) => Ok(ids),
+            _ => Err("list_ids returned an unexpected result".to_string()),
+        }
+    }
+
+    async fn search_ranked(
+        &self,
+        keywords: &[String],
+        container_type: Option<&str>,
+    ) -> Result<Vec<u64>, String> {
+        // Methodology / Blueprint searches have their own typed queries; everything else goes through the `token` strategy.
+        if matches!(container_type, Some("Methodology") | Some("Blueprint")) {
+            return self.search_by_keywords(keywords, container_type).await;
+        }
+        let q = ZSEIQuery::SearchContainersByKeywords {
+            keywords: keywords.to_vec(),
+            container_type: container_type.map(String::from),
+            strategy: Some("token".to_string()),
+        };
+        let zsei = self.zsei.read().await;
+        let result = zsei.query(q).await.map_err(|e| e.to_string())?;
+        match result {
+            ZSEIQueryResult::Containers(ids) => Ok(ids),
+            _ => Err("Ranked keyword search returned an unexpected result".to_string()),
+        }
+    }
+
     async fn get_categories(&self, modality: &str) -> Result<Vec<u64>, String> {
         use crate::types::container::Modality;
         let m: Modality = serde_json::from_value(serde_json::Value::String(

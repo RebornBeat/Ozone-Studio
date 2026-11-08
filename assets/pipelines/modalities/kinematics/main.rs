@@ -1277,7 +1277,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1418,7 +1418,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["kinematics".into(), robot_class.to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1434,7 +1434,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Link/{}", project_id, graph_id, link.link_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["link".into(), link.name.to_lowercase(), format!("{:?}", link.segment_type).to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
         // first real producer). Fire-and-forget, detached, never slows
@@ -1484,7 +1484,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Joint/{}", project_id, graph_id, joint.joint_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["joint".into(), format!("{:?}", joint.joint_type).to_lowercase(), joint.name.to_lowercase()],
-            hotness_score: 0.8,
+            hotness_score: 0.0,
             embedding_hint: Some(format!("joint type: {:?} actuator: {:?}", joint.joint_type, joint.actuator_type)),
             ..Default::default()
         });
@@ -1512,7 +1512,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
         // Cross-modal: joint → 3D armature bone
         edges.push(KinematicsGraphEdge {
             edge_id, from_node: jid, to_node: jid,
-            edge_type: KinematicsEdgeType::AnimatesViaBone, weight: 0.9,
+            edge_type: KinematicsEdgeType::AnimatesViaBone, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p.insert("bone_name".into(), serde_json::json!(&joint.name)); p },
             ..Default::default()
@@ -1522,7 +1522,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
         // Cross-modal: joint state → control system (122)
         edges.push(KinematicsGraphEdge {
             edge_id, from_node: jid, to_node: jid,
-            edge_type: KinematicsEdgeType::FeedsControlSystem, weight: 0.9,
+            edge_type: KinematicsEdgeType::FeedsControlSystem, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p.insert("joint_name".into(), serde_json::json!(&joint.name)); p },
             ..Default::default()
@@ -1548,7 +1548,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Chain/{}", project_id, graph_id, chain.chain_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["chain".into(), chain.name.to_lowercase(), format!("{:?}", chain.chain_type).to_lowercase()],
-            hotness_score: 0.9, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1573,7 +1573,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
         // Chain contains links
         for &link_id in &chain.link_ids {
             if let Some(&link_nid) = link_id_to_nid.get(&link_id) {
-                edges.push(KinematicsGraphEdge { edge_id, from_node: cid, to_node: link_nid, edge_type: KinematicsEdgeType::ChainContainsLink, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edges.push(KinematicsGraphEdge { edge_id, from_node: cid, to_node: link_nid, edge_type: KinematicsEdgeType::ChainContainsLink, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }
@@ -1581,7 +1581,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
         // Cross-modal: chain → 3D armature
         edges.push(KinematicsGraphEdge {
             edge_id, from_node: cid, to_node: cid,
-            edge_type: KinematicsEdgeType::MapsToArmatureIn3D, weight: 0.9,
+            edge_type: KinematicsEdgeType::MapsToArmatureIn3D, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p.insert("armature_name".into(), serde_json::json!(&chain.name)); p },
             ..Default::default()
@@ -1604,7 +1604,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/EE/{}", project_id, graph_id, ee.ee_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["end-effector".into(), format!("{:?}", ee.tool_type).to_lowercase()],
-            hotness_score: 0.85, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1628,9 +1628,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Workspace/{}", project_id, graph_id, ws.volume_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["workspace".into(), format!("{:?}", ws.volume_type).to_lowercase()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: wid, edge_type: KinematicsEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: wid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(&chain_nid) = chain_id_to_nid.get(&ws.chain_id) {
             edges.push(KinematicsGraphEdge { edge_id, from_node: wid, to_node: chain_nid, edge_type: KinematicsEdgeType::WorkspaceOf, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1648,9 +1648,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Sing/{}", project_id, graph_id, sing.singularity_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["singularity".into(), format!("{:?}", sing.singularity_type).to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: KinematicsEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(&chain_nid) = chain_id_to_nid.get(&sing.chain_id) {
             edges.push(KinematicsGraphEdge { edge_id, from_node: chain_nid, to_node: sid, edge_type: KinematicsEdgeType::IsSingularAt, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1671,7 +1671,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Gait/{}", project_id, graph_id, gait.cycle_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["gait".into(), format!("{:?}", gait.gait_type).to_lowercase()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: gid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1690,7 +1690,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Phase/{}", project_id, graph_id, phase.phase_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["gait-phase".into(), phase.phase_name.to_lowercase(), format!("{:?}", phase.phase_type).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         if let Some(&gait_nid) = gait_id_to_nid.get(&phase.cycle_id) {
             edges.push(KinematicsGraphEdge { edge_id, from_node: gait_nid, to_node: pid, edge_type: KinematicsEdgeType::GaitCycleHasPhase, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1711,16 +1711,16 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Segment/{}", project_id, graph_id, seg.segment_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["segment".into(), seg.name.to_lowercase(), format!("{:?}", seg.segment_type).to_lowercase()],
-            hotness_score: 0.7,
+            hotness_score: 0.0,
             ..Default::default()
         });
-        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: KinematicsEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Body segment cross-modal: → biology (111)
         edges.push(KinematicsGraphEdge {
             edge_id, from_node: sid, to_node: sid,
-            edge_type: KinematicsEdgeType::BiomechanicalContext, weight: 0.8,
+            edge_type: KinematicsEdgeType::BiomechanicalContext, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("biology")); p },
             ..Default::default()
@@ -1730,7 +1730,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
         // Segment → proximal/distal joints
         if let Some(proximal_id) = seg.proximal_joint_id {
             if let Some(&joint_nid) = joint_id_to_nid.get(&proximal_id) {
-                edges.push(KinematicsGraphEdge { edge_id, from_node: sid, to_node: joint_nid, edge_type: KinematicsEdgeType::JointConstrains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edges.push(KinematicsGraphEdge { edge_id, from_node: sid, to_node: joint_nid, edge_type: KinematicsEdgeType::JointConstrains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }
@@ -1749,9 +1749,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Muscle/{}", project_id, graph_id, muscle.muscle_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["muscle".into(), muscle.name.to_lowercase(), format!("{:?}", muscle.muscle_type).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: KinematicsEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Muscle crosses joints it spans (via origin/insertion segments)
@@ -1775,12 +1775,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
                 traj.method, traj.duration_sec, traj.waypoint_count, traj.is_collision_free),
             materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/Traj/{}", project_id, graph_id, traj.trajectory_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["trajectory".into(), traj.method.to_lowercase()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["trajectory".into(), traj.method.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: KinematicsEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(KinematicsGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: KinematicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(&chain_nid) = chain_id_to_nid.get(&traj.chain_id) {
-            edges.push(KinematicsGraphEdge { edge_id, from_node: tid, to_node: chain_nid, edge_type: KinematicsEdgeType::ChainContainsJoint, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(KinematicsGraphEdge { edge_id, from_node: tid, to_node: chain_nid, edge_type: KinematicsEdgeType::ChainContainsJoint, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1800,7 +1800,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(KinematicsGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(KinematicsGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -2532,7 +2532,7 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
                             is_passive: Some(joint.is_passive),
                             actuator_type: Some(format!("{:?}", joint.actuator_type)),
                             provisional: false, provisional_status: ProvisionalStatus::Validated,
-                            version: 1, keywords: vec!["joint".into()], hotness_score: 0.7,
+                            version: 1, keywords: vec!["joint".into()], hotness_score: 0.0,
                             ..Default::default()
                         });
                         graph.edges.push(KinematicsGraphEdge {
@@ -2557,14 +2557,14 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
                             joint_type: Some(format!("{:?}", joint.joint_type)),
                             limit_lower: Some(joint.limits.lower), limit_upper: Some(joint.limits.upper),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["joint".into()], hotness_score: 0.7, ..Default::default()
+                            keywords: vec!["joint".into()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.nodes.push(KinematicsGraphNode {
                             node_id: l_nid, node_type: KinematicsNodeType::LinkNode,
                             content: format!("Link: {} mass={:.3}kg", link.name, link.mass_kg),
                             mass_kg: Some(link.mass_kg), length_mm: Some(link.length_mm),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["link".into()], hotness_score: 0.6, ..Default::default()
+                            keywords: vec!["link".into()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(KinematicsGraphEdge { edge_id: next_eid, from_node: *chain_node_id, to_node: j_nid, edge_type: KinematicsEdgeType::ChainContainsJoint, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1;
@@ -2671,7 +2671,7 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
                 content: format!("CrossModal→{} graph={} link={:?}", target_modality, target_graph_id, link_type),
                 materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/CrossModal/{}", graph.project_id, graph_id, target_graph_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.7, ..Default::default()
+                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.0, ..Default::default()
             });
             let etype = match link_type {
                 KinCrossModalLink::MapsToArmatureIn3D   => KinematicsEdgeType::MapsToArmatureIn3D,
@@ -2683,7 +2683,7 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
             };
             graph.edges.push(KinematicsGraphEdge {
                 edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid,
-                edge_type: etype, weight: 0.9,
+                edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p },
                 ..Default::default()
@@ -2758,7 +2758,7 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
                         if valid.contains(&from) && valid.contains(&to) && from != to {
                             graph.edges.push(KinematicsGraphEdge {
                                 edge_id: next_eid, from_node: from, to_node: to,
-                                edge_type: etype, weight: 0.8,
+                                edge_type: etype, weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                                 ..Default::default()
@@ -2828,7 +2828,7 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
                         let root_id = graph.root_node_id;
                         graph.edges.push(KinematicsGraphEdge {
                             edge_id: next_eid, from_node: root_id, to_node: root_id,
-                            edge_type: KinematicsEdgeType::MapsToArmatureIn3D, weight: 0.9,
+                            edge_type: KinematicsEdgeType::MapsToArmatureIn3D, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                             properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p },
                             ..Default::default()
@@ -2839,7 +2839,7 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
                         let root_id = graph.root_node_id;
                         graph.edges.push(KinematicsGraphEdge {
                             edge_id: next_eid, from_node: root_id, to_node: root_id,
-                            edge_type: KinematicsEdgeType::FeedsControlSystem, weight: 0.9,
+                            edge_type: KinematicsEdgeType::FeedsControlSystem, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                             properties: { let mut p = HashMap::new(); p.insert("control_graph_id".into(), serde_json::json!(control_graph_id)); p },
                             ..Default::default()

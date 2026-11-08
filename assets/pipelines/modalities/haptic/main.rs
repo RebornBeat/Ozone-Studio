@@ -1488,7 +1488,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1624,7 +1624,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["haptic".into(), "contact".into(), format!("{:?}", analysis.sensor_model).to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1647,7 +1647,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
         edge_id += 1;
         // Cross-modal: contact location → 3D surface
         if ev.contact_location_world.is_some() {
-            edges.push(HapticGraphEdge { edge_id, from_node: cid, to_node: cid, edge_type: HapticEdgeType::CorrelatesWithSurface3D, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
+            edges.push(HapticGraphEdge { edge_id, from_node: cid, to_node: cid, edge_type: HapticEdgeType::CorrelatesWithSurface3D, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1666,7 +1666,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             duration_sec: Some((phase.end_time_sec - phase.start_time_sec) as f32),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Phase/{}", project_id, graph_id, phase.phase_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["phase".into(), format!("{:?}", phase.phase_type).to_lowercase()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["phase".into(), format!("{:?}", phase.phase_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
         // first real producer). Fire-and-forget, detached, never slows
@@ -1692,7 +1692,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
                     .send().await;
             });
         }
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: HapticEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(prev) = prev_phase_nid {
             edges.push(HapticGraphEdge { edge_id, from_node: prev, to_node: pid, edge_type: HapticEdgeType::PhaseFollows, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1713,9 +1713,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             contact_area_mm2: Some(pm.contact_area_mm2), timestamp_sec: Some(pm.timestamp_sec),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/PMap/{}", project_id, graph_id, pm.map_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["pressure-map".into()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["pressure-map".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: pmid, edge_type: HapticEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: pmid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
         (pm.map_id, pmid)
     }).collect();
@@ -1730,12 +1730,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             force_n: Some(fp.peak_n), duration_sec: Some(fp.timestamps_sec.last().copied().unwrap_or(0.0) - fp.timestamps_sec.first().copied().unwrap_or(0.0)),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/FP/{}", project_id, graph_id, fp.profile_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["force-profile".into(), format!("{:?}", fp.axis).to_lowercase()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["force-profile".into(), format!("{:?}", fp.axis).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: fpid, edge_type: HapticEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: fpid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // FP → control system cross-modal
-        edges.push(HapticGraphEdge { edge_id, from_node: fpid, to_node: fpid, edge_type: HapticEdgeType::FeedsControlSystem, weight: 0.8, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p }, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: fpid, to_node: fpid, edge_type: HapticEdgeType::FeedsControlSystem, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p }, ..Default::default() });
         edge_id += 1;
         node_id += 1;
     }
@@ -1751,9 +1751,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             friction_coefficient: Some(sv.friction_utilization),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/SV/{}", project_id, graph_id, sv.vector_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["shear".into(), "friction".into()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["shear".into(), "friction".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: svid, edge_type: HapticEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: svid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1768,9 +1768,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             duration_sec: Some(sl.duration_sec), friction_coefficient: sl.pre_slip_friction_coeff,
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Slip/{}", project_id, graph_id, sl.slip_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["slip".into(), format!("{:?}", sl.slip_type).to_lowercase()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["slip".into(), format!("{:?}", sl.slip_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: slid, edge_type: HapticEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: slid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
         (sl.slip_id, slid)
     }).collect();
@@ -1786,13 +1786,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             duration_sec: Some(ve.duration_sec), force_n: ve.contact_force_n,
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/VibEvent/{}", project_id, graph_id, ve.event_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["vibration".into(), format!("{:?}", ve.trigger).to_lowercase()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["vibration".into(), format!("{:?}", ve.trigger).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: vid, edge_type: HapticEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: vid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Vibration cross-modal: correlates with sound (103/110)
         if matches!(ve.trigger, VibrationTrigger::SurfaceTexture | VibrationTrigger::SlipOnset) {
-            edges.push(HapticGraphEdge { edge_id, from_node: vid, to_node: vid, edge_type: HapticEdgeType::CorrelatesSoundEvent, weight: 0.7, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("audio")); p }, ..Default::default() });
+            edges.push(HapticGraphEdge { edge_id, from_node: vid, to_node: vid, edge_type: HapticEdgeType::CorrelatesSoundEvent, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("audio")); p }, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1810,9 +1810,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/VibSpectrum/{}", project_id, graph_id, vs.spectrum_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["vibration-spectrum".into(), if vs.surface_texture_signature { "texture-signature".into() } else { "".into() }],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: vsid, edge_type: HapticEdgeType::Contains, weight: 0.75, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: vsid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1826,9 +1826,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             roughness_ra_um: Some(td.roughness_ra_um),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Texture/{}", project_id, graph_id, td.descriptor_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["texture".into(), "roughness".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["texture".into(), "roughness".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: tdid, edge_type: HapticEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: tdid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
         (td.descriptor_id, tdid)
     }).collect();
@@ -1843,13 +1843,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             material_name: Some(tc.material_name.clone()), roughness_ra_um: None,
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/TextureClass", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["texture-classification".into(), tc.material_name.to_lowercase()], hotness_score: 0.8, ..Default::default()
+            keywords: vec!["texture-classification".into(), tc.material_name.to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: tcid, edge_type: HapticEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: tcid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // TextureClass → texture descriptors
         for &(_, td_nid) in &texture_node_ids {
-            edges.push(HapticGraphEdge { edge_id, from_node: td_nid, to_node: tcid, edge_type: HapticEdgeType::EmitsTexture, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(HapticGraphEdge { edge_id, from_node: td_nid, to_node: tcid, edge_type: HapticEdgeType::EmitsTexture, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1870,10 +1870,10 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             keywords: vec!["material".into(), mc.material_name.to_lowercase(), format!("{:?}", mc.category).to_lowercase()],
             hotness_score: 0.5 + mc.match_score * 0.4, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: mcid, edge_type: HapticEdgeType::Contains, weight: 0.85, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: mcid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Material cross-modal: spectral validation (126)
-        edges.push(HapticGraphEdge { edge_id, from_node: mcid, to_node: mcid, edge_type: HapticEdgeType::MaterialCrossValidatedWithSpectral, weight: 0.7, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("hyperspectral")); p.insert("material_name".into(), serde_json::json!(&mc.material_name)); p }, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: mcid, to_node: mcid, edge_type: HapticEdgeType::MaterialCrossValidatedWithSpectral, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("hyperspectral")); p.insert("material_name".into(), serde_json::json!(&mc.material_name)); p }, ..Default::default() });
         edge_id += 1;
         node_id += 1;
         (mc.candidate_id, mcid)
@@ -1889,13 +1889,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             stiffness_n_per_mm: Some(cm.stiffness_n_per_m / 1000.0),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Compliance", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["compliance".into(), "stiffness".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["compliance".into(), "stiffness".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: cmid, edge_type: HapticEdgeType::Contains, weight: 0.85, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: cmid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Compliance → material candidates (IndicatesCompliance)
         for &(_, mat_nid) in &mat_node_ids {
-            edges.push(HapticGraphEdge { edge_id, from_node: cmid, to_node: mat_nid, edge_type: HapticEdgeType::IndicatesCompliance, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(HapticGraphEdge { edge_id, from_node: cmid, to_node: mat_nid, edge_type: HapticEdgeType::IndicatesCompliance, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1911,12 +1911,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             force_n: Some(dm.contact_force_n), timestamp_sec: Some(dm.timestamp_sec),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Deform/{}", project_id, graph_id, dm.map_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["deformation".into(), "compliance".into()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["deformation".into(), "compliance".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: dmid, edge_type: HapticEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: dmid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Deformation → depth cross-modal
-        edges.push(HapticGraphEdge { edge_id, from_node: dmid, to_node: dmid, edge_type: HapticEdgeType::DeformationFusedWithDepth, weight: 0.75, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("depth")); p }, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: dmid, to_node: dmid, edge_type: HapticEdgeType::DeformationFusedWithDepth, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("depth")); p }, ..Default::default() });
         edge_id += 1;
         node_id += 1;
     }
@@ -1931,11 +1931,11 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             contact_area_mm2: Some(cg.contact_area_mm2), location_world: Some(cg.center_of_pressure),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/ContactGeometry", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["contact-geometry".into(), format!("{:?}", cg.contact_type).to_lowercase()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["contact-geometry".into(), format!("{:?}", cg.contact_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: cgid, edge_type: HapticEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: cgid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
-        edges.push(HapticGraphEdge { edge_id, from_node: cgid, to_node: cgid, edge_type: HapticEdgeType::CorrelatesWithSurface3D, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: cgid, to_node: cgid, edge_type: HapticEdgeType::CorrelatesWithSurface3D, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p }, ..Default::default() });
         edge_id += 1;
         node_id += 1;
     }
@@ -1950,12 +1950,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             force_n: Some(ga.grip_force_n), friction_coefficient: Some(ga.slip_margin),
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Grip", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["grip".into(), format!("{:?}", ga.grasp_type).to_lowercase()], hotness_score: 0.8, ..Default::default()
+            keywords: vec!["grip".into(), format!("{:?}", ga.grasp_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: gaid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Grip → kinematics cross-modal
-        edges.push(HapticGraphEdge { edge_id, from_node: gaid, to_node: gaid, edge_type: HapticEdgeType::LinksToKinematicChain, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p }, ..Default::default() });
+        edges.push(HapticGraphEdge { edge_id, from_node: gaid, to_node: gaid, edge_type: HapticEdgeType::LinksToKinematicChain, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p }, ..Default::default() });
         edge_id += 1;
 
         // Contact points
@@ -1969,7 +1969,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
                 friction_coefficient: cp.friction_coefficient, location_world: Some(cp.location_world),
                 materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Grip/CP/{}", project_id, graph_id, cp.point_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["contact-point".into()], hotness_score: 0.7, ..Default::default()
+                keywords: vec!["contact-point".into()], hotness_score: 0.0, ..Default::default()
             });
             edges.push(HapticGraphEdge { edge_id, from_node: gaid, to_node: cpid, edge_type: HapticEdgeType::GripContains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; node_id += 1;
@@ -1981,7 +1981,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
     // Slip events are caused by force profiles exceeding friction limit
     for &(_, slip_nid) in &slip_node_ids {
         for fpid_node in nodes.iter().filter(|n| matches!(n.node_type, HapticNodeType::ForceProfileNode)).map(|n| n.node_id).collect::<Vec<_>>() {
-            edges.push(HapticGraphEdge { edge_id, from_node: fpid_node, to_node: slip_nid, edge_type: HapticEdgeType::CausesSlip, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(HapticGraphEdge { edge_id, from_node: fpid_node, to_node: slip_nid, edge_type: HapticEdgeType::CausesSlip, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -1999,7 +1999,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(HapticGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(HapticGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -2087,7 +2087,7 @@ pub async fn execute(input: HapticModalityAction) -> Result<HapticModalityOutput
                     force_n: Some(ev.peak_force_n), contact_area_mm2: Some(ev.contact_area_mm2),
                     timestamp_sec: Some(ev.start_time_sec), duration_sec: Some(ev.duration_sec),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                    keywords: vec!["contact".into(), "updated".into()], hotness_score: 0.8, ..Default::default()
+                    keywords: vec!["contact".into(), "updated".into()], hotness_score: 0.0, ..Default::default()
                 });
                 graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 next_eid += 1; next_nid += 1;
@@ -2314,7 +2314,7 @@ pub async fn execute(input: HapticModalityAction) -> Result<HapticModalityOutput
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -2360,14 +2360,14 @@ pub async fn execute(input: HapticModalityAction) -> Result<HapticModalityOutput
                     HapticOperation::CrossLinkTo3D { graph_id_3d } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for n in graph.nodes.iter().filter(|n| matches!(n.node_type, HapticNodeType::ContactGeometryNode | HapticNodeType::ContactEventNode)).map(|n| n.node_id).collect::<Vec<_>>() {
-                            graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: n, to_node: n, edge_type: HapticEdgeType::CorrelatesWithSurface3D, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p }, ..Default::default() });
+                            graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: n, to_node: n, edge_type: HapticEdgeType::CorrelatesWithSurface3D, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
                     HapticOperation::CrossLinkToControl { control_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for n in graph.nodes.iter().filter(|n| matches!(n.node_type, HapticNodeType::ForceProfileNode | HapticNodeType::SlipEventNode)).map(|n| n.node_id).collect::<Vec<_>>() {
-                            graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: n, to_node: n, edge_type: HapticEdgeType::FeedsControlSystem, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("control_graph_id".into(), serde_json::json!(control_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(HapticGraphEdge { edge_id: next_eid, from_node: n, to_node: n, edge_type: HapticEdgeType::FeedsControlSystem, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("control_graph_id".into(), serde_json::json!(control_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }

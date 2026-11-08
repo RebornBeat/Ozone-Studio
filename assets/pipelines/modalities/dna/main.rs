@@ -1292,7 +1292,7 @@ async fn annotate_sequence(
             function: Some("Unknown function".to_string()),
             biotype: GeneType::ProteinCoding,
             xrefs: vec![],
-            confidence: 0.85,
+            confidence: 0.0,
         }],
         features: vec![SequenceFeature {
             feature_id: "feat_1".to_string(),
@@ -1302,7 +1302,7 @@ async fn annotate_sequence(
             strand: Strand::Forward,
             score: Some(0.9),
             qualifiers: HashMap::new(),
-            confidence: 0.80,
+            confidence: 0.0,
         }],
         total_genes: 1,
         total_features: 1,
@@ -1395,7 +1395,7 @@ async fn predict_structure(
             e_value: 1e-10,
             description: Some("An example protein domain".to_string()),
         }],
-        confidence: 0.75,
+        confidence: 0.0,
     })
 }
 
@@ -1460,7 +1460,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()

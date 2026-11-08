@@ -1067,7 +1067,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1201,7 +1201,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["electromagnetic".into(), "spectrum".into()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1216,7 +1216,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             power_dbm: Some(snap.peak_power_db), timestamp_utc: Some(snap.timestamp_utc),
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Snapshot/{}", project_id, graph_id, snap.snapshot_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["spectrum".into(), "snapshot".into()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["spectrum".into(), "snapshot".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1237,7 +1237,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Band/{}", project_id, graph_id, band.band_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["frequency-band".into()]; if let Some(ref a) = band.allocation { kw.push(a.to_lowercase()); } kw },
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: bid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1279,7 +1279,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
 
         // Signal detected in snapshot
         for &(_, snap_nid) in snap_node_ids.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
-            edges.push(EMGraphEdge { edge_id, from_node: sid, to_node: snap_nid, edge_type: EMEdgeType::DetectedIn, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(EMGraphEdge { edge_id, from_node: sid, to_node: snap_nid, edge_type: EMEdgeType::DetectedIn, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
 
@@ -1299,7 +1299,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Emitter/{}", project_id, graph_id, em.emitter_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["emitter".into(), format!("{:?}", em.emitter_class).to_lowercase()]; if let Some(ref id) = em.identifier { kw.push(id.to_lowercase()); } kw },
-            hotness_score: 0.8,
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1315,7 +1315,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
 
         // Emitter cross-modal: → geospatial (117)
         if em.location.is_some() {
-            edges.push(EMGraphEdge { edge_id, from_node: eid, to_node: eid, edge_type: EMEdgeType::PlottedOnGeoMap, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
+            edges.push(EMGraphEdge { edge_id, from_node: eid, to_node: eid, edge_type: EMEdgeType::PlottedOnGeoMap, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
             edge_id += 1;
         }
 
@@ -1335,7 +1335,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/PropPath/{}", project_id, graph_id, path.path_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["propagation".into(), format!("{:?}", path.propagation_mode).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
         // first real producer). Fire-and-forget, detached, never slows
@@ -1361,7 +1361,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
                     .send().await;
             });
         }
-        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: EMEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         if let Some(tx_id) = path.transmitter_id {
@@ -1384,9 +1384,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Antenna/{}", project_id, graph_id, ant.pattern_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["antenna".into(), format!("{:?}", ant.antenna_type).to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: EMEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1404,7 +1404,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             hotness_score: 0.7 + match ev.impact { InterferenceImpact::Severe | InterferenceImpact::LossOfSignal => 0.2, _ => 0.0 },
             ..Default::default()
         });
-        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: EMEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Victim signal
@@ -1432,13 +1432,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             azimuth_deg: Some(doa.azimuth_deg), timestamp_utc: Some(doa.timestamp_utc),
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/DoA/{}", project_id, graph_id, doa.estimate_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["doa".into(), "direction-of-arrival".into()], hotness_score: 0.65, ..Default::default()
+            keywords: vec!["doa".into(), "direction-of-arrival".into()], hotness_score: 0.0, ..Default::default()
         });
         if let Some(&(_, sig_nid)) = signal_node_ids.iter().find(|(id, _)| *id == doa.signal_id) {
-            edges.push(EMGraphEdge { edge_id, from_node: did, to_node: sig_nid, edge_type: EMEdgeType::DoAPointsTo, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edges.push(EMGraphEdge { edge_id, from_node: did, to_node: sig_nid, edge_type: EMEdgeType::DoAPointsTo, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
-        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: EMEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: did, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1452,7 +1452,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             freq_hz: Some(cov.frequency_hz),
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Coverage/{}", project_id, graph_id, cov.map_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["coverage".into(), "propagation".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["coverage".into(), "propagation".into()], hotness_score: 0.0, ..Default::default()
         });
         // Coverage → emitter
         if let Some(tx_id) = cov.transmitter_id {
@@ -1462,9 +1462,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             }
         }
         // Coverage → geo map cross-modal
-        edges.push(EMGraphEdge { edge_id, from_node: cid, to_node: cid, edge_type: EMEdgeType::PlottedOnGeoMap, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
+        edges.push(EMGraphEdge { edge_id, from_node: cid, to_node: cid, edge_type: EMEdgeType::PlottedOnGeoMap, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
         edge_id += 1;
-        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: EMEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1481,7 +1481,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(EMGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(EMGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -1564,9 +1564,9 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
                     freq_hz: Some(cap.center_freq_hz), bandwidth_hz: Some(cap.bandwidth_hz),
                     power_dbm: Some(cap.peak_power_db), timestamp_utc: Some(cap.timestamp_utc),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                    keywords: vec!["spectrum".into(), "updated".into()], hotness_score: 0.8, ..Default::default()
+                    keywords: vec!["spectrum".into(), "updated".into()], hotness_score: 0.0, ..Default::default()
                 });
-                graph.edges.push(EMGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: EMEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                graph.edges.push(EMGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 next_eid += 1; next_nid += 1;
             }
             graph.version += 1; graph.updated_at = now.clone(); graph.state = GraphStateType::Updated;
@@ -2048,7 +2048,7 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
                                 from_node: from,
                                 to_node: to,
                                 edge_type: etype,
-                                weight: 0.8,
+                                weight: 1.0,
                                 provenance: EdgeProvenance::DerivedFromHook,
                                 version: 1,
                                 properties: {
@@ -2292,7 +2292,7 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
                                     edge_id: next_eid,
                                     from_node: em_nid, to_node: em_nid,
                                     edge_type: EMEdgeType::PlottedOnGeoMap,
-                                    weight: 0.9,
+                                    weight: 1.0,
                                     provenance: EdgeProvenance::DerivedFromCrossModal,
                                     version: 1,
                                     properties: {
@@ -2320,7 +2320,7 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
                                     edge_id: next_eid,
                                     from_node: cov_nid, to_node: cov_nid,
                                     edge_type: EMEdgeType::PlottedOnGeoMap,
-                                    weight: 0.85,
+                                    weight: 1.0,
                                     provenance: EdgeProvenance::DerivedFromCrossModal,
                                     version: 1,
                                     properties: {

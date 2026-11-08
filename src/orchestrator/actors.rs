@@ -513,6 +513,8 @@ async fn create_global_amt(store: &dyn StoreAccess) -> Result<u64, String> {
                 topics: vec![],
                 relationships: vec![],
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {
@@ -553,7 +555,7 @@ async fn resolve_or_create_finding_target(
     let key = format!("finding:{}:{}", route, digest);
     // Existing? (search by the exact keyword; verify the keyword really is
     // present — keyword search can be fuzzy.)
-    if let Ok(ids) = store.search_by_keywords(&[key.clone()], None).await {
+    if let Ok(ids) = store.search_ranked(&[key.clone()], None).await { // `finding:…` is a namespaced marker: the token strategy matches it exactly (2026-11-08)
         for id in ids {
             if let Ok(Some(c)) = store.get_container(id).await {
                 let has = c
@@ -624,6 +626,8 @@ async fn resolve_or_create_finding_target(
                 topics: vec![],
                 relationships: vec![],
                 learned_associations: vec![],
+                keyword_meta: Default::default(),
+                scope: Default::default(),
                 embedding: None,
             },
             storage: StoragePointers {

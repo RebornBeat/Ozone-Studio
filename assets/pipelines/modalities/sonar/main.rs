@@ -1149,7 +1149,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1293,7 +1293,7 @@ async fn create_graph(
         version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["sonar".into(), "scene".into()],
-        hotness_score: 1.0,
+        hotness_score: 0.0,
         ..Default::default()
     });
     node_id += 1;
@@ -1310,7 +1310,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/Platform", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["platform".into(), plat.platform_type.clone()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1328,7 +1328,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/PropModel", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["propagation".into(), "sound-speed-profile".into()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: prop_id, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1343,7 +1343,7 @@ async fn create_graph(
                 range_m: Some(cz.center_range_km * 1000.0),
                 materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/PropModel/CZ/{}", project_id, graph_id, cz.zone_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["convergence-zone".into()], hotness_score: 0.65, ..Default::default()
+                keywords: vec!["convergence-zone".into()], hotness_score: 0.0, ..Default::default()
             });
             edges.push(SonarGraphEdge { edge_id, from_node: prop_id, to_node: cz_id, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; node_id += 1;
@@ -1367,7 +1367,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/Target/{}", project_id, graph_id, t.target_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["target".into(), format!("{:?}", t.classification).to_lowercase()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive, same fire-and-forget
         // pattern as 3D/main.rs's first real producer): best-effort report
@@ -1415,7 +1415,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/Signature/{}", project_id, graph_id, sig.signature_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["signature".into(), "acoustic".into()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // link signature → target
         if let Some(target_id) = sig.target_id {
@@ -1428,7 +1428,7 @@ async fn create_graph(
                 edge_id += 1;
             }
         }
-        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: SonarEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1444,7 +1444,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/Bathymetry", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["bathymetry".into(), "seafloor".into()],
-            hotness_score: 0.85, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: bathy_root_id, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1462,7 +1462,7 @@ async fn create_graph(
                 materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/Bathymetry/Feature/{}", project_id, graph_id, feat.feature_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                 keywords: vec!["bathymetric-feature".into(), format!("{:?}", feat.feature_type).to_lowercase()],
-                hotness_score: 0.7, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             edges.push(SonarGraphEdge { edge_id, from_node: bathy_root_id, to_node: fid, edge_type: SonarEdgeType::BathymetryOf, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1; node_id += 1;
@@ -1485,9 +1485,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/SubBottom/{}", project_id, graph_id, layer.layer_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["sub-bottom".into(), "layer".into()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: SonarEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Layer ordering
         if let Some(prev_id) = prev_layer_nid {
@@ -1515,7 +1515,7 @@ async fn create_graph(
                 if let Some(ref sp) = bio.species_estimate { kw.push(sp.to_lowercase()); }
                 kw
             },
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: bid, edge_type: SonarEdgeType::AssociatedBiology, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1524,7 +1524,7 @@ async fn create_graph(
         if bio.vocalization_type.is_some() {
             edges.push(SonarGraphEdge {
                 edge_id, from_node: bid, to_node: bid,
-                edge_type: SonarEdgeType::VocalizationLinksToSound, weight: 0.9,
+                edge_type: SonarEdgeType::VocalizationLinksToSound, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: {
                     let mut p = HashMap::new();
@@ -1552,9 +1552,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/School/{}", project_id, graph_id, school.school_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["fish-school".into(), "biology".into()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: SonarEdgeType::AssociatedBiology, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: SonarEdgeType::AssociatedBiology, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1570,9 +1570,9 @@ async fn create_graph(
             radial_velocity_ms: Some(current.radial_velocity_ms), timestamp: Some(current.timestamp),
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/Current/{}", project_id, graph_id, current.vector_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["current".into(), "adcp".into()], hotness_score: 0.6, ..Default::default()
+            keywords: vec!["current".into(), "adcp".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: cvid, edge_type: SonarEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: cvid, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1586,13 +1586,13 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Sonar/Project_{}/Graph_{}/PointCloud", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["point-cloud".into(), "3d-reconstruction".into()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(SonarGraphEdge { edge_id, from_node: root_id, to_node: pcl_id, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         // Cross-modal: 3D geometry (109)
         edges.push(SonarGraphEdge {
             edge_id: edge_id + 1, from_node: pcl_id, to_node: pcl_id,
-            edge_type: SonarEdgeType::ContributesTo3DGeometry, weight: 0.9,
+            edge_type: SonarEdgeType::ContributesTo3DGeometry, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p },
             ..Default::default()
@@ -1624,7 +1624,7 @@ async fn create_graph(
     for (from, to, etype, reason) in inferred {
         if valid_ids.contains(&from) && valid_ids.contains(&to) {
             edges.push(SonarGraphEdge {
-                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                 ..Default::default()
@@ -1732,7 +1732,7 @@ pub async fn execute(input: SonarModalityAction) -> Result<SonarModalityOutput, 
                     range_m: Some(ping.peak_range_m), bearing_deg: Some(ping.bearing_deg),
                     echo_strength_db: Some(ping.peak_echo_strength_db), timestamp: Some(ping.timestamp),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                    keywords: vec!["echo".into(), "ping".into()], hotness_score: 0.7, ..Default::default()
+                    keywords: vec!["echo".into(), "ping".into()], hotness_score: 0.0, ..Default::default()
                 });
                 graph.edges.push(SonarGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: SonarEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 next_eid += 1; next_nid += 1;
@@ -1950,7 +1950,7 @@ pub async fn execute(input: SonarModalityAction) -> Result<SonarModalityOutput, 
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) {
-                            graph.edges.push(SonarGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(SonarGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -1992,7 +1992,7 @@ pub async fn execute(input: SonarModalityAction) -> Result<SonarModalityOutput, 
                     SonarOperation::CrossMatchWithBiology { bio_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| matches!(n.node_type, SonarNodeType::BiologicalNode)) {
-                            graph.edges.push(SonarGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: SonarEdgeType::LinksToMarineBiology, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("bio_graph_id".into(), serde_json::json!(bio_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(SonarGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: SonarEdgeType::LinksToMarineBiology, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("bio_graph_id".into(), serde_json::json!(bio_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }

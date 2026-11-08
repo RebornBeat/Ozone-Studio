@@ -1377,7 +1377,7 @@ impl PipelineExecutor {
             let client = reqwest::Client::new();
             let body = serde_json::json!({"query": query, "session_token": ""});
             let resp = client
-                .post(format!("{host}/zsei/query"))
+                .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
                 .json(&body)
                 .timeout(std::time::Duration::from_secs(30))
                 .send()
@@ -1486,7 +1486,7 @@ impl PipelineExecutor {
                 }],
                 keywords: vec!["hyperspectral".into(), "spectral".into(),
                     analysis.sensor.clone().unwrap_or_else(|| "unknown_sensor".into())],
-                hotness_score: 1.0,
+                hotness_score: 0.0,
                 ..Default::default()
             });
             node_id += 1;
@@ -1504,7 +1504,7 @@ impl PipelineExecutor {
                     materialized_path: Some(format!("/Modalities/Hyperspectral/Project_{}/Graph_{}/Endmember/{}", project_id, graph_id, em.endmember_id)),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                     keywords: vec!["endmember".into(), em.material_class.clone(), em.name.to_lowercase()],
-                    hotness_score: 0.7,
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
@@ -1606,7 +1606,7 @@ impl PipelineExecutor {
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: sid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.7,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1648,7 +1648,7 @@ impl PipelineExecutor {
                     {
                         edges.push(HyperspectralGraphEdge {
                             edge_id, from_node: sid, to_node: *mat_nid,
-                            edge_type: HyperspectralEdgeType::SpectralSignatureOf, weight: 0.9,
+                            edge_type: HyperspectralEdgeType::SpectralSignatureOf, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                             ..Default::default()
                         });
@@ -1701,13 +1701,13 @@ impl PipelineExecutor {
                         if let Some(ref f) = chem.chemical_formula { kw.push(f.to_lowercase()); }
                         kw
                     },
-                    hotness_score: 0.75,
+                    hotness_score: 0.0,
                     embedding_hint: Some(format!("chemical: {} formula: {:?}", chem.chemical_name, chem.chemical_formula)),
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: cid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.9,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1717,7 +1717,7 @@ impl PipelineExecutor {
                 for (_, sig_nid) in sig_node_ids.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                     edges.push(HyperspectralGraphEdge {
                         edge_id, from_node: *sig_nid, to_node: cid,
-                        edge_type: HyperspectralEdgeType::IndicatesChemicalComposition, weight: 0.8,
+                        edge_type: HyperspectralEdgeType::IndicatesChemicalComposition, weight: 1.0,
                         provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                         properties: {
                             let mut p = HashMap::new();
@@ -1735,7 +1735,7 @@ impl PipelineExecutor {
                 // Cross-modal: chemical → chemistry graph (106)
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: cid, to_node: cid,
-                    edge_type: HyperspectralEdgeType::ChemicallyLinkedToGraph, weight: 0.9,
+                    edge_type: HyperspectralEdgeType::ChemicallyLinkedToGraph, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                     properties: {
                         let mut p = HashMap::new();
@@ -1760,12 +1760,12 @@ impl PipelineExecutor {
                     materialized_path: Some(format!("/Modalities/Hyperspectral/Project_{}/Graph_{}/VegIndex/{}", project_id, graph_id, vi.index_id)),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                     keywords: vec!["vegetation-index".into(), vi.index_type.to_lowercase()],
-                    hotness_score: 0.65,
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: vid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.8,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1786,12 +1786,12 @@ impl PipelineExecutor {
                     materialized_path: Some(format!("/Modalities/Hyperspectral/Project_{}/Graph_{}/VegHealth", project_id, graph_id)),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                     keywords: vec!["vegetation-health".into(), "stress".into()],
-                    hotness_score: 0.7,
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: vhid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.8,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1800,7 +1800,7 @@ impl PipelineExecutor {
                 // Cross-modal: vegetation → biology (111)
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: vhid, to_node: vhid,
-                    edge_type: HyperspectralEdgeType::LinkedToVegetationBiology, weight: 0.85,
+                    edge_type: HyperspectralEdgeType::LinkedToVegetationBiology, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                     properties: {
                         let mut p = HashMap::new();
@@ -1824,12 +1824,12 @@ impl PipelineExecutor {
                     materialized_path: Some(format!("/Modalities/Hyperspectral/Project_{}/Graph_{}/Stress/{}", project_id, graph_id, stress.indicator_id)),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                     keywords: vec!["plant-stress".into(), format!("{:?}", stress.stress_type).to_lowercase()],
-                    hotness_score: 0.6,
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: stid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.75,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1860,7 +1860,7 @@ impl PipelineExecutor {
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: aid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.9,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1894,7 +1894,7 @@ impl PipelineExecutor {
                 });
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: root_id, to_node: umid,
-                    edge_type: HyperspectralEdgeType::Contains, weight: 0.8,
+                    edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
@@ -1920,7 +1920,7 @@ impl PipelineExecutor {
             for (_, mat_nid) in &material_node_ids {
                 edges.push(HyperspectralGraphEdge {
                     edge_id, from_node: *mat_nid, to_node: *mat_nid,
-                    edge_type: HyperspectralEdgeType::MaterialOnSurface3D, weight: 0.7,
+                    edge_type: HyperspectralEdgeType::MaterialOnSurface3D, weight: 1.0,
                     provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                     properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p },
                     ..Default::default()
@@ -1950,7 +1950,7 @@ impl PipelineExecutor {
             for (from, to, etype, reason) in inferred {
                 if valid_ids.contains(&from) && valid_ids.contains(&to) {
                     edges.push(HyperspectralGraphEdge {
-                        edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                        edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                         provenance: EdgeProvenance::DerivedFromHook, version: 1,
                         properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                         ..Default::default()
@@ -2107,11 +2107,11 @@ impl PipelineExecutor {
                             band_count: Some(meas.values.len() as u32),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                             keywords: vec!["spectrum".into(), "updated".into()],
-                            hotness_score: 0.8, ..Default::default()
+                            hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(HyperspectralGraphEdge {
                             edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid,
-                            edge_type: HyperspectralEdgeType::Contains, weight: 0.7,
+                            edge_type: HyperspectralEdgeType::Contains, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default()
                         });
                         next_eid += 1; next_nid += 1;
@@ -2386,7 +2386,7 @@ impl PipelineExecutor {
                                 if valid.contains(&from) && valid.contains(&to) && from != to {
                                     graph.edges.push(HyperspectralGraphEdge {
                                         edge_id: next_eid, from_node: from, to_node: to,
-                                        edge_type: etype, weight: 0.8,
+                                        edge_type: etype, weight: 1.0,
                                         provenance: EdgeProvenance::DerivedFromHook, version: 1,
                                         properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                                         ..Default::default()
@@ -2451,7 +2451,7 @@ impl PipelineExecutor {
                                 for node in graph.nodes.iter().filter(|n| matches!(n.node_type, HyperspectralNodeType::ChemicalComponentNode)) {
                                     graph.edges.push(HyperspectralGraphEdge {
                                         edge_id: next_eid, from_node: node.node_id, to_node: node.node_id,
-                                        edge_type: HyperspectralEdgeType::ChemicallyLinkedToGraph, weight: 0.9,
+                                        edge_type: HyperspectralEdgeType::ChemicallyLinkedToGraph, weight: 1.0,
                                         provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                                         properties: { let mut p = HashMap::new(); p.insert("chem_graph_id".into(), serde_json::json!(chem_graph_id)); p },
                                         ..Default::default()
@@ -2464,7 +2464,7 @@ impl PipelineExecutor {
                                 for node in graph.nodes.iter().filter(|n| matches!(n.node_type, HyperspectralNodeType::MaterialComponentNode)) {
                                     graph.edges.push(HyperspectralGraphEdge {
                                         edge_id: next_eid, from_node: node.node_id, to_node: node.node_id,
-                                        edge_type: HyperspectralEdgeType::MaterialCrossValidatedWithRadar, weight: 0.8,
+                                        edge_type: HyperspectralEdgeType::MaterialCrossValidatedWithRadar, weight: 1.0,
                                         provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                                         properties: { let mut p = HashMap::new(); p.insert("radar_graph_id".into(), serde_json::json!(radar_graph_id)); p },
                                         ..Default::default()

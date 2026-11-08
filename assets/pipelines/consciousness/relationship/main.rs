@@ -106,7 +106,11 @@ impl RelationshipStore {
         self.relationships.get_mut(&user_id).unwrap()
     }
     
-    fn record_interaction(&mut self, user_id: u64, summary: InteractionSummary) {
+    fn record_interaction(&mut self, user_id: u64, mut summary: InteractionSummary) {
+        if summary.interaction_id == 0 {
+            summary.interaction_id = self.next_interaction_id;
+            self.next_interaction_id += 1;
+        }
         let relationship = self.get_or_create(user_id);
         
         relationship.interaction_count += 1;
@@ -276,15 +280,28 @@ impl Default for UserModel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InteractionSummary {
+    /// 0 = "not assigned by the caller": `record_interaction` assigns the next real id.
+    #[serde(default)]
     pub interaction_id: u64,
+    #[serde(default)]
     pub timestamp: u64,
+    /// 0 = unknown (the caller did not measure it).
+    #[serde(default)]
     pub duration_minutes: u32,
+    #[serde(default)]
     pub topic: String,
+    #[serde(default)]
     pub task_types: Vec<String>,
-    pub quality_score: f32,
+    /// Absent unless a real measurement exists (2026-11-08: the host has no honest quality measure for a task completion, so it sends
+    /// none — never a default number; old stored rows holding a number still load).
+    #[serde(default)]
+    pub quality_score: Option<f32>,
+    #[serde(default)]
     pub emotional_tone: String,
     pub outcome: String,
+    #[serde(default)]
     pub new_information_learned: Vec<String>,
+    #[serde(default)]
     pub preferences_updated: Vec<String>,
 }
 
@@ -701,7 +718,14 @@ fn main() {
         }
     }
     
-    let input: RelationshipInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    // The host's executor hands pipelines the `{data, context}` ENVELOPE (PipelineInput); the action lives in `data`. Parsing the envelope
+    // directly is what produced "missing field `action`" on every Stage 12 relationship update (live walk 1155). Accept both shapes.
+    let raw: serde_json::Value = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+        eprintln!("Parse error: {}", e);
+        std::process::exit(1);
+    });
+    let inner = raw.get("data").cloned().unwrap_or(raw);
+    let input: RelationshipInput = serde_json::from_value(inner).unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });

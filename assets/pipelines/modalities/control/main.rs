@@ -1618,7 +1618,7 @@ async fn create_graph(
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["control".into(), "system".into(), format!("{:?}", analysis.physical_domain).to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1644,7 +1644,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Plant/{}", project_id, graph_id, plant.plant_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["plant".into(), plant.name.to_lowercase(), format!("{:?}", plant.physical_domain).to_lowercase()],
-            hotness_score: 0.9,
+            hotness_score: 0.0,
             embedding_hint: Some(format!("plant {} domain:{:?} states:{}", plant.name, plant.physical_domain, plant.n_states)),
             ..Default::default()
         });
@@ -1694,7 +1694,7 @@ async fn create_graph(
                 materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Plant/{}/TF/{}", project_id, graph_id, plant.plant_id, tf.tf_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                 keywords: vec!["transfer-function".into(), "plant".into()],
-                hotness_score: 0.75, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             edges.push(ControlGraphEdge { edge_id, from_node: pid, to_node: tf_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
@@ -1726,7 +1726,7 @@ async fn create_graph(
         if matches!(plant.physical_domain, PhysicalDomain::Robotic) {
             edges.push(ControlGraphEdge {
                 edge_id, from_node: pid, to_node: pid,
-                edge_type: ControlEdgeType::PlantIsKinematicChain, weight: 0.85,
+                edge_type: ControlEdgeType::PlantIsKinematicChain, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p },
                 ..Default::default()
@@ -1735,7 +1735,7 @@ async fn create_graph(
             // Cross-modal: commands robot 3D (109)
             edges.push(ControlGraphEdge {
                 edge_id, from_node: pid, to_node: pid,
-                edge_type: ControlEdgeType::CommandsRobot3D, weight: 0.8,
+                edge_type: ControlEdgeType::CommandsRobot3D, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("3d")); p },
                 ..Default::default()
@@ -1762,7 +1762,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Controller/{}", project_id, graph_id, ctrl.controller_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["controller".into(), format!("{:?}", ctrl.controller_type).to_lowercase()],
-            hotness_score: 0.85, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         ctrl_nid.insert(ctrl.controller_id, cid);
         edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1771,7 +1771,7 @@ async fn create_graph(
         // Cross-modal: controller code (101)
         edges.push(ControlGraphEdge {
             edge_id, from_node: cid, to_node: cid,
-            edge_type: ControlEdgeType::ImplementedInCode, weight: 0.8,
+            edge_type: ControlEdgeType::ImplementedInCode, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("code")); p },
             ..Default::default()
@@ -1793,17 +1793,17 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Sensor/{}", project_id, graph_id, sensor.sensor_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["sensor".into(), format!("{:?}", sensor.sensor_type).to_lowercase(), sensor.measured_quantity.to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         sensor_nid.insert(sensor.sensor_id, sid);
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Cross-modal: IMU sensor (116)
         if matches!(sensor.sensor_type, SensorType::IMU | SensorType::Accelerometer | SensorType::Gyroscope) {
             edges.push(ControlGraphEdge {
                 edge_id, from_node: sid, to_node: sid,
-                edge_type: ControlEdgeType::FedByIMUSensor, weight: 0.9,
+                edge_type: ControlEdgeType::FedByIMUSensor, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("imu")); p },
                 ..Default::default()
@@ -1813,7 +1813,7 @@ async fn create_graph(
         if matches!(sensor.sensor_type, SensorType::Radar) {
             edges.push(ControlGraphEdge {
                 edge_id, from_node: sid, to_node: sid,
-                edge_type: ControlEdgeType::TrackFromRadar, weight: 0.85,
+                edge_type: ControlEdgeType::TrackFromRadar, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("radar")); p },
                 ..Default::default()
@@ -1823,7 +1823,7 @@ async fn create_graph(
         if matches!(sensor.sensor_type, SensorType::Sonar) {
             edges.push(ControlGraphEdge {
                 edge_id, from_node: sid, to_node: sid,
-                edge_type: ControlEdgeType::NavigationFromSonar, weight: 0.85,
+                edge_type: ControlEdgeType::NavigationFromSonar, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("sonar")); p },
                 ..Default::default()
@@ -1845,10 +1845,10 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Actuator/{}", project_id, graph_id, actuator.actuator_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["actuator".into(), format!("{:?}", actuator.actuator_type).to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         actuator_nid.insert(actuator.actuator_id, aid);
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1864,7 +1864,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Loop/{}", project_id, graph_id, floop.loop_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: vec!["feedback-loop".into(), format!("{:?}", floop.loop_type).to_lowercase()],
-            hotness_score: 0.9, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         loop_nid.insert(floop.loop_id, lid);
         edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: lid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1930,7 +1930,7 @@ async fn create_graph(
         // Cross-modal: stability proof → math (105)
         edges.push(ControlGraphEdge {
             edge_id, from_node: sid, to_node: sid,
-            edge_type: ControlEdgeType::ProvenInMath, weight: 0.75,
+            edge_type: ControlEdgeType::ProvenInMath, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("math")); p },
             ..Default::default()
@@ -1952,9 +1952,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/FreqResp/{}", project_id, graph_id, fr.freq_response_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["frequency-response".into(), format!("{:?}", fr.response_type).to_lowercase()],
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: frid, edge_type: ControlEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: frid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1977,7 +1977,7 @@ async fn create_graph(
             ..Default::default()
         });
         sim_nid.insert(sim.sim_id, sim_node_id);
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: sim_node_id, edge_type: ControlEdgeType::SimulatedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: sim_node_id, edge_type: ControlEdgeType::SimulatedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1997,7 +1997,7 @@ async fn create_graph(
             hotness_score: if vr.passed { 0.5 } else { 0.9 },
             ..Default::default()
         });
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: vrid, edge_type: ControlEdgeType::VerifiedBy, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: vrid, edge_type: ControlEdgeType::VerifiedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -2012,9 +2012,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/LQR/{}", project_id, graph_id, lqr.lqr_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["lqr".into(), "optimal".into()],
-            hotness_score: 0.75, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: lqr_nid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: lqr_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // LQR → first plant (OptimalGainFor)
@@ -2037,9 +2037,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/MPC/{}", project_id, graph_id, mpc.mpc_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["mpc".into(), "optimal-control".into()],
-            hotness_score: 0.8, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: mpc_nid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: mpc_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // MPC → associated controller
         if let Some(&c_nid) = ctrl_nid.get(&mpc.controller_id) {
@@ -2061,9 +2061,9 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/IdModel/{}", project_id, graph_id, id_model.model_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["system-identification".into(), format!("{:?}", id_model.method).to_lowercase()],
-            hotness_score: 0.7, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: im_nid, edge_type: ControlEdgeType::IdentifiedAs, weight: 0.85, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: im_nid, edge_type: ControlEdgeType::IdentifiedAs, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -2077,10 +2077,10 @@ async fn create_graph(
                 materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Dist/{}", project_id, graph_id, did)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                 keywords: vec!["disturbance".into(), format!("{:?}", dist.entry_point).to_lowercase()],
-                hotness_score: 0.55, ..Default::default()
+                hotness_score: 0.0, ..Default::default()
             });
             if let Some(&l_nid) = loop_nid.get(&floop.loop_id) {
-                edges.push(ControlGraphEdge { edge_id, from_node: did, to_node: l_nid, edge_type: ControlEdgeType::DisturbedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edges.push(ControlGraphEdge { edge_id, from_node: did, to_node: l_nid, edge_type: ControlEdgeType::DisturbedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
             node_id += 1;
@@ -2107,7 +2107,7 @@ async fn create_graph(
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
             edges.push(ControlGraphEdge {
-                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromHook, version: 1,
                 properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
                 ..Default::default()
@@ -2161,7 +2161,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -2319,7 +2319,7 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                                 content: format!("Plant: {} states={} in={} out={}", plant.name, plant.n_states, plant.n_inputs, plant.n_outputs),
                                 n_states: Some(plant.n_states), n_inputs: Some(plant.n_inputs), n_outputs: Some(plant.n_outputs),
                                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                                keywords: vec!["plant".into(), plant.name.to_lowercase()], hotness_score: 0.85, ..Default::default()
+                                keywords: vec!["plant".into(), plant.name.to_lowercase()], hotness_score: 0.0, ..Default::default()
                             });
                             graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                             next_eid += 1; next_nid += 1;
@@ -2331,7 +2331,7 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                             content: format!("Controller {:?}: {}", controller.controller_type, controller.name),
                             kp: controller.parameters.kp, ki: controller.parameters.ki, kd: controller.parameters.kd,
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["controller".into(), format!("{:?}", controller.controller_type).to_lowercase()], hotness_score: 0.8, ..Default::default()
+                            keywords: vec!["controller".into(), format!("{:?}", controller.controller_type).to_lowercase()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
@@ -2342,9 +2342,9 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                             content: format!("Sensor {:?}: {} measures={}", sensor.sensor_type, sensor.name, sensor.measured_quantity),
                             sample_rate_hz: Some(sensor.sample_rate_hz),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["sensor".into(), sensor.name.to_lowercase()], hotness_score: 0.7, ..Default::default()
+                            keywords: vec!["sensor".into(), sensor.name.to_lowercase()], hotness_score: 0.0, ..Default::default()
                         });
-                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     ControlUpdate::UpdateSimResult { result } => {
@@ -2355,7 +2355,7 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                             keywords: vec!["simulation".into()], hotness_score: if result.diverged { 0.9 } else { 0.6 }, ..Default::default()
                         });
-                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::SimulatedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::SimulatedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                     ControlUpdate::AddVerification { result } => {
@@ -2367,7 +2367,7 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                             keywords: if result.passed { vec!["verification".into(), "pass".into()] } else { vec!["verification".into(), "fail".into()] },
                             hotness_score: if result.passed { 0.5 } else { 0.9 }, ..Default::default()
                         });
-                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::VerifiedBy, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::VerifiedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
                     }
                 }
@@ -2974,7 +2974,7 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -3047,7 +3047,7 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                         let root_id = graph.root_node_id;
                         graph.edges.push(ControlGraphEdge {
                             edge_id: next_eid, from_node: root_id, to_node: root_id,
-                            edge_type: ControlEdgeType::PlantIsKinematicChain, weight: 0.9,
+                            edge_type: ControlEdgeType::PlantIsKinematicChain, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                             properties: { let mut p = HashMap::new(); p.insert("kin_graph_id".into(), serde_json::json!(kin_graph_id)); p },
                             ..Default::default()
@@ -3058,7 +3058,7 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                         let root_id = graph.root_node_id;
                         graph.edges.push(ControlGraphEdge {
                             edge_id: next_eid, from_node: root_id, to_node: root_id,
-                            edge_type: ControlEdgeType::FedByIMUSensor, weight: 0.9,
+                            edge_type: ControlEdgeType::FedByIMUSensor, weight: 1.0,
                             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
                             properties: { let mut p = HashMap::new(); p.insert("imu_graph_id".into(), serde_json::json!(imu_graph_id)); p },
                             ..Default::default()

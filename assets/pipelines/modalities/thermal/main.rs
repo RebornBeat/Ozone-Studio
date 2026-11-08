@@ -1141,7 +1141,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     let client = reqwest::Client::new();
     let body = serde_json::json!({"query": query, "session_token": ""});
     let resp = client
-        .post(format!("{host}/zsei/query"))
+        .post(format!("{host}/zsei/query")).header("x-ozone-trace", std::env::var("OZONE_TRACE_ID").unwrap_or_default()).header("x-ozone-origin", std::env::var("OZONE_ORIGIN").unwrap_or_default())
         .json(&body)
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -1278,7 +1278,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
         provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Initial creation".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
         keywords: vec!["thermal".into(), "infrared".into(), format!("{:?}", analysis.spectral_band).to_lowercase()],
-        hotness_score: 1.0, ..Default::default()
+        hotness_score: 0.0, ..Default::default()
     });
     node_id += 1;
 
@@ -1354,7 +1354,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             hotness_score: 0.5 + (cs.delta_t_k.abs() / 80.0).clamp(0.0, 0.4),
             ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ThermalEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1377,7 +1377,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             hotness_score: 0.6 + (grad.gradient_magnitude_k_per_m / 20.0).clamp(0.0, 0.3),
             ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: gid, edge_type: ThermalEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: gid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1390,9 +1390,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             temperature_k: Some(iso.temperature_k), area_pixels: Some(iso.area_enclosed_pixels), area_m2: iso.area_enclosed_m2,
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/Isotherm/{}", project_id, graph_id, iso.contour_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["isotherm".into()], hotness_score: 0.55, ..Default::default()
+            keywords: vec!["isotherm".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: iid, edge_type: ThermalEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: iid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1412,19 +1412,19 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/MaterialZone/{}", project_id, graph_id, mz.zone_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["material-zone".into(), format!("{:?}", mz.material_class).to_lowercase()]; if let Some(ref m) = mz.inferred_material { kw.push(m.to_lowercase()); } kw },
-            hotness_score: 0.65, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: ThermalEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: mid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Material zone → indicates material state
-        edges.push(ThermalGraphEdge { edge_id, from_node: mid, to_node: root_id, edge_type: ThermalEdgeType::IndicatesMaterialState, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: mid, to_node: root_id, edge_type: ThermalEdgeType::IndicatesMaterialState, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
 
         // Cross-modal: material → hyperspectral emissivity (126)
         edges.push(ThermalGraphEdge {
             edge_id, from_node: mid, to_node: mid,
-            edge_type: ThermalEdgeType::EmissivityCorrelatesWithHSI, weight: 0.8,
+            edge_type: ThermalEdgeType::EmissivityCorrelatesWithHSI, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("hyperspectral")); p },
             ..Default::default()
@@ -1453,7 +1453,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             hotness_score: 0.6 + anomaly.anomaly_score * 0.3,
             ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: ThermalEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         edges.push(ThermalGraphEdge { edge_id, from_node: aid, to_node: root_id, edge_type: ThermalEdgeType::AnomalyRelativeTo, weight: anomaly.anomaly_score, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1476,15 +1476,15 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/BioSig/{}", project_id, graph_id, bio.signature_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["biological".into(), format!("{:?}", bio.organism_type).to_lowercase()],
-            hotness_score: 0.75,
+            hotness_score: 0.0,
             ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: bid, edge_type: ThermalEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: bid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Bio thermal → biology modality cross-link (111)
         edges.push(ThermalGraphEdge {
             edge_id, from_node: bid, to_node: bid,
-            edge_type: ThermalEdgeType::LinkedToBiology, weight: 0.9,
+            edge_type: ThermalEdgeType::LinkedToBiology, weight: 1.0,
             provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
             properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("biology")); p },
             ..Default::default()
@@ -1508,7 +1508,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             hotness_score: 0.7 + (hs.estimated_power_w / 5000.0).clamp(0.0, 0.25),
             ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: hsid, edge_type: ThermalEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: hsid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         edges.push(ThermalGraphEdge { edge_id, from_node: hsid, to_node: root_id, edge_type: ThermalEdgeType::EmitsHeat, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1523,9 +1523,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/Trend/{}", project_id, graph_id, trend.trend_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["trend".into(), format!("{:?}", trend.trend_type).to_lowercase()],
-            hotness_score: 0.6, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: ThermalEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: tid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1542,11 +1542,11 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             temperature_k: Some(lst.mean_lst_k),
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/LST", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["land-surface-temperature".into(), "lst".into()], hotness_score: 0.75, ..Default::default()
+            keywords: vec!["land-surface-temperature".into(), "lst".into()], hotness_score: 0.0, ..Default::default()
         });
         edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: lstid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         // LST → geospatial cross-modal
-        edges.push(ThermalGraphEdge { edge_id: edge_id + 1, from_node: lstid, to_node: lstid, edge_type: ThermalEdgeType::PlottedOnGeoMap, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id: edge_id + 1, from_node: lstid, to_node: lstid, edge_type: ThermalEdgeType::PlottedOnGeoMap, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("geospatial")); p }, ..Default::default() });
         edge_id += 2; node_id += 1;
     }
 
@@ -1559,9 +1559,9 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
                 hf.mean_flux_w_per_m2, hf.max_flux_w_per_m2, hf.total_power_estimate_w.map(|p| format!("{:.0}", p)).unwrap_or_else(|| "?".into())),
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/HeatFlux", project_id, graph_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-            keywords: vec!["heat-flux".into(), "radiometry".into()], hotness_score: 0.7, ..Default::default()
+            keywords: vec!["heat-flux".into(), "radiometry".into()], hotness_score: 0.0, ..Default::default()
         });
-        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: hfid, edge_type: ThermalEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: hfid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
     }
 
@@ -1571,7 +1571,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
         if let Some(&(_, mat_nid)) = mat_node_ids.first() {
             edges.push(ThermalGraphEdge {
                 edge_id, from_node: *hs_nid, to_node: mat_nid,
-                edge_type: ThermalEdgeType::ThermallyCoupledTo, weight: 0.7,
+                edge_type: ThermalEdgeType::ThermallyCoupledTo, weight: 1.0,
                 provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default()
             });
             edge_id += 1;
@@ -1592,7 +1592,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(ThermalGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edges.push(ThermalGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
             edge_id += 1;
         }
     }
@@ -1685,9 +1685,9 @@ pub async fn execute(input: ThermalModalityAction) -> Result<ThermalModalityOutp
                         frame.hotspot_count),
                     temperature_k: Some(frame.mean_temp_k), timestamp: Some(frame.timestamp_sec as f64),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                    keywords: vec!["frame".into(), "thermal".into()], hotness_score: 0.7, ..Default::default()
+                    keywords: vec!["frame".into(), "thermal".into()], hotness_score: 0.0, ..Default::default()
                 });
-                graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ThermalEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 next_eid += 1; next_nid += 1;
             }
             graph.version += 1; graph.updated_at = now.clone(); graph.state = GraphStateType::Updated;
@@ -1802,9 +1802,9 @@ pub async fn execute(input: ThermalModalityAction) -> Result<ThermalModalityOutp
                 content: format!("FusedWithVisible: {} method={:?}", visible_image_path, fusion_method),
                 materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/FusedVisible", graph.project_id, thermal_graph_id)),
                 provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                keywords: vec!["fusion".into(), "visible".into()], hotness_score: 0.7, ..Default::default()
+                keywords: vec!["fusion".into(), "visible".into()], hotness_score: 0.0, ..Default::default()
             });
-            graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: ThermalEdgeType::FusedWithVisible, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("visible_path".into(), serde_json::json!(visible_image_path)); p.insert("method".into(), serde_json::json!(format!("{:?}", fusion_method))); p }, ..Default::default() });
+            graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: ThermalEdgeType::FusedWithVisible, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("visible_path".into(), serde_json::json!(visible_image_path)); p.insert("method".into(), serde_json::json!(format!("{:?}", fusion_method))); p }, ..Default::default() });
             graph.state = GraphStateType::CrossLinked;
             graph.version += 1; graph.updated_at = now.clone();
             graph.version_notes.push(VersionNote { version: graph.version, note: "Fused with visible image".into(), step_index: None, timestamp: now, change_type: ChangeType::CrossLinked });
@@ -1890,7 +1890,7 @@ pub async fn execute(input: ThermalModalityAction) -> Result<ThermalModalityOutp
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
                         if valid.contains(&from) && valid.contains(&to) && from != to {
-                            graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 1.0, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                     }
@@ -1952,9 +1952,9 @@ pub async fn execute(input: ThermalModalityAction) -> Result<ThermalModalityOutp
                             node_id: ref_nid, node_type: ThermalNodeType::CrossModalRef,
                             content: format!("CrossModal→visible: {}", image_path),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["cross-modal".into(), "visible".into()], hotness_score: 0.6, ..Default::default()
+                            keywords: vec!["cross-modal".into(), "visible".into()], hotness_score: 0.0, ..Default::default()
                         });
-                        graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: ThermalEdgeType::FusedWithVisible, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, ..Default::default() });
+                        graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: ThermalEdgeType::FusedWithVisible, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, ..Default::default() });
                         graph.state = GraphStateType::CrossLinked;
                     }
                     ThermalOperation::ExportHotspotReport => { /* generate report */ }
@@ -1965,7 +1965,7 @@ pub async fn execute(input: ThermalModalityAction) -> Result<ThermalModalityOutp
                     ThermalOperation::CrossValidateWithHSI { hsi_graph_id } => {
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for node in graph.nodes.iter().filter(|n| matches!(n.node_type, ThermalNodeType::MaterialZoneNode)) {
-                            graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: ThermalEdgeType::EmissivityCorrelatesWithHSI, weight: 0.85, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("hsi_graph_id".into(), serde_json::json!(hsi_graph_id)); p }, ..Default::default() });
+                            graph.edges.push(ThermalGraphEdge { edge_id: next_eid, from_node: node.node_id, to_node: node.node_id, edge_type: ThermalEdgeType::EmissivityCorrelatesWithHSI, weight: 1.0, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("hsi_graph_id".into(), serde_json::json!(hsi_graph_id)); p }, ..Default::default() });
                             next_eid += 1;
                         }
                         graph.state = GraphStateType::CrossLinked;

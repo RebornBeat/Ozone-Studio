@@ -16,17 +16,29 @@ const STOPWORDS: &[&str] = &[
     "may", "might", "must", "just", "also", "about", "into", "over", "under", "implied", "there", "here", "very", "too", "some", "any",
 ];
 
-fn is_stopword(w: &str) -> bool {
-    STOPWORDS.contains(&w)
+/// The stoplist is a TESTED BASELINE, never a dependency (operator 2026-11-08: "I don't want to rely on stopwords again"): it is OFF unless
+/// `OZONE_KEYWORD_STOPLIST=1`. Filler handling is learned (keyword model) and judged (keyword settlement); the evaluation harness compares
+/// this baseline against them.
+pub fn stoplist_enabled() -> bool {
+    std::env::var("OZONE_KEYWORD_STOPLIST").map(|v| v == "1").unwrap_or(false)
+}
+
+fn is_stopword_with(w: &str, stop: bool) -> bool {
+    stop && STOPWORDS.contains(&w)
 }
 
 /// Lower-cased content words of `text`: alphanumeric runs (inner `-`/`_` kept) of length >= 3 that are not stopwords, de-duplicated in
 /// first-seen order.
 pub fn content_words(text: &str) -> Vec<String> {
+    content_words_with(text, stoplist_enabled())
+}
+
+/// `content_words` with the baseline stoplist explicitly on/off (tests, the evaluation harness).
+pub fn content_words_with(text: &str, stop: bool) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for raw in text.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_')) {
         let w = raw.trim_matches(|c| c == '-' || c == '_').to_lowercase();
-        if w.chars().count() >= 3 && !is_stopword(&w) && !out.contains(&w) {
+        if w.chars().count() >= 3 && !is_stopword_with(&w, stop) && !out.contains(&w) {
             out.push(w);
         }
     }
@@ -40,8 +52,15 @@ pub fn content_words(text: &str) -> Vec<String> {
 /// * only when fewer than 3 usable keywords remain (extraction failed or came back thin) are the prompt's own content words added.
 ///   A rich extraction is never widened.
 pub fn sanitize_keywords(prompt: &str, extracted: Vec<String>) -> Vec<String> {
+    sanitize_keywords_with(prompt, extracted, stoplist_enabled())
+}
+
+/// `sanitize_keywords` with the baseline stoplist explicitly on/off. Without it (the default) only SHAPE rules apply: empty items and
+/// namespaced markers are dropped, a sentence-like item is replaced by its tokens, duplicates are removed; a filler word that is a
+/// well-formed single term is kept here and judged later by the settlement pass / the learned ranker.
+pub fn sanitize_keywords_with(prompt: &str, extracted: Vec<String>, stop: bool) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut push = |k: String, out: &mut Vec<String>| {
+    let push = |k: String, out: &mut Vec<String>| {
         if !k.is_empty() && !out.contains(&k) {
             out.push(k);
         }
@@ -49,11 +68,11 @@ pub fn sanitize_keywords(prompt: &str, extracted: Vec<String>) -> Vec<String> {
     for kw in extracted {
         let cleaned = kw.split('(').next().unwrap_or("").trim().to_lowercase(); // "you (implied)" -> "you"
         let words: Vec<&str> = cleaned.split_whitespace().collect();
-        if words.is_empty() || words.iter().all(|w| is_stopword(w)) {
+        if words.is_empty() || words.iter().all(|w| is_stopword_with(w, stop)) || crate::shared_contracts::keyword_model::is_marker(&cleaned) {
             continue;
         }
         if words.len() > 4 {
-            for w in content_words(&cleaned) {
+            for w in content_words_with(&cleaned, stop) {
                 push(w, &mut out);
             }
         } else {
@@ -61,7 +80,7 @@ pub fn sanitize_keywords(prompt: &str, extracted: Vec<String>) -> Vec<String> {
         }
     }
     if out.len() < 3 {
-        for w in content_words(prompt) {
+        for w in content_words_with(prompt, stop) {
             push(w, &mut out);
         }
     }
@@ -100,27 +119,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_live_failure_is_repaired() {
-        // exactly what walks 1099/1148 produced
-        let got = sanitize_keywords(
+    fn the_live_failure_is_repaired_with_the_baseline_stoplist() {
+        // exactly what walks 1099/1148 produced (baseline stoplist ON — the tested baseline)
+        let got = sanitize_keywords_with(
             "Explain how zzsuffmw5qi3vg original works in two sentences.",
             vec!["you".to_string(), "how the zzsuffmw5qi3vg original works in two sentences".to_string()],
+            true,
         );
-        assert!(!got.iter().any(|k| k == "you"), "a stopword is never a keyword");
+        assert!(!got.iter().any(|k| k == "you"), "a stopword is never a keyword (baseline)");
         assert!(got.contains(&"zzsuffmw5qi3vg".to_string()) && got.contains(&"original".to_string()), "the sentence became its content words: {got:?}");
         assert!(got.iter().all(|k| k.split_whitespace().count() <= 4), "no sentence-like keyword survives");
     }
 
     #[test]
+    fn without_the_stoplist_only_shape_rules_apply() {
+        let got = sanitize_keywords_with(
+            "Explain how zzsuffmw5qi3vg original works in two sentences.",
+            vec!["you".to_string(), "how the zzsuffmw5qi3vg original works in two sentences".to_string(), "scope:global".to_string()],
+            false,
+        );
+        assert!(got.contains(&"you".to_string()), "no list: a well-formed single term is kept for the settlement pass to judge");
+        assert!(!got.iter().any(|k| k == "scope:global"), "a namespaced marker is not a meaning term (shape rule)");
+        assert!(got.contains(&"zzsuffmw5qi3vg".to_string()) && got.iter().all(|k| k.split_whitespace().count() <= 4), "a sentence is still replaced by its tokens: {got:?}");
+    }
+
+    #[test]
     fn a_rich_extraction_is_not_widened_or_changed() {
         let kws = vec!["graph database".to_string(), "traversal".to_string(), "index".to_string(), "storage".to_string()];
-        let got = sanitize_keywords("Explain how a graph database traversal works with an index and storage engine", kws.clone());
-        assert_eq!(got, kws, "4 usable keywords => untouched");
+        for stop in [true, false] {
+            let got = sanitize_keywords_with("Explain how a graph database traversal works with an index and storage engine", kws.clone(), stop);
+            assert_eq!(got, kws, "4 usable keywords => untouched");
+        }
     }
 
     #[test]
     fn implied_markers_and_duplicates_are_cleaned() {
-        let got = sanitize_keywords("build a clock", vec!["you (implied)".into(), "Clock".into(), "clock".into()]);
+        let got = sanitize_keywords_with("build a clock", vec!["you (implied)".into(), "Clock".into(), "clock".into()], true);
         assert_eq!(got.iter().filter(|k| *k == "clock").count(), 1);
         assert!(!got.iter().any(|k| k.contains("implied") || k == "you"));
     }
@@ -132,10 +166,10 @@ mod tests {
             (2, "Clock Rendering".to_string(), vec!["clock".to_string(), "3d".to_string()]),
             (3, "Base Orchestration Methodology".to_string(), vec!["orchestration".to_string()]),
         ];
-        assert_eq!(floor_selection(&content_words("please build a 3d clock"), &c), vec![2], "relevant wins");
-        assert_eq!(floor_selection(&content_words("explain photosynthesis"), &c), vec![3], "base is the floor when nothing is relevant");
+        assert_eq!(floor_selection(&content_words_with("please build a 3d clock", true), &c), vec![2], "relevant wins");
+        assert_eq!(floor_selection(&content_words_with("explain photosynthesis", true), &c), vec![3], "base is the floor when nothing is relevant");
         let no_base = vec![(1u64, "A".to_string(), vec![]), (2, "B".to_string(), vec![])];
-        assert_eq!(floor_selection(&content_words("anything"), &no_base), vec![1, 2], "no base either => all (never empty)");
+        assert_eq!(floor_selection(&content_words_with("anything", true), &no_base), vec![1, 2], "no base either => all (never empty)");
         assert!(floor_selection(&[], &[]).is_empty(), "an empty store stays empty (the empty-store path creates the base methodology)");
     }
 }

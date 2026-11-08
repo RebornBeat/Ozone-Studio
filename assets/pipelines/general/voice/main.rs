@@ -326,7 +326,7 @@ fn archive_transcript(storage_path: &str, speaker: &str, text: &str, audio_path:
         speaker: speaker.to_string(),
         text: text.to_string(),
         audio_path: audio_path.map(String::from),
-        confidence: 0.95,
+        confidence: 0.0,
     };
     
     transcripts.push(entry);
