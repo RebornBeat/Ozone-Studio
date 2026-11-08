@@ -7384,3 +7384,13 @@ restored into the fresh dist and served at localhost:8901/vis.html. ui/dist is g
   ui/dist is gitignored by design (the Electron app loads the built dist from the checkout).
 - vis.html (the google.com graph visualization) restored into the fresh dist + served at
   localhost:8901/vis.html.
+
+## 2026-11-01 (zc) — THE EDUCATIONAL GUIDE: Building Harnesses for Graph-Based AGI
+docs/BUILDING_GRAPH_AGI_HARNESSES.md — the teaching guide built from this system's real findings:
+what a harness IS (the inversion: models are clients, not the core), the store (one write path,
+ripples), the walk + the funnel (the real 15-walk numbers), the scorecard discipline, the findings
+that moved the funnel (each with its lesson: the props filter vs the matcher, the wrong-level parse,
+the discovery-stage garbage multiplication, the vote primitive), the honesty rule (the constants
+story), the gates, the modality rules, the 10-step recipe, and the reading list. 2 student exercises
+included. Also: STATE_CAPTURE's Nov 1-7 headline entry RESTORED (the arc was missing from the
+headline stack — fixed at af471f4).
