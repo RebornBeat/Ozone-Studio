@@ -831,6 +831,12 @@ impl PromptOrchestrator {
             .filter_map(|m| m["name"].as_str().map(|n| n.to_string()))
             .filter(|n| !state.closure_attempted.contains(&n.to_lowercase()))
             .collect();
+        // one capability can be reported by several gap rows / steps — judge and draft it ONCE (live walk 1154 drafted three
+        // methodologies for the same "code_callgraph")
+        let pending: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            pending.into_iter().filter(|n| seen.insert(n.to_lowercase())).collect()
+        };
         if pending.is_empty() {
             return (0, 0);
         }

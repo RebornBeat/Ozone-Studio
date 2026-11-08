@@ -48,7 +48,7 @@ s.check("SW1", "both code files became modality graphs in the project", graphIds
 const sp = (await http("POST", "/context/span_out", { seeds: graphIds, budget_tokens: 4000, include_text: true })).json;
 s.check("SW2", "direct span-out from the code graphs is entry-rooted (run_report/main → ingest → normalize → score)", sp.success === true && /ingest_records/.test(sp.text ?? "") && /score_records/.test(sp.text ?? ""), String(sp.text ?? "").slice(0, 120));
 
-const r = await orchestrate({ prompt: "Using the code in this project, explain the order in which run_report calls its helper functions and what each one does.", project_id: projId, workspace_id: wsId, consciousness_enabled: false }, { pollMs: 15000, maxMs: Number(process.env.WALK_MAX_MS ?? 3600000) });
+const r = await orchestrate({ prompt: `Using the code in this project (${tag}), explain the order in which run_report calls its helper functions and what each one does.`, project_id: projId, workspace_id: wsId, consciousness_enabled: false }, { pollMs: 15000, maxMs: Number(process.env.WALK_MAX_MS ?? 3600000) });
 s.check("SW3", "the walk finished", r.state && r.state !== "timeout" && r.state !== "running", JSON.stringify({ state: r.state, task: r.task_id, err: String(r.error ?? "").slice(0, 120) }));
 const taskId = Number(r.task_id ?? (String(r.error ?? "").match(/task (\d+)/) ?? [])[1] ?? 0);
 const t = taskId ? (await http("POST", "/task/get", { task_id: taskId })).json : null;

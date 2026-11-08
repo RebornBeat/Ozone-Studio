@@ -18,6 +18,7 @@ import ThinkingRow from './ThinkingRow';
 import PausedBanner from './PausedBanner';
 import { OrchestrationPanels, CoordinationStrip } from './OrchestrationPanels';
 import { useChatSession } from '../hooks/useChatSession';
+import { useOzoneStore } from '../services/store';
 
 export interface ProjectChatPanelProps {
   projectId: number;
@@ -27,8 +28,14 @@ export interface ProjectChatPanelProps {
 
 export default function ProjectChatPanel({ projectId, workspaceId, projectName }: ProjectChatPanelProps) {
   // Same engine as MetaPortion; only the scope differs (project-scoped,
-  // persisted per project+workspace across restarts).
-  const { transcript, isRunning, send, elapsedSeconds, stepInfo, awaiting, paused, resumePaused } = useChatSession({ projectId, workspaceId });
+  // persisted per project+workspace across restarts). The CONTROL SELECTIONS
+  // (the model selector) are wired to the SAME store state as MetaPortion —
+  // both chats share one selection, captured via the config round-trip.
+  const selectedModel = useOzoneStore(st => st.selectedModel);
+  const setSelectedModel = useOzoneStore(st => st.setSelectedModel);
+  const availableModels = useOzoneStore(st => st.availableModels);
+  const modelConfig = selectedModel ? { model_identifier: selectedModel } : undefined;
+  const { transcript, isRunning, send, elapsedSeconds, stepInfo, awaiting, paused, resumePaused } = useChatSession({ projectId, workspaceId, modelConfig });
   const [input, setInput] = useState('');
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -48,6 +55,19 @@ export default function ProjectChatPanel({ projectId, workspaceId, projectName }
     <div className="project-chat-panel">
       <div className="project-chat-header">
         <span>💬 Chat with {projectName}</span>
+        {/* CONTROL SELECTIONS (the operator: captured and selectable in BOTH
+           chats): the model selector shares the store state with MetaPortion. */}
+        <select
+          className="project-chat-model-select"
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+          title="Model for this project's runs (shared with the meta panel)"
+          style={{ maxWidth: '45%', fontSize: 11, padding: '2px 6px', borderRadius: 6 }}
+        >
+          {availableModels.map((m) => (
+            <option key={m.identifier} value={m.identifier}>{m.identifier}</option>
+          ))}
+        </select>
       </div>
       <div className="project-chat-transcript" ref={transcriptRef}>
         {transcript.length === 0 ? (

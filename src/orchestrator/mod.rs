@@ -2629,9 +2629,9 @@ impl PromptOrchestrator {
         // shares a word with the request. Each gathered methodology is judged once: "does this methodology clearly NOT apply to this
         // request?" — DROPPING is the assured action, so it needs `configured_strength()` consecutive YES (the first NO keeps it and
         // ends that vote). Never leaves the gather empty: if every methodology is judged irrelevant they are all KEPT (the floor
-        // doctrine "methodologies should never be 0"). The floor path is exempt (already relevance-ordered, and may be a single base
-        // methodology). Runs only for a keyword-found set of more than one.
-        if !state.floor_used && state.methodologies.len() > 1 {
+        // doctrine "methodologies should never be 0"). The FLOOR path is judged too (live walk 1154: a 13-methodology word-overlap floor produced 28 AMT branches and a
+        // 29-step plan for a one-sentence code question). Runs for any gathered set of more than one.
+        if state.methodologies.len() > 1 {
             let request = state.cleaned_prompt.clone();
             let ids = state.methodologies.clone();
             let mut keep: Vec<u64> = Vec::new();
