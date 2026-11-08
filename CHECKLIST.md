@@ -7371,3 +7371,16 @@ the operator's app picks everything up on reload/restart. vis.html (the google.c
 visualization — 101 nodes, 12 depth levels, the 429 rule-hit bars, the embedded farm screenshot)
 restored into the fresh dist and served at localhost:8901/vis.html. ui/dist is gitignored by design
 (the Electron app loads the built dist from the checkout).
+
+## 2026-11-01 (zc, II) — CONTROL SELECTIONS captured and selectable in BOTH chats + the test suites green
+- **ProjectChatPanel gains the model selector** (the control selection the operator asked to be
+  captured and selectable in the project chat AND meta chat): wired to the SAME store state as
+  MetaPortion (one selection, both surfaces), modelConfig threaded into its orchestrate sends.
+  Clean single edit after a splice-mess (restored from git, one ordered edit, tsc clean).
+- **The declared_charset test** (D28: meta charset recorded) and **the matcher capability test**
+  (class/id/descendant/attribute selectors match + cascade) added to the lib suite.
+- **Test suites green**: uidocument 69/69, host 229/229, uidocument on EU 69/69 (re-run).
+- The UI dist rebuilt fresh (Nov 7) — carries the Chat Store's chat work + the control selections;
+  ui/dist is gitignored by design (the Electron app loads the built dist from the checkout).
+- vis.html (the google.com graph visualization) restored into the fresh dist + served at
+  localhost:8901/vis.html.
