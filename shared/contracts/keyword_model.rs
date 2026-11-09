@@ -1203,7 +1203,8 @@ pub fn train_and_evaluate(groups: &[DatasetGroup], dir: &Path, now: u64, params:
     };
     enc.id = CANDIDATE_ENCODER_ID.to_string();
     let seen_before = if warm { enc.trained_on_samples } else { 0 };
-    let loss = train_encoder(&mut enc, &pairs, params.encoder_epochs, params.encoder_lr, params.seed.wrapping_add(enc.version as u64));
+    let enc_seed = params.seed.wrapping_add(enc.version as u64);
+    let loss = train_encoder(&mut enc, &pairs, params.encoder_epochs, params.encoder_lr, enc_seed);
     enc.trained_on_samples = seen_before + pairs.len() as u64; // cumulative across runs
     let cand_version = enc.version;
     // ---- ranker (the new encoder's similarity is its one learned input); warm start from the candidate ranker
