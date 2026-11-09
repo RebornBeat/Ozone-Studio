@@ -797,6 +797,7 @@ impl PromptOrchestrator {
         let request = state.request.prompt.clone();
         let mut dropped = 0usize;
         let n = state.tool_manifest.len();
+        let mut pending: Vec<(usize, String, String, String, String)> = Vec::new(); // (manifest index, prompt, rule_text, rule_ref, provider name)
         for i in 0..n {
             let (status, judged, rule_text, rule_ref, name) = {
                 let m = &state.tool_manifest[i];
@@ -814,8 +815,12 @@ impl PromptOrchestrator {
             let prompt = format!(
                 "REQUEST (the user's request, whole):\n{request}\n\nA methodology RULE (its condition/outcome) that would call the provider \"{name}\":\n{rule_text}\n\nQUESTION: Does this rule clearly NOT apply to the request above — i.e. the situation the rule describes is not what this request asks for, so calling \"{name}\" would be irrelevant to it? Answer YES only if the rule is clearly irrelevant. Answer NO if the rule applies or you are unsure."
             );
-            let strength = crate::shared_contracts::k_validation::configured_strength();
-            let not_applicable = self.confirm_yes_no_orch(state, prompt, strength).await;
+            pending.push((i, prompt, rule_text, rule_ref, name));
+        }
+        // each rule's judgment is independent → the votes run concurrently; results are applied in order below
+        let strength = crate::shared_contracts::k_validation::configured_strength();
+        let verdicts = self.confirm_yes_no_batch(state, pending.iter().map(|p| p.1.clone()).collect(), strength).await;
+        for ((i, _prompt, rule_text, rule_ref, name), not_applicable) in pending.into_iter().zip(verdicts.into_iter()) {
             // HIT/LABEL capture (keyword program): a labelled sample + a kept/dropped event on the methodology that declared the rule
             let method_id = state.tool_manifest[i]["methodology_id"].as_u64().unwrap_or(0);
             crate::keyword_program::record_judgment("rule_applicability", if method_id != 0 { Some(method_id) } else { None }, &rule_text, &request, "does this rule clearly NOT apply to the request?", not_applicable, strength);
@@ -869,13 +874,18 @@ impl PromptOrchestrator {
             .collect::<Vec<_>>()
             .join("\n");
         let mut needed: Vec<String> = Vec::new();
+        // the necessity judgments are INDEPENDENT of each other → prompts first, votes concurrently, results applied in order
+        let mut judge: Vec<(String, String)> = Vec::new(); // (capability name, prompt)
         for name in pending {
             state.closure_attempted.insert(name.to_lowercase());
             let prompt = format!(
                 "REQUEST (the user's request, whole):\n{request}\n\nTHE PLAN'S STEPS:\n{plan}\n\nCAPABILITY the plan reports as MISSING: \"{name}\"\n\nQUESTION: Can the request above be fully and correctly completed WITHOUT this capability? Answer YES if it is not genuinely necessary — i.e. it only adds thoroughness, process, validation or polish beyond what the request actually asks. Answer NO only if the request cannot be completed correctly without it."
             );
-            let strength = crate::shared_contracts::k_validation::configured_strength();
-            let droppable = self.confirm_yes_no_orch(state, prompt, strength).await;
+            judge.push((name, prompt));
+        }
+        let strength = crate::shared_contracts::k_validation::configured_strength();
+        let verdicts = self.confirm_yes_no_batch(state, judge.iter().map(|j| j.1.clone()).collect(), strength).await;
+        for ((name, _prompt), droppable) in judge.into_iter().zip(verdicts.into_iter()) {
             crate::keyword_program::record_judgment("capability_necessity", None, &name, &request, "can the request be completed WITHOUT this capability?", droppable, strength);
             if droppable {
                 state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));

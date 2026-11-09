@@ -2670,6 +2670,10 @@ impl PromptOrchestrator {
             let ids = state.methodologies.clone();
             let mut keep: Vec<u64> = Vec::new();
             let mut dropped: Vec<u64> = Vec::new();
+            // The judgments are INDEPENDENT of each other → build every prompt first, run the votes concurrently, then apply the
+            // results in the original order (records/keep/drop stay deterministic).
+            let mut to_judge: Vec<(u64, String, String)> = Vec::new(); // (id, name, prompt)
+            let mut order: Vec<(u64, bool)> = Vec::new(); // (id, judged?)
             for id in ids {
                 let (name, desc) = match self.store.get_container(id).await {
                     Ok(Some(c)) => {
@@ -2682,14 +2686,24 @@ impl PromptOrchestrator {
                     _ => (String::new(), String::new()),
                 };
                 if name.is_empty() && desc.is_empty() {
-                    keep.push(id); // nothing to judge it on — keep, never drop blind
+                    order.push((id, false)); // nothing to judge it on — keep, never drop blind
                     continue;
                 }
                 let prompt = format!(
                     "REQUEST (the user's request, whole):\n{request}\n\nMETHODOLOGY: {name}\n{desc}\n\nQUESTION: Does this methodology clearly NOT apply to the request above — i.e. its subject matter has nothing to do with what the request asks for? Answer YES only if it is clearly irrelevant. Answer NO if it applies or you are unsure."
                 );
-                let strength = k_validation::configured_strength();
-                let irrelevant = self.confirm_yes_no_orch(state, prompt, strength).await;
+                to_judge.push((id, name, prompt));
+                order.push((id, true));
+            }
+            let strength = k_validation::configured_strength();
+            let verdicts = self.confirm_yes_no_batch(state, to_judge.iter().map(|(_, _, p)| p.clone()).collect(), strength).await;
+            let mut judged = to_judge.into_iter().zip(verdicts.into_iter());
+            for (id, was_judged) in order {
+                if !was_judged {
+                    keep.push(id);
+                    continue;
+                }
+                let Some(((_, name, _), irrelevant)) = judged.next() else { keep.push(id); continue };
                 // HIT/LABEL capture (keyword program): the judgment is a labelled sample, the outcome a kept/dropped hit event
                 crate::keyword_program::record_judgment("methodology_relevance", Some(id), &name, &request, "does this methodology clearly NOT apply to the request?", irrelevant, strength);
                 crate::keyword_program::record_event(if irrelevant { "dropped" } else { "kept" }, id, &state.keywords, serde_json::json!({"kind": "methodology_relevance"}));
@@ -5066,6 +5080,32 @@ impl PromptOrchestrator {
         prompt: String,
         n: u32,
     ) -> bool {
+        let (ok, tokens) = self.confirm_yes_no_tokens(prompt, n).await;
+        state.tokens_used_so_far += tokens as u32;
+        ok
+    }
+
+    /// INDEPENDENT strength-N votes, run CONCURRENTLY (2026-11-08; operator: strength N = N validations needed, nothing more).
+    /// Each prompt keeps its own full strength-N consecutive chain — the same calls, the same unanimity, the same parse — only the
+    /// wall time changes (the gate still orders admission User > Lane > Loop and paces the provider). Results come back in input
+    /// order. Use ONLY where the votes are independent of each other (a vote must never depend on another vote's result).
+    async fn confirm_yes_no_batch(
+        &self,
+        state: &mut OrchestrationState,
+        prompts: Vec<String>,
+        n: u32,
+    ) -> Vec<bool> {
+        let results = futures::future::join_all(prompts.into_iter().map(|p| self.confirm_yes_no_tokens(p, n))).await;
+        let mut out = Vec::with_capacity(results.len());
+        for (ok, tokens) in results {
+            state.tokens_used_so_far += tokens as u32;
+            out.push(ok);
+        }
+        out
+    }
+
+    /// The vote itself, state-free: returns (verdict, tokens used) so callers can account tokens on their own `state`.
+    async fn confirm_yes_no_tokens(&self, prompt: String, n: u32) -> (bool, u64) {
         use std::sync::atomic::{AtomicU64, Ordering};
         let policy = k_validation::ValidationPolicy { strength: n };
         let tokens_during = Arc::new(AtomicU64::new(0));
@@ -5125,8 +5165,7 @@ impl PromptOrchestrator {
             &policy,
         )
         .await;
-        state.tokens_used_so_far += tokens_during.load(Ordering::Relaxed) as u32;
-        ok
+        (ok, tokens_during.load(Ordering::Relaxed))
     }
 
     // ========================================================================
