@@ -1436,7 +1436,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
                 if let Some(ref hn) = host.hostname { kw.push(hn.to_lowercase()); }
                 kw
             },
-            hotness_score: match host.criticality { HostCriticality::Critical => 0.95, HostCriticality::High => 0.85, HostCriticality::Medium => 0.7, _ => 0.55 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: hnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1540,7 +1540,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
                 if svc.is_exposed_externally { kw.push("external".into()); }
                 kw
             },
-            hotness_score: if svc.is_exposed_externally { 0.85 } else { 0.65 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         // Service → host
@@ -1590,7 +1590,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/BGPPeer/{}", project_id, graph_id, peer.peer_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["bgp".into(), "peer".into(), format!("AS{}", peer.peer_as)],
-            hotness_score: if peer.state == BGPSessionState::Established { 0.75 } else { 0.5 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: pnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1624,7 +1624,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Flow/{}", project_id, graph_id, flow.flow_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["flow".into(), format!("{:?}", flow.protocol).to_lowercase(), format!("{:?}", flow.flow_direction).to_lowercase()],
-            hotness_score: (flow.bytes as f32 / 1_000_000.0).min(0.95).max(0.4),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: fnid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1648,7 +1648,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/Anomaly/{}", project_id, graph_id, anomaly.anomaly_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["anomaly".into(), format!("{:?}", anomaly.anomaly_type).to_lowercase()],
-            hotness_score: match anomaly.severity { AnomalySeverity::Critical => 0.98, AnomalySeverity::High => 0.88, AnomalySeverity::Medium => 0.75, _ => 0.55 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: anid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1692,7 +1692,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
             materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/K8sSvc/{}", project_id, graph_id, k8s_svc.service_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["kubernetes".into(), "k8s".into(), k8s_svc.name.to_lowercase(), k8s_svc.namespace.to_lowercase()],
-            hotness_score: if k8s_svc.service_type == K8sServiceType::LoadBalancer { 0.85 } else { 0.65 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(NetworkGraphEdge { edge_id, from_node: root_id, to_node: knid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });

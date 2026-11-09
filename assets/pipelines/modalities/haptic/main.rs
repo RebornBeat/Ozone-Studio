@@ -1641,7 +1641,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Contact/{}", project_id, graph_id, ev.event_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["contact".into(), format!("{:?}", ev.contact_type).to_lowercase()],
-            hotness_score: 0.7 + (ev.peak_force_n / 50.0).clamp(0.0, 0.2), ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -1868,7 +1868,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             materialized_path: Some(format!("/Modalities/Haptic/Project_{}/Graph_{}/Material/{}", project_id, graph_id, mc.candidate_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["material".into(), mc.material_name.to_lowercase(), format!("{:?}", mc.category).to_lowercase()],
-            hotness_score: 0.5 + mc.match_score * 0.4, ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: mcid, edge_type: HapticEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;

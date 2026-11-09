@@ -1260,7 +1260,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Signal/{}", project_id, graph_id, sig.signal_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["signal".into(), format!("{:?}", sig.modulation).to_lowercase()]; if let Some(ref p) = sig.protocol_hint { kw.push(p.to_lowercase()); } kw },
-            hotness_score: 0.6 + (sig.snr_db / 60.0).clamp(0.0, 0.3),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: sid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1401,7 +1401,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             materialized_path: Some(format!("/Modalities/Electromagnetic/Project_{}/Graph_{}/Interference/{}", project_id, graph_id, ev.event_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["interference".into(), format!("{:?}", ev.interference_type).to_lowercase()],
-            hotness_score: 0.7 + match ev.impact { InterferenceImpact::Severe | InterferenceImpact::LossOfSignal => 0.2, _ => 0.0 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(EMGraphEdge { edge_id, from_node: root_id, to_node: eid, edge_type: EMEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });

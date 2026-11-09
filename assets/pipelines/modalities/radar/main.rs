@@ -1606,7 +1606,7 @@ async fn create_graph(
                     "target".into(),
                     format!("{:?}", target.classification).to_lowercase(),
                 ],
-                hotness_score: 0.8 + (target.snr_db / 100.0).clamp(0.0, 0.15),
+                hotness_score: 0.0,
                 provenance: EdgeProvenance::DerivedFromPrompt,
                 ..Default::default()
             });

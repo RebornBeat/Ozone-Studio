@@ -8,6 +8,11 @@ use std::env;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+// Keyword SHAPE rules (shared — single source): markers, whole sentences, empties and duplicates are not keywords. No word list.
+#[path = "../../../../shared/contracts/keyword_model.rs"]
+#[allow(dead_code)]
+mod keyword_model;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum MethodologyCreateInput {
@@ -290,6 +295,10 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                 "decision_rules": canonical_decision_rules,
             });
             let object_store_path = write_content_file("new", &content);
+            // CREATION-SIDE KEYWORD HYGIENE (2026-11-08): the keywords a methodology is BORN with are shape-cleaned here (markers, whole sentences,
+            // empties, case-insensitive duplicates dropped) so the settlement pass is a cleanup, not the first line of defence. Filler words that are
+            // well-formed single terms are judged later by the unanimous strength-N keeper vote (no word list anywhere).
+            let keywords = keyword_model::meaning_terms(&keywords);
             let container = build_container_json(
                 METHODOLOGY_ROOT_ID,
                 &name,

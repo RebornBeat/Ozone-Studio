@@ -307,6 +307,7 @@ fn bump_n(meta: &mut TermMeta, kind: &str, n: u64) {
     let h = &mut meta.hits;
     match kind {
         "returned" => h.returned += n,
+        "returned_traced" => h.returned_traced += n,
         "packed" => h.packed += n,
         "kept" => h.kept += n,
         "dropped" => h.dropped += n,
@@ -384,6 +385,9 @@ pub async fn rollup_once(store: &Arc<dyn StoreAccess>) -> RollupStats {
     /// Largest slice of the log read into memory at once (a HOST-MEMORY guard, not a cap on what is consumed: the loop below keeps taking
     /// slices until the whole log is folded — the log itself is never rotated, truncated or limited).
     const SLICE_BYTES: u64 = 64 * 1024 * 1024;
+    // ONE rollup at a time: two concurrent callers would read the same offset and double-count the same slice
+    static ROLLUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _rollup_guard = ROLLUP_LOCK.lock().await;
     let mut stats = RollupStats::default();
     let path = data_dir().join("keyword_hits.jsonl");
     let mut offset: u64 = std::fs::read_to_string(offset_path()).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
@@ -436,8 +440,12 @@ async fn rollup_text(store: &Arc<dyn StoreAccess>, text: &str, stats: &mut Rollu
         let terms: Vec<String> = v.get("terms").and_then(|t| serde_json::from_value(t.clone()).ok()).unwrap_or_default();
         match v.get("event").and_then(|e| e.as_str()).unwrap_or("") {
             "search" => {
+                let traced = v.get("trace").and_then(|t| t.as_str()).map(|t| !t.is_empty()).unwrap_or(false);
                 for id in v.get("ids").and_then(|i| i.as_array()).into_iter().flatten().filter_map(|x| x.as_u64()) {
                     add(id, "returned", &terms, ts);
+                    if traced {
+                        add(id, "returned_traced", &terms, ts);
+                    }
                     stats.events += 1;
                 }
             }
@@ -490,7 +498,7 @@ async fn apply_rollup(store: &Arc<dyn StoreAccess>, id: u64, evs: &[(String, Vec
     let h = &mut c.local_state.hints;
     h.access_frequency = totals.returned.min(u32::MAX as u64) as u32;
     h.last_accessed = h.last_accessed.max(newest / 1000);
-    h.hotness_score = if totals.returned > 0 { (totals.packed as f32 / totals.returned as f32).min(1.0) } else { 0.0 };
+    h.hotness_score = if totals.returned_traced > 0 { (totals.packed as f32 / totals.returned_traced as f32).min(1.0) } else { 0.0 };
     let upd = ContainerUpdate {
         metadata: None,
         context: Some(c.local_state.context.clone()),
@@ -522,7 +530,7 @@ pub fn facts_from_context(
     f.returned = totals.returned;
     f.dropped = totals.dropped;
     // OBSERVED hotness from the real counts — never from `hints.hotness_score`, which may still hold a legacy invented literal
-    f.hotness = if totals.returned > 0 { (totals.packed as f32 / totals.returned as f32).min(1.0) } else { 0.0 };
+    f.hotness = if totals.returned_traced > 0 { (totals.packed as f32 / totals.returned_traced as f32).min(1.0) } else { 0.0 };
     f.validated = matched_keywords.iter().any(|k| meta.get(k).map(|m| m.validated == Some(true)).unwrap_or(false));
     f.last_accessed = last_accessed;
     f
@@ -668,7 +676,7 @@ pub async fn build_dataset(store: &Arc<dyn StoreAccess>) -> Result<DatasetStats,
         label.entry(k).or_insert(false);
     }
     // pass 2 — chronological: snapshot running counters at each search, then update them
-    let mut counters: BTreeMap<u64, [u64; 5]> = BTreeMap::new(); // returned, packed, kept, dropped, applied
+    let mut counters: BTreeMap<u64, [u64; 6]> = BTreeMap::new(); // returned, packed, kept, dropped, applied
     let mut info: BTreeMap<u64, Option<(String, Vec<String>, Vec<String>)>> = BTreeMap::new(); // name, all terms, meaning terms
     let mut groups: Vec<km::DatasetGroup> = Vec::new();
     let mut n = 0usize;
@@ -721,14 +729,14 @@ pub async fn build_dataset(store: &Arc<dyn StoreAccess>) -> Result<DatasetStats,
                             Some(m) => (m.best, m.matched_terms),
                             None => (km::MatchClass::Substring, 1), // returned by a legacy substring strategy
                         };
-                        let c = counters.get(id).copied().unwrap_or([0; 5]);
+                        let c = counters.get(id).copied().unwrap_or([0; 6]);
                         let mut facts = km::RankFacts::new(class, matched);
                         facts.returned = c[0];
                         facts.packed = c[1];
                         facts.kept = c[2];
                         facts.dropped = c[3];
                         facts.applied = c[4];
-                        facts.hotness = if c[0] > 0 { (c[1] as f32 / c[0] as f32).min(1.0) } else { 0.0 };
+                        facts.hotness = if c[5] > 0 { (c[1] as f32 / c[5] as f32).min(1.0) } else { 0.0 };
                         cands.push(km::DatasetCandidate { id: *id, terms: meaning.clone(), facts, label: lab });
                     }
                 }
@@ -737,20 +745,66 @@ pub async fn build_dataset(store: &Arc<dyn StoreAccess>) -> Result<DatasetStats,
                 }
                 if e.kind == "search" {
                     for id in &ids {
-                        counters.entry(*id).or_insert([0; 5])[0] += 1;
+                        let slot = counters.entry(*id).or_insert([0; 6]);
+                        slot[0] += 1;
+                        if !e.trace.is_empty() {
+                            slot[5] += 1;
+                        }
                     }
                 }
             }
-            "packed" => counters.entry(e.container_id).or_insert([0; 5])[1] += 1,
-            "kept" => counters.entry(e.container_id).or_insert([0; 5])[2] += 1,
-            "dropped" => counters.entry(e.container_id).or_insert([0; 5])[3] += 1,
-            "applied" => counters.entry(e.container_id).or_insert([0; 5])[4] += 1,
+            "packed" => counters.entry(e.container_id).or_insert([0; 6])[1] += 1,
+            "kept" => counters.entry(e.container_id).or_insert([0; 6])[2] += 1,
+            "dropped" => counters.entry(e.container_id).or_insert([0; 6])[3] += 1,
+            "applied" => counters.entry(e.container_id).or_insert([0; 6])[4] += 1,
             _ => {}
         }
         }
     }
+    // TERM-QUALITY groups from the REAL keyword_keeper judgments (more data, every one a unanimous-or-not strength-N verdict): per container, the
+    // terms judged — removed (unanimous "not a keyword") = irrelevant, kept = relevant. They teach the encoder / ranker which terms carry
+    // content and which are filler, in any language (no word list). Placed BEFORE the chronological search groups so the held-out tail stays the
+    // newest real searches.
+    let mut by_container: BTreeMap<String, BTreeMap<String, bool>> = BTreeMap::new();
+    if let Ok(file) = std::fs::File::open(data_dir().join("judgment_samples.jsonl")) {
+        for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            if v.get("kind").and_then(|k| k.as_str()) != Some("keyword_keeper") {
+                continue;
+            }
+            let term = v.get("subject").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            let container = v.get("request").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            let removed = v.get("yes").and_then(|x| x.as_bool()).unwrap_or(false);
+            if !term.is_empty() && !container.is_empty() {
+                by_container.entry(container).or_default().insert(term, !removed);
+            }
+        }
+    }
+    let term_id = |t: &str| -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in t.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h
+    };
+    let mut quality_groups: Vec<km::DatasetGroup> = Vec::new();
+    for (container, terms) in by_container {
+        let cands: Vec<km::DatasetCandidate> = terms
+            .iter()
+            .map(|(t, keep)| km::DatasetCandidate { id: term_id(t), terms: vec![t.clone()], facts: km::RankFacts::new(km::MatchClass::WholeToken, 1), label: *keep })
+            .collect();
+        if cands.iter().any(|c| c.label) && cands.iter().any(|c| !c.label) {
+            quality_groups.push(km::DatasetGroup { group: format!("keeper:{container}"), heldout: false, query_terms: vec![container.clone()], candidates: cands });
+        }
+    }
+    if !quality_groups.is_empty() {
+        quality_groups.append(&mut groups);
+        groups = quality_groups;
+    }
     let total = groups.len();
-    let held = if total >= 5 { (total / 5).max(1) } else { 0 };
+    // a held-out tail exists as soon as there are two groups (promotion still needs significance — training does not wait for it)
+    let held = if total >= 2 { (total / 5).max(1) } else { 0 };
     for (i, g) in groups.iter_mut().enumerate() {
         g.heldout = i >= total - held;
     }
@@ -767,24 +821,16 @@ fn train_state_path() -> PathBuf {
     models_dir().join("train_state.json")
 }
 
-/// Train when the hit log has grown since the last run (the dataset changed). Builds the dataset, runs pipeline 17 `TrainModel`, and
-/// registers every new model as a graph citizen (`Derived` container under the pipeline root, keyword-model provenance, measured
-/// evaluation in its content). Returns the pipeline's report, or a "nothing to do" note.
-pub async fn train_if_data_grew(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn StoreAccess>) -> Result<Value, String> {
-    let log_len: u64 = hit_log_files().iter().map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)).sum();
-    let last: u64 = std::fs::read_to_string(train_state_path())
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .and_then(|v| v.get("log_len").and_then(|l| l.as_u64()))
-        .unwrap_or(0);
-    if log_len == 0 || log_len == last {
-        return Ok(json!({"trained": false, "reason": "the hit log has not grown since the last training run"}));
-    }
+/// TRAIN CONTINUOUSLY (operator 2026-11-08: "even if we have candidates it should not ever stop or mean we do not continue to train"). Every
+/// housekeeping cycle: build the dataset (search groups + creation pairs + keeper judgments) and run pipeline 17 `TrainModel`, which CONTINUES the
+/// rolling candidate from its last weights whatever the previous verdict was; promotion only decides whether a versioned copy serves. There is no
+/// "log grew" gate and no minimum group count (zero usable groups simply tries again next cycle). Registers new models as graph citizens.
+pub async fn train_continuously(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn StoreAccess>) -> Result<Value, String> {
     let stats = build_dataset(store).await?;
     let _ = std::fs::create_dir_all(models_dir());
-    let _ = std::fs::write(train_state_path(), json!({"log_len": log_len, "groups": stats.groups}).to_string());
+    let _ = std::fs::write(train_state_path(), json!({"groups": stats.groups, "heldout": stats.heldout, "candidates": stats.candidates}).to_string());
     if stats.groups == 0 {
-        return Ok(json!({"trained": false, "reason": "no labelled group (a search with both a relevant and an irrelevant labelled candidate) in the hit log yet"}));
+        return Ok(json!({"trained": false, "reason": "no labelled group yet (a search or keeper judgment with both a relevant and an irrelevant candidate) — the next cycle tries again"}));
     }
     let out = executor
         .execute(17, json!({"action": "TrainModel", "dataset_path": stats.path, "models_dir": models_dir().display().to_string()}))
@@ -865,13 +911,13 @@ mod tests {
         let mut meta: BTreeMap<String, TermMeta> = BTreeMap::new();
         meta.insert(
             CONTAINER_TOTALS_KEY.to_string(),
-            TermMeta { source: String::new(), validated: None, hits: TermHits { returned: 9, packed: 3, kept: 2, dropped: 1, applied: 4, human: 0 } },
+            TermMeta { source: String::new(), validated: None, hits: TermHits { returned: 9, returned_traced: 6, packed: 3, kept: 2, dropped: 1, applied: 4, human: 0 } },
         );
         meta.insert("static analysis".to_string(), TermMeta { source: "extracted".into(), validated: Some(true), hits: TermHits::default() });
         let f = facts_from_context(km::MatchClass::ExactTerm, 2, &meta, &["static analysis".to_string()], 77);
         assert_eq!((f.returned, f.packed, f.kept, f.dropped, f.applied, f.last_accessed), (9, 3, 2, 1, 4, 77));
         assert!(f.validated && f.class == km::MatchClass::ExactTerm && f.matched_terms == 2);
-        assert!((f.hotness - 3.0 / 9.0).abs() < 1e-6, "hotness = packed / returned from the rolled-up totals");
+        assert!((f.hotness - 3.0 / 6.0).abs() < 1e-6, "hotness = packed / TRACED returns (background searches cannot be packed and must not dilute it)");
         let g = facts_from_context(km::MatchClass::ExactTerm, 1, &meta, &["other".to_string()], 0);
         assert!(!g.validated);
         let none = facts_from_context(km::MatchClass::ExactTerm, 1, &BTreeMap::new(), &[], 0);

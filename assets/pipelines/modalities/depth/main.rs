@@ -1373,7 +1373,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/Plane/{}", project_id, graph_id, p.plane_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["plane".into(), plane_type_str.to_lowercase()],
-            hotness_score: 0.7 + (p.area_m2 / 100.0).min(0.25),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: DepthEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1403,7 +1403,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/Cluster/{}", project_id, graph_id, c.cluster_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["cluster".into(), class_label.to_lowercase()],
-            hotness_score: 0.6 + ((c.point_count as f32).log2() / 30.0).min(0.3),
+            hotness_score: 0.0,
             embedding_hint: Some(format!("3D object: {} at ({:.1},{:.1},{:.1})", class_label, c.centroid[0], c.centroid[1], c.centroid[2])),
             ..Default::default()
         });
@@ -1527,7 +1527,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
             materialized_path: Some(format!("/Modalities/Depth/Project_{}/Graph_{}/Change/{}", project_id, graph_id, chg.change_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["change".into(), format!("{:?}", chg.change_type).to_lowercase()],
-            hotness_score: 0.6 + (chg.magnitude_m / 2.0).min(0.3),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(DepthGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: DepthEdgeType::DetectedChange, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });

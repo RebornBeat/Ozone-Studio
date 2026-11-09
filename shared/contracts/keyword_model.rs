@@ -641,8 +641,12 @@ pub struct RankGroup {
 
 /// Train a ranker with PAIRWISE logistic loss inside each group (every positive vs every negative; all pairs when ≤ `max_pairs_per_group`,
 /// otherwise a deterministic sample). Groups with no positive or no negative carry no ordering signal and are skipped.
-pub fn train_ranker(groups: &[RankGroup], n_sims: usize, epochs: usize, lr: f32, l2: f32, max_pairs_per_group: usize, seed: u64) -> LogisticRanker {
-    let mut r = LogisticRanker::new("ranker", n_sims);
+pub fn train_ranker_from(init: Option<LogisticRanker>, groups: &[RankGroup], n_sims: usize, epochs: usize, lr: f32, l2: f32, max_pairs_per_group: usize, seed: u64) -> LogisticRanker {
+    // WARM START: continue from the previous ranker when it was trained with the same feature layout (same similarity count and feature count)
+    let mut r = match init {
+        Some(prev) if prev.n_sims == n_sims && prev.weights.len() == FACT_FEATURES + n_sims => prev,
+        _ => LogisticRanker::new("ranker", n_sims),
+    };
     let mut st = seed | 1;
     let usable: Vec<&RankGroup> = groups
         .iter()
@@ -680,6 +684,11 @@ pub fn train_ranker(groups: &[RankGroup], n_sims: usize, epochs: usize, lr: f32,
         }
     }
     r
+}
+
+/// Train a ranker from scratch (see `train_ranker_from`).
+pub fn train_ranker(groups: &[RankGroup], n_sims: usize, epochs: usize, lr: f32, l2: f32, max_pairs_per_group: usize, seed: u64) -> LogisticRanker {
+    train_ranker_from(None, groups, n_sims, epochs, lr, l2, max_pairs_per_group, seed)
 }
 
 // ============================================================================================================
@@ -1077,6 +1086,8 @@ pub struct TrainParams {
     pub seed: u64,
     /// Significance level of the promotion sign test (0.05 by convention).
     pub alpha: f64,
+    /// Continue training from the rolling candidate (weights of the last run) instead of starting over. ON by default: training never stops.
+    pub warm_start: bool,
 }
 
 impl Default for TrainParams {
@@ -1092,6 +1103,7 @@ impl Default for TrainParams {
             max_pairs_per_group: 64,
             seed: 1,
             alpha: 0.05,
+            warm_start: true,
         }
     }
 }
@@ -1108,19 +1120,34 @@ pub struct TrainReport {
     pub final_encoder_loss: f32,
     pub decision: PromotionDecision,
     pub activated: bool,
+    /// True when this run continued from the rolling candidate's weights.
+    #[serde(default)]
+    pub warm_started: bool,
+    /// Version counter of the rolling candidate (increments every run — training never stops).
+    #[serde(default)]
+    pub candidate_version: u32,
+    /// Set when the held-out test promoted this run: the id of the immutable versioned encoder now serving.
+    #[serde(default)]
+    pub promoted_encoder_id: Option<String>,
     pub models: Vec<ModelEntry>,
     pub message: String,
 }
 
-fn next_version(reg: &ModelRegistry, kind: &str) -> u32 {
-    reg.models.iter().filter(|m| m.kind == kind).map(|m| m.version).max().unwrap_or(0) + 1
+/// The ROLLING CANDIDATE: one encoder + one ranker that training updates in place on EVERY run (warm start) — training never stops and never
+/// waits for a promotion; versioned immutable copies are written only when the held-out test promotes (so disk does not grow per run).
+pub const CANDIDATE_ENCODER_ID: &str = "hashed-ngram-candidate";
+pub const CANDIDATE_RANKER_ID: &str = "ranker-candidate";
+
+fn next_promoted_version(reg: &ModelRegistry, prefix: &str) -> u32 {
+    reg.models.iter().filter_map(|m| m.id.strip_prefix(prefix).and_then(|v| v.parse::<u32>().ok())).max().unwrap_or(0) + 1
 }
 
-/// TRAIN the hashed n-gram encoder and the ranker on the TRAIN groups, EVALUATE the fused system (v0 + encoder + ranker, exactly as it would
-/// run at search time) against the deterministic v0 ordering on the HELD-OUT groups, and register the result: both models become `active`
-/// (replacing the previous active pair, which is marked `deprecated`) iff the held-out sign test says yes; otherwise they are saved as
-/// `inactive` with the measured evaluation and the previous active models keep serving. Never fabricates a metric; refuses honestly when
-/// there is nothing to learn from.
+/// TRAIN (continuously) the hashed n-gram encoder and the ranker on the TRAIN groups — continuing from the rolling candidate's weights —
+/// EVALUATE the fused system (v0 + encoder + ranker, exactly as it runs at search time) against the deterministic v0 ordering on the
+/// HELD-OUT groups, and register the result. The rolling candidate is ALWAYS saved and trained again next time, whatever the verdict
+/// (a model that has not been promoted yet is still learning — "even if we have candidates it should not ever stop"). Promotion only decides
+/// SERVING: iff the exact sign test says yes, immutable `hashed-ngram-v{n}` / `ranker-v{n}` copies become `active` (the previous active pair is
+/// `deprecated`). Never fabricates a metric; refuses honestly when there is nothing to learn from.
 pub fn train_and_evaluate(groups: &[DatasetGroup], dir: &Path, now: u64, params: &TrainParams) -> Result<TrainReport, String> {
     let usable = |g: &&DatasetGroup| g.candidates.iter().any(|c| c.label) && g.candidates.iter().any(|c| !c.label);
     let train: Vec<&DatasetGroup> = groups.iter().filter(|g| !g.heldout).filter(usable).collect();
@@ -1148,13 +1175,16 @@ pub fn train_and_evaluate(groups: &[DatasetGroup], dir: &Path, now: u64, params:
             encoder_id: String::new(),
             ranker_id: String::new(),
             final_encoder_loss: 0.0,
-            decision: none("no training group with both a relevant and an irrelevant candidate yet — keep collecting real hits"),
+            decision: none("no training group with both a relevant and an irrelevant candidate yet — the next cycle tries again"),
             activated: false,
+            warm_started: false,
+            candidate_version: 0,
+            promoted_encoder_id: None,
             models: reg.models.clone(),
-            message: "nothing trained: the hit log has no usable labelled groups yet".to_string(),
+            message: "nothing trained this cycle: no usable labelled group yet".to_string(),
         });
     }
-    // ---- encoder
+    // ---- encoder: continue the rolling candidate when it exists with the same shape
     let mut pairs: Vec<PairSample> = Vec::new();
     for g in &train {
         for c in &g.candidates {
@@ -1163,11 +1193,20 @@ pub fn train_and_evaluate(groups: &[DatasetGroup], dir: &Path, now: u64, params:
             }
         }
     }
-    let enc_version = next_version(&reg, "hashed_ngram");
-    let mut enc = HashedNgramEncoder::new(&format!("hashed-ngram-v{enc_version}"), params.dim, params.buckets);
-    let loss = train_encoder(&mut enc, &pairs, params.encoder_epochs, params.encoder_lr, params.seed);
-    enc.version = enc_version;
-    // ---- ranker (similarity of the new encoder is its one learned input)
+    let mut warm = false;
+    let mut enc = match HashedNgramEncoder::load(dir, CANDIDATE_ENCODER_ID) {
+        Ok(e) if params.warm_start && e.dim == params.dim && e.buckets == params.buckets => {
+            warm = true;
+            e
+        }
+        _ => HashedNgramEncoder::new(CANDIDATE_ENCODER_ID, params.dim, params.buckets),
+    };
+    enc.id = CANDIDATE_ENCODER_ID.to_string();
+    let seen_before = if warm { enc.trained_on_samples } else { 0 };
+    let loss = train_encoder(&mut enc, &pairs, params.encoder_epochs, params.encoder_lr, params.seed.wrapping_add(enc.version as u64));
+    enc.trained_on_samples = seen_before + pairs.len() as u64; // cumulative across runs
+    let cand_version = enc.version;
+    // ---- ranker (the new encoder's similarity is its one learned input); warm start from the candidate ranker
     let sim_of = |q: &[String], terms: &[String]| -> f32 {
         match (enc.encode(&q.join(" ")), enc.encode(&terms.join(" "))) {
             (Ok(a), Ok(b)) => cosine(&a, &b),
@@ -1181,10 +1220,14 @@ pub fn train_and_evaluate(groups: &[DatasetGroup], dir: &Path, now: u64, params:
             items: g.candidates.iter().map(|c| (c.id, c.facts, vec![sim_of(&g.query_terms, &c.terms)], c.label)).collect(),
         })
         .collect();
-    let mut ranker = train_ranker(&rank_groups, 1, params.ranker_epochs, params.ranker_lr, params.ranker_l2, params.max_pairs_per_group, params.seed);
-    let rk_version = next_version(&reg, "ranker");
-    ranker.id = format!("ranker-v{rk_version}");
-    ranker.version = rk_version;
+    let prev_ranker: Option<LogisticRanker> = if params.warm_start {
+        std::fs::read_to_string(dir.join(format!("{CANDIDATE_RANKER_ID}.json"))).ok().and_then(|t| serde_json::from_str(&t).ok())
+    } else {
+        None
+    };
+    let mut ranker = train_ranker_from(prev_ranker, &rank_groups, 1, params.ranker_epochs, params.ranker_lr, params.ranker_l2, params.max_pairs_per_group, params.seed);
+    ranker.id = CANDIDATE_RANKER_ID.to_string();
+    ranker.version = cand_version;
     ranker.encoder_ids = vec![enc.id.clone()];
     // ---- held-out evaluation of the FUSED system vs v0
     let mut orders: Vec<(Vec<bool>, Vec<bool>)> = Vec::new();
@@ -1201,59 +1244,100 @@ pub fn train_and_evaluate(groups: &[DatasetGroup], dir: &Path, now: u64, params:
         ));
     }
     let decision = if held.is_empty() {
-        none("no held-out groups with both a relevant and an irrelevant candidate — the models are saved but cannot be promoted yet")
+        none("no held-out groups with both a relevant and an irrelevant candidate — the candidate keeps training and cannot be promoted yet")
     } else {
         decide_promotion(&orders, params.alpha)
     };
-    // ---- persist artifacts (always: the evaluation must be inspectable) and update the registry
-    enc.save(dir, &enc.id)?;
+    // ---- persist the ROLLING CANDIDATE (always) and register it
+    enc.save(dir, CANDIDATE_ENCODER_ID)?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(format!("{}.json", ranker.id)), serde_json::to_string_pretty(&ranker).map_err(|e| e.to_string())?)
+    std::fs::write(dir.join(format!("{CANDIDATE_RANKER_ID}.json")), serde_json::to_string_pretty(&ranker).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let status = if decision.promote { "active" } else { "inactive" };
+    reg.upsert(ModelEntry {
+        id: CANDIDATE_ENCODER_ID.to_string(),
+        kind: "hashed_ngram".to_string(),
+        status: "validating".to_string(),
+        file_stem: CANDIDATE_ENCODER_ID.to_string(),
+        version: cand_version,
+        dim: enc.dim,
+        trained_on_samples: enc.trained_on_samples,
+        created_at: now,
+        evaluation: Some(decision.clone()),
+        notes: format!("rolling candidate — trained every cycle ({} pairs this run from {} groups; held-out {} groups; warm start: {})", pairs.len(), train.len(), held.len(), warm),
+        container_id: reg.models.iter().find(|m| m.id == CANDIDATE_ENCODER_ID).and_then(|m| m.container_id),
+    });
+    reg.upsert(ModelEntry {
+        id: CANDIDATE_RANKER_ID.to_string(),
+        kind: "ranker".to_string(),
+        status: "validating".to_string(),
+        file_stem: CANDIDATE_RANKER_ID.to_string(),
+        version: cand_version,
+        dim: 0,
+        trained_on_samples: ranker.trained_on_groups,
+        created_at: now,
+        evaluation: Some(decision.clone()),
+        notes: format!("rolling candidate ranker over observed facts + 1 encoder similarity ({CANDIDATE_ENCODER_ID})"),
+        container_id: reg.models.iter().find(|m| m.id == CANDIDATE_RANKER_ID).and_then(|m| m.container_id),
+    });
+    // ---- promotion: immutable versioned copies become the serving models
+    let mut promoted_encoder_id: Option<String> = None;
     if decision.promote {
+        let n = next_promoted_version(&reg, "hashed-ngram-v");
+        let enc_id = format!("hashed-ngram-v{n}");
+        let rk_id = format!("ranker-v{n}");
+        let mut enc_v = enc.clone();
+        enc_v.id = enc_id.clone();
+        enc_v.save(dir, &enc_id)?;
+        let mut rk_v = ranker.clone();
+        rk_v.id = rk_id.clone();
+        rk_v.encoder_ids = vec![enc_id.clone()];
+        std::fs::write(dir.join(format!("{rk_id}.json")), serde_json::to_string_pretty(&rk_v).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         for m in reg.models.iter_mut() {
             if (m.kind == "hashed_ngram" || m.kind == "ranker") && m.status == "active" {
                 m.status = "deprecated".to_string();
             }
         }
+        reg.upsert(ModelEntry {
+            id: enc_id.clone(),
+            kind: "hashed_ngram".to_string(),
+            status: "active".to_string(),
+            file_stem: enc_id.clone(),
+            version: n,
+            dim: enc.dim,
+            trained_on_samples: enc.trained_on_samples,
+            created_at: now,
+            evaluation: Some(decision.clone()),
+            notes: "promoted copy of the rolling candidate (held-out sign test)".to_string(),
+            container_id: None,
+        });
+        reg.upsert(ModelEntry {
+            id: rk_id,
+            kind: "ranker".to_string(),
+            status: "active".to_string(),
+            file_stem: format!("ranker-v{n}"),
+            version: n,
+            dim: 0,
+            trained_on_samples: ranker.trained_on_groups,
+            created_at: now,
+            evaluation: Some(decision.clone()),
+            notes: format!("promoted copy of the rolling candidate ranker; encoder {enc_id}"),
+            container_id: None,
+        });
+        promoted_encoder_id = Some(enc_id);
     }
-    reg.upsert(ModelEntry {
-        id: enc.id.clone(),
-        kind: "hashed_ngram".to_string(),
-        status: status.to_string(),
-        file_stem: enc.id.clone(),
-        version: enc_version,
-        dim: enc.dim,
-        trained_on_samples: pairs.len() as u64,
-        created_at: now,
-        evaluation: Some(decision.clone()),
-        notes: format!("trained on {} labelled pairs from {} groups; held-out {} groups", pairs.len(), train.len(), held.len()),
-        container_id: None,
-    });
-    reg.upsert(ModelEntry {
-        id: ranker.id.clone(),
-        kind: "ranker".to_string(),
-        status: status.to_string(),
-        file_stem: ranker.id.clone(),
-        version: rk_version,
-        dim: 0,
-        trained_on_samples: ranker.trained_on_groups,
-        created_at: now,
-        evaluation: Some(decision.clone()),
-        notes: format!("pairwise logistic ranker over observed facts + 1 encoder similarity ({})", enc.id),
-        container_id: None,
-    });
     reg.save(dir)?;
     Ok(TrainReport {
         trained: true,
         train_groups: train.len() as u64,
         heldout_groups: held.len() as u64,
         labelled_pairs: pairs.len() as u64,
-        encoder_id: enc.id.clone(),
-        ranker_id: ranker.id.clone(),
+        encoder_id: CANDIDATE_ENCODER_ID.to_string(),
+        ranker_id: CANDIDATE_RANKER_ID.to_string(),
         final_encoder_loss: loss,
         activated: decision.promote,
+        warm_started: warm,
+        candidate_version: cand_version,
+        promoted_encoder_id,
         message: decision.reason.clone(),
         decision,
         models: reg.models.clone(),
@@ -1419,6 +1503,37 @@ mod tests {
         // nothing to learn from → an honest refusal, models untouched
         let empty = train_and_evaluate(&[], &dir, 2, &small).unwrap();
         assert!(!empty.trained && !empty.activated);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn training_never_stops_it_warm_starts_the_rolling_candidate_even_when_nothing_is_promoted() {
+        let dir = std::env::temp_dir().join(format!("kwm-continuous-{}", std::process::id()));
+        let mk = |id: u64, label: bool, term: &str| DatasetCandidate {
+            id,
+            terms: vec![term.to_string()],
+            facts: RankFacts::new(MatchClass::WholeToken, 1),
+            label,
+        };
+        let groups: Vec<DatasetGroup> = (0..4)
+            .map(|n| DatasetGroup {
+                group: format!("g{n}"),
+                heldout: n >= 3,
+                query_terms: vec!["static analysis".to_string()],
+                candidates: vec![mk(1, true, "code review"), mk(2, false, "pasta recipe"), mk(3, true, "linting"), mk(4, false, "garden")],
+            })
+            .collect();
+        let small = TrainParams { dim: 8, buckets: 1024, encoder_epochs: 3, ranker_epochs: 3, ..TrainParams::default() };
+        let first = train_and_evaluate(&groups, &dir, 1, &small).unwrap();
+        assert!(first.trained && !first.warm_started && first.encoder_id == CANDIDATE_ENCODER_ID);
+        let second = train_and_evaluate(&groups, &dir, 2, &small).unwrap();
+        assert!(second.warm_started, "the second run continues from the candidate's weights");
+        assert!(second.candidate_version > first.candidate_version, "the candidate keeps advancing every run");
+        let reg = ModelRegistry::load(&dir);
+        assert!(reg.models.iter().any(|m| m.id == CANDIDATE_ENCODER_ID && m.status == "validating"), "an unpromoted candidate is still `validating`, never abandoned");
+        // a run with nothing usable does not touch the candidate and says the next cycle tries again
+        let idle = train_and_evaluate(&[], &dir, 3, &small).unwrap();
+        assert!(!idle.trained && idle.message.contains("no usable labelled group"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

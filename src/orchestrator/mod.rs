@@ -46,6 +46,7 @@ pub mod amt_loop;
 pub mod dispatch;
 pub mod lane_split;
 pub mod request_terms;
+pub mod keyword_loops; // the keyword program's own actors: housekeeping (rollup + continuous training + scope backfill) and settlement (2026-11-08)
 pub mod keyword_settle; // keyword settlement pass: verbatim capture → expansion → unanimous-drop keeper judgment (2026-11-08)
 pub mod actors;
 pub mod i_loop;

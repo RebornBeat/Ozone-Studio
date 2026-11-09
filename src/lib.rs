@@ -1174,20 +1174,33 @@ impl OzoneRuntime {
                 meta_fallback.clone(),
             )));
 
+            // KEYWORD PROGRAM ACTORS (2026-11-08): housekeeping (rollup + typed-scope backfill + CONTINUOUS training) and settlement run as their
+            // own actors, off the meta pass that settlement used to starve for hours (orchestrator/keyword_loops.rs).
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::keyword_loops::run_keyword_housekeeping_loop(
+                executor_adapter.clone(),
+                store_adapter.clone(),
+            )));
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::keyword_loops::run_keyword_settlement_loop(
+                executor_adapter.clone(),
+                store_adapter.clone(),
+                available_models.clone(),
+                meta_fallback.clone(),
+            )));
+
             // Real AMT re-expansion loop (orchestrator/amt_loop.rs) — same
             // shape as the methodology meta-loop above, same
             // executor/store contracts, same RefinementConfig. Reviews
             // real re-expansion candidates recorded live by
             // amt.rs::record_amt_reexpansion_candidate whenever a
             // project-anchored AMT still has an unverified node.
-            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::amt_loop::run_amt_reexpansion_loop(
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::keyword_program::with_origin(crate::keyword_program::Origin::actor("amt-loop"), crate::orchestrator::amt_loop::run_amt_reexpansion_loop(
                 executor_adapter.clone(),
                 store_adapter.clone(),
                 refinement_config,
                 available_models,
                 meta_fallback,
                 runtime.read().await.task_manager.clone(),
-            )));
+            ))));
 
             // GRAPH RIPPLE → AMT SYNC (task 43 groundwork): graph writes in
             // a project's scope convert into AMT re-expansion candidates and

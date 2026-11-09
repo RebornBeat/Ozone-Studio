@@ -1626,7 +1626,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Event/{}", project_id, graph_id, ev.event_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["event".into(), format!("{:?}", ev.event_type).to_lowercase()],
-            hotness_score: 0.6 + (ev.magnitude / 10.0).clamp(0.0, 0.3), ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: enid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;
@@ -1645,7 +1645,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Shock/{}", project_id, graph_id, shock.shock_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["shock".into(), "impact".into()],
-            hotness_score: 0.5 + (shock.peak_g / 20.0).clamp(0.0, 0.45), ..Default::default()
+            hotness_score: 0.0, ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
         // first real producer). Fire-and-forget, detached, never slows

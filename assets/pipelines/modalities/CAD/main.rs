@@ -1543,7 +1543,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/Feature/{}", project_id, graph_id, feat.feature_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["feature".into(), format!("{:?}", feat.feature_type).to_lowercase(), feat.name.to_lowercase()]; kw },
-            hotness_score: 0.7 - (if feat.is_suppressed { 0.2 } else { 0.0 }),
+            hotness_score: 0.0,
             ..Default::default()
         });
 

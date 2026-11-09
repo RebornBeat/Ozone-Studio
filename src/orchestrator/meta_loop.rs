@@ -84,29 +84,8 @@ pub async fn run_methodology_meta_loop(
                 // 1b) QUALITY AUDIT (E18): thin methodologies raise `modify` gaps that the drafting pass below acts on.
                 audit_methodology_quality_once(&store, &mut stats).await;
                 let gaps_result = review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
-                // 3) KEYWORD PROGRAM (2026-11-08): fold new hit events into the containers, retrain the models when the hit log grew, then
-                //    settle keywords (verbatim capture → zero-shot expansion → unanimous-drop keeper judgment). After the gap work so
-                //    methodology drafting is never delayed by it.
-                let rolled = crate::keyword_program::rollup_once(&store).await;
-                if rolled.events > 0 {
-                    stats.candidates_consumed += rolled.containers_updated as u64;
-                    stats.notes.push(format!("keyword rollup: {} events folded into {} containers ({} failed)", rolled.events, rolled.containers_updated, rolled.failures));
-                }
-                match crate::keyword_program::train_if_data_grew(&executor, &store).await {
-                    Ok(report) => {
-                        if report.get("success").and_then(|s| s.as_bool()) == Some(true) {
-                            stats.notes.push(format!(
-                                "keyword model training: {}",
-                                report.pointer("/report/message").and_then(|m| m.as_str()).unwrap_or("done")
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "keyword model training failed — retried when the hit log grows");
-                        stats.notes.push(format!("keyword model training failed: {e}"));
-                    }
-                }
-                crate::orchestrator::keyword_settle::settle_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
+                // (the keyword program — rollup, continuous training, settlement — runs in its OWN actors: orchestrator/keyword_loops.rs. It used
+                //  to run here and starved this pass for hours: no pass completed after 07:23 UTC on 2026-11-08.)
                 gaps_result
             }),
         )

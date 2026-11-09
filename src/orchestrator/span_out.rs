@@ -544,7 +544,9 @@ impl super::PromptOrchestrator {
         // Keyword rediscovery for this step's own terms (branch-derived keywords first).
         // KEYWORD HYGIENE (2026-11-08): the raw whitespace tokens of the step text (stopwords, punctuation attached) used to be searched
         // host-wide; now branch-derived keywords as given + the description's CONTENT words (request_terms, same rule as Stage 2/3).
-        let mut kws: Vec<String> = step.context_requirements.iter().map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect();
+        // the branch keywords go through the SHAPE rules first (no word list): a whole sentence becomes its tokens, `you (implied)` loses its
+        // parenthetical, markers are dropped — live: one training query carried a 13-word sentence and filler as "keywords" (STATE_REVIEW I6)
+        let mut kws: Vec<String> = super::request_terms::sanitize_keywords("", step.context_requirements.iter().cloned().collect());
         for w in super::request_terms::content_words(&step.description) {
             if !kws.iter().any(|k| k.eq_ignore_ascii_case(&w)) {
                 kws.push(w);

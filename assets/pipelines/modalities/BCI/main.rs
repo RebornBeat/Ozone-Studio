@@ -1383,7 +1383,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Signal/{}", project_id, graph_id, sig.signal_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["neural".into(), format!("{:?}", sig.signal_type).to_lowercase()]; if let Some(ref r) = sig.electrode_location { kw.push(format!("{:?}", r).to_lowercase()); } kw },
-            hotness_score: 0.5 + (sig.snr_db / 40.0).clamp(0.0, 0.4),
+            hotness_score: 0.0,
             ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
@@ -1430,7 +1430,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
             materialized_path: Some(format!("/Modalities/BCI/Project_{}/Graph_{}/Unit/{}", project_id, graph_id, unit.unit_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["spike-unit".into(), format!("{:?}", unit.unit_type).to_lowercase(), format!("{:?}", unit.brain_region).to_lowercase()],
-            hotness_score: 0.7 + match unit.isolation_quality { IsolationQuality::Excellent => 0.2, IsolationQuality::Good => 0.1, _ => 0.0 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         unit_node_ids.insert(unit.unit_id, uid);

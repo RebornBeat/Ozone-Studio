@@ -312,6 +312,10 @@ pub struct TermMeta {
 pub struct TermHits {
     #[serde(default)]
     pub returned: u64,
+    /// `returned` counted only for TRACED searches (a request / walk — the ones whose outcome can be joined). Hotness is packed ÷ this: searches
+    /// by background actors (AMT loop, ripple dispatch, test traffic) can never be `packed` and must not dilute it.
+    #[serde(default)]
+    pub returned_traced: u64,
     #[serde(default)]
     pub packed: u64,
     #[serde(default)]

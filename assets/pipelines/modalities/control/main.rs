@@ -1712,7 +1712,7 @@ async fn create_graph(
                     materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Pole/{}", project_id, graph_id, pole_nid)),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                     keywords: if pole.is_stable_pole() { vec!["pole".into(), "stable".into()] } else { vec!["pole".into(), "unstable".into()] },
-                    hotness_score: if pole.is_stable_pole() { 0.5 } else { 0.85 },
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(ControlGraphEdge { edge_id, from_node: tf_nid, to_node: pole_nid, edge_type: ControlEdgeType::OutputToPole, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1920,7 +1920,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Stability/{}", project_id, graph_id, stab.analysis_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["stability".into(), format!("{:?}", stab.method).to_lowercase()]; if stab.is_stable { kw.push("stable".into()); } else { kw.push("unstable".into()); } kw },
-            hotness_score: if stab.is_stable { 0.6 } else { 0.95 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         stability_nid.insert(stab.analysis_id, sid);
@@ -1973,7 +1973,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Sim/{}", project_id, graph_id, sim.sim_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: if sim.diverged { vec!["simulation".into(), "diverged".into()] } else { vec!["simulation".into(), "stable".into()] },
-            hotness_score: if sim.diverged { 0.9 } else { 0.6 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         sim_nid.insert(sim.sim_id, sim_node_id);
@@ -1994,7 +1994,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Verify/{}", project_id, graph_id, vr.spec_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: if vr.passed { vec!["verification".into(), "pass".into()] } else { vec!["verification".into(), "fail".into()] },
-            hotness_score: if vr.passed { 0.5 } else { 0.9 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: vrid, edge_type: ControlEdgeType::VerifiedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2353,7 +2353,7 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                             content: format!("Simulation: overshoot={:?}% settling={:?}s diverged={}", result.performance.overshoot_percent.map(|v| format!("{:.1}",v)), result.performance.settling_time_sec.map(|v| format!("{:.3}",v)), result.diverged),
                             is_stable: Some(!result.diverged),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["simulation".into()], hotness_score: if result.diverged { 0.9 } else { 0.6 }, ..Default::default()
+                            keywords: vec!["simulation".into()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::SimulatedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;
@@ -2365,7 +2365,7 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
                             is_stable: Some(result.passed),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                             keywords: if result.passed { vec!["verification".into(), "pass".into()] } else { vec!["verification".into(), "fail".into()] },
-                            hotness_score: if result.passed { 0.5 } else { 0.9 }, ..Default::default()
+                            hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::VerifiedBy, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;

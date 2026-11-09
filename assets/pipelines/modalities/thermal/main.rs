@@ -1303,7 +1303,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/Hotspot/{}", project_id, graph_id, hs.hotspot_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["hotspot".into(), format!("{:?}", hs.classification).to_lowercase()],
-            hotness_score: 0.5 + (hs.delta_t_k / 100.0).clamp(0.0, 0.45),
+            hotness_score: 0.0,
             ..Default::default()
         });
         // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
@@ -1351,7 +1351,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/Coldspot/{}", project_id, graph_id, cs.coldspot_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["coldspot".into(), format!("{:?}", cs.classification).to_lowercase()],
-            hotness_score: 0.5 + (cs.delta_t_k.abs() / 80.0).clamp(0.0, 0.4),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: cid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1374,7 +1374,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/Gradient/{}", project_id, graph_id, grad.gradient_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["gradient".into(), "thermal-boundary".into()],
-            hotness_score: 0.6 + (grad.gradient_magnitude_k_per_m / 20.0).clamp(0.0, 0.3),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: gid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1450,7 +1450,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/Anomaly/{}", project_id, graph_id, anomaly.anomaly_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["anomaly".into(), format!("{:?}", anomaly.anomaly_type).to_lowercase()],
-            hotness_score: 0.6 + anomaly.anomaly_score * 0.3,
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: aid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1505,7 +1505,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: ThermalAnalysisResu
             materialized_path: Some(format!("/Modalities/Thermal/Project_{}/Graph_{}/HeatSource/{}", project_id, graph_id, hs.source_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["heat-source".into(), format!("{:?}", hs.source_class).to_lowercase()],
-            hotness_score: 0.7 + (hs.estimated_power_w / 5000.0).clamp(0.0, 0.25),
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(ThermalGraphEdge { edge_id, from_node: root_id, to_node: hsid, edge_type: ThermalEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });

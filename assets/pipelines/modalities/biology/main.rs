@@ -1524,7 +1524,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
             materialized_path: Some(format!("/Modalities/Biology/Project_{}/Graph_{}/Pathway/{}", project_id, graph_id, pw.pathway_id.replace(':', "_"))),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["pathway".into(), pw.database.to_lowercase(), format!("{:?}", pw.category).to_lowercase()]; kw.extend(pw.gene_symbols.iter().take(5).map(|g| g.to_lowercase())); kw },
-            hotness_score: if pw.is_enriched { 0.9 } else { 0.6 },
+            hotness_score: 0.0,
             embedding_hint: Some(format!("pathway {} category: {:?}", pw.name, pw.category)),
             ..Default::default()
         });
@@ -1613,7 +1613,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
             materialized_path: Some(format!("/Modalities/Biology/Project_{}/Graph_{}/CellType/{}", project_id, graph_id, ct.cell_type_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["cell-type".into(), ct.name.to_lowercase()]; kw.extend(ct.marker_genes.iter().take(3).map(|g| g.to_lowercase())); kw },
-            hotness_score: ct.fraction_of_total.map(|f| 0.5 + f * 0.4).unwrap_or(0.65),
+            hotness_score: 0.0,
             embedding_hint: Some(format!("cell type: {} state: {:?}", ct.name, ct.functional_state)),
             ..Default::default()
         });
@@ -1821,7 +1821,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
             materialized_path: Some(format!("/Modalities/Biology/Project_{}/Graph_{}/Species/{}", project_id, graph_id, sp.species_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["species".into(), sp.scientific_name.to_lowercase()]; if let Some(ref cn) = sp.common_name { kw.push(cn.to_lowercase()); } kw },
-            hotness_score: 0.6 + match sp.conservation_status { ConservationStatus::CriticallyEndangered | ConservationStatus::Endangered => 0.3, ConservationStatus::Vulnerable => 0.2, _ => 0.0 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(BiologyGraphEdge { edge_id, from_node: root_id, to_node: snid, edge_type: BiologyEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1929,7 +1929,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
             materialized_path: Some(format!("/Modalities/Biology/Project_{}/Graph_{}/Regulation/{}", project_id, graph_id, reg.edge_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["regulation".into(), reg.regulator.to_lowercase(), reg.target.to_lowercase()],
-            hotness_score: 0.6 + (reg.effect_size.abs() / 5.0).clamp(0.0, 0.3) as f32,
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(BiologyGraphEdge { edge_id, from_node: root_id, to_node: rnid, edge_type: BiologyEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1953,7 +1953,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
             materialized_path: Some(format!("/Modalities/Biology/Project_{}/Graph_{}/Metabolite/{}", project_id, graph_id, met.metabolite_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["metabolite".into(), met.name.to_lowercase(), format!("{:?}", met.metabolite_class).to_lowercase()],
-            hotness_score: 0.6 + met.log2_fold_change.map(|l| l.abs() / 10.0).unwrap_or(0.0).clamp(0.0, 0.3) as f32,
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(BiologyGraphEdge { edge_id, from_node: root_id, to_node: mnid, edge_type: BiologyEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -2294,7 +2294,7 @@ pub async fn execute(input: BiologyModalityAction) -> Result<BiologyModalityOutp
                 BiologyGraphQuery::EnrichedPathways => {
                     let enriched: Vec<_> = graph.nodes.iter()
                         .filter(|n| matches!(n.node_type, BiologyNodeType::PathwayNode))
-                        .filter(|n| n.hotness_score > 0.0) // observed use only (2026-11-08: the invented 0.5-0.9 literals are gone; 0.0 = no observed use)
+                        .filter(|n| n.content.contains("enriched=true")) // the node's OWN attribute (its content records `enriched=`); this query used to read an invented hotness grade that encoded the same flag
                         .collect();
                     serde_json::json!({ "enriched_pathways": enriched })
                 }

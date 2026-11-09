@@ -1536,7 +1536,7 @@ impl PipelineExecutor {
                         kw.extend(mat.associated_chemicals.iter().map(|c| c.to_lowercase()));
                         kw
                     },
-                    hotness_score: 0.5 + mat.abundance_fraction * 0.4,
+                    hotness_score: 0.0,
                     embedding_hint: Some(format!("material: {} class: {:?}", mat.name, mat.material_class)),
                     ..Default::default()
                 });
@@ -1601,7 +1601,7 @@ impl PipelineExecutor {
                         kw.extend(sig.identified_chemicals.iter().map(|c| c.to_lowercase()));
                         kw
                     },
-                    hotness_score: 0.6 + (sig.absorption_features.len() as f32 * 0.05).min(0.3),
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
@@ -1629,7 +1629,7 @@ impl PipelineExecutor {
                             if let Some(ref c) = feat.associated_compound { kw.push(c.to_lowercase()); }
                             kw
                         },
-                        hotness_score: 0.5 + feat.depth * 0.3,
+                        hotness_score: 0.0,
                         ..Default::default()
                     });
                     edges.push(HyperspectralGraphEdge {
@@ -1855,7 +1855,7 @@ impl PipelineExecutor {
                         if let Some(ref cause) = anomaly.possible_cause { kw.push(cause.to_lowercase()); }
                         kw
                     },
-                    hotness_score: 0.5 + anomaly.anomaly_score * 0.4,
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {
@@ -1889,7 +1889,7 @@ impl PipelineExecutor {
                     materialized_path: Some(format!("/Modalities/Hyperspectral/Project_{}/Graph_{}/Unmixed/{}", project_id, graph_id, umap.map_id)),
                     provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
                     keywords: vec!["unmixed".into(), "abundance".into(), umap.endmember_name.to_lowercase()],
-                    hotness_score: 0.6 + umap.mean_abundance * 0.3,
+                    hotness_score: 0.0,
                     ..Default::default()
                 });
                 edges.push(HyperspectralGraphEdge {

@@ -446,10 +446,7 @@ pub async fn settle_once(
     stats: &mut PassStats,
 ) {
     let mut settled = 0usize;
-    backfill_scope_once(store, stats).await;
-    // Settlement can run for a long time (one model call per unsettled container); the hit rollup must not wait for it to finish, so it is
-    // folded in every few minutes of settlement time (housekeeping interval, not a work cap).
-    let mut last_rollup = std::time::Instant::now();
+    // (the typed-scope backfill runs in the housekeeping actor, keyword_loops.rs)
     for &ctype in SETTLE_ORDER {
         let Ok(ids) = store.list_ids(Some(ctype)).await else { continue };
         for id in ids {
@@ -459,14 +456,6 @@ pub async fn settle_once(
             };
             if !unsettled {
                 continue;
-            }
-            if last_rollup.elapsed() >= std::time::Duration::from_secs(300) {
-                let r = crate::keyword_program::rollup_once(store).await;
-                if r.events > 0 {
-                    stats.candidates_consumed += r.containers_updated as u64;
-                    stats.notes.push(format!("keyword rollup (during settlement): {} events into {} containers", r.events, r.containers_updated));
-                }
-                last_rollup = std::time::Instant::now();
             }
             stats.candidates_consumed += 1;
             match settle_container(executor, store, available_models, meta_fallback, id, ctype, stats).await {

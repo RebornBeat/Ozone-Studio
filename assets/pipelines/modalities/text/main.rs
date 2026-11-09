@@ -584,7 +584,7 @@ fn default_version() -> u32 {
     1
 }
 fn default_hotness() -> f32 {
-    0.5
+    0.0
 }
 
 // ============================================================================
@@ -7806,7 +7806,7 @@ RESPOND ONLY WITH JSON."#,
             materialized_path: None,
             keywords: Vec::new(),
             embedding_hint: None,
-            hotness_score: default_hotness(),
+            hotness_score: 0.0,
             source_chunk_index: None,
             source_start_char: None,
             source_end_char: None,
@@ -7916,7 +7916,7 @@ RESPOND ONLY WITH JSON."#,
             materialized_path: node.materialized_path.clone(),
             keywords: node.keywords.clone(),
             embedding_hint: node.embedding_hint.clone(),
-            hotness_score: node.hotness_score,
+            hotness_score: 0.0,
             source_chunk_index: node.source_chunk_index,
             source_start_char: node.source_start_char,
             source_end_char: node.source_end_char,

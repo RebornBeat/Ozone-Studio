@@ -1652,7 +1652,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/Protein/{}", project_id, graph_id, prot.protein_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: kws,
-            hotness_score: if prot.reviewed { 0.85 } else { 0.65 },
+            hotness_score: 0.0,
             embedding_hint: Some(format!("protein {} gene:{:?} org:{}", prot.full_name, prot.gene_name, prot.organism)),
             ..Default::default()
         });
@@ -1828,7 +1828,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/PPI/{}", project_id, graph_id, ppi.interaction_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["ppi".into(), "interaction".into(), ppi.protein_a_accession.to_lowercase(), ppi.protein_b_accession.to_lowercase()],
-            hotness_score: 0.6 + ppi.combined_score * 0.3,
+            hotness_score: 0.0,
             ..Default::default()
         });
 
@@ -2029,7 +2029,7 @@ async fn create_graph(
             materialized_path: Some(format!("/Modalities/Proteomics/Project_{}/Graph_{}/DE/{}", project_id, graph_id, de.de_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["differential-expression".into(), format!("{:?}", de.regulation).to_lowercase()],
-            hotness_score: 0.5 + (de.log2_fold_change.abs() / 10.0).clamp(0.0, 0.4) as f32,
+            hotness_score: 0.0,
             ..Default::default()
         });
         if let Some(&prot_n) = prot_nid.get(&de.protein_id) {
@@ -2205,7 +2205,7 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
                             node_id: next_nid, node_type: ProteomicsNodeType::PPINode,
                             content: format!("PPI: {} ↔ {} score={:.3}", interaction.protein_a_accession, interaction.protein_b_accession, interaction.combined_score),
                             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
-                            keywords: vec!["ppi".into()], hotness_score: 0.6 + interaction.combined_score * 0.3, ..Default::default()
+                            keywords: vec!["ppi".into()], hotness_score: 0.0, ..Default::default()
                         });
                         graph.edges.push(ProteomicsGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ProteomicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                         next_eid += 1; next_nid += 1;

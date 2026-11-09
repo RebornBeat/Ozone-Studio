@@ -1669,7 +1669,7 @@ async fn create_graph(
                 kw.push(format!("{:.0}hz", voc.peak_freq_hz));
                 kw
             },
-            hotness_score: 0.6 + (voc.snr_db / 60.0).clamp(0.0, 0.3),
+            hotness_score: 0.0,
             ..Default::default()
         });
         voc_node_ids.insert(voc.vocalization_id, vid);

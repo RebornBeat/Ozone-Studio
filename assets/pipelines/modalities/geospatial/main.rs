@@ -1394,7 +1394,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Region/{}", project_id, graph_id, r.region_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["region".into(), rtype.to_lowercase()]; if let Some(ref name) = r.name { kw.push(name.to_lowercase()); } kw },
-            hotness_score: 0.7 + (r.area_km2.log2() / 40.0).clamp(0.0, 0.25) as f32,
+            hotness_score: 0.0,
             embedding_hint: Some(format!("geographic region: {} type: {}", r.name.as_deref().unwrap_or("unknown"), rtype)),
             ..Default::default()
         });
@@ -1439,7 +1439,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Route/{}", project_id, graph_id, r.route_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: { let mut kw = vec!["route".into(), format!("{:?}", r.route_type).to_lowercase()]; if let Some(ref n) = r.name { kw.push(n.to_lowercase()); } kw },
-            hotness_score: 0.65 + (r.length_m / 50000.0).min(0.25) as f32,
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: rn_id, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1671,7 +1671,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/FloodZone/{}", project_id, graph_id, fz.zone_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["flood-zone".into(), format!("{:?}", fz.risk_level).to_lowercase()],
-            hotness_score: 0.5 + match fz.risk_level { RiskLevel::VeryHigh => 0.4, RiskLevel::High => 0.3, RiskLevel::Moderate => 0.2, _ => 0.0 },
+            hotness_score: 0.0,
             ..Default::default()
         });
         edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: fid, edge_type: GeoEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
