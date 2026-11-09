@@ -272,3 +272,63 @@ Narrative ledgers: `EDIT_MANIFEST_2026-11-04.md`, `REVIEW_WINDOWING_2026-11-06.m
 - `M` ui/src/ozoneClient.ts
 - `M` ui/src/pipeline-ui.tsx
 - `M` ui/src/views/search/UnifiedSearch.tsx
+
+## 2026-11-08 addendum — files changed per commit since the last green build (cb050d9), generated from git
+
+### 9029323 TAKEOVER capture: CHECKLIST L39 (the takeover, verification verdicts, wave 2, the literal ruling reviewed against production — no edits requ
+- M CHECKLIST.md
+- M docs/evidence/test-runs/2026-11-08-e2e-span-walk.md
+
+### 12e8e28 L40: wave 2 deployed green (t9 257/257, K-suite 9/0/1); span-walk 7 SW1c PASS again (leak closed across two binaries); SW3-7 fail = OpenRouter
+- M CHECKLIST.md
+- M docs/evidence/test-runs/2026-11-08-e2e-keyword-program.md
+- M docs/evidence/test-runs/2026-11-08-e2e-span-walk.md
+
+### 7d1870f CC resumed: full state review + 9 new insights (STATE_REVIEW_2026-11-08_EVENING, STATE_CAPTURE §12, CHECKLIST L41) — read-only, no code
+- M CHECKLIST.md
+- M docs/STATE_CAPTURE_2026-11-08.md
+- A docs/STATE_REVIEW_2026-11-08_EVENING.md
+
+### b785e0d CC FIFTH WAVE (edits only, uncompiled): continuous warm-started training (promotion gates serving only), keyword housekeeping + settlement as 
+- M CHECKLIST.md
+- M assets/pipelines/general/methodology_create/main.rs
+- M assets/pipelines/modalities/BCI/main.rs
+- M assets/pipelines/modalities/CAD/main.rs
+- M assets/pipelines/modalities/IMU/main.rs
+- M assets/pipelines/modalities/biology/main.rs
+- M assets/pipelines/modalities/control/main.rs
+- M assets/pipelines/modalities/depth/main.rs
+- M assets/pipelines/modalities/electromagnetic/main.rs
+- M assets/pipelines/modalities/geospatial/main.rs
+- M assets/pipelines/modalities/haptic/main.rs
+- M assets/pipelines/modalities/hyperspectral/main.rs
+- M assets/pipelines/modalities/network/main.rs
+- M assets/pipelines/modalities/proteomics/main.rs
+- M assets/pipelines/modalities/radar/main.rs
+- M assets/pipelines/modalities/sound/main.rs
+- M assets/pipelines/modalities/text/main.rs
+- M assets/pipelines/modalities/thermal/main.rs
+- M docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md
+- M docs/STATE_CAPTURE_2026-11-08.md
+- M docs/evidence/literal-removals/2026-11-08-removed-literals.jsonl
+- M shared/contracts/keyword_model.rs
+- M src/keyword_program.rs
+- M src/lib.rs
+- A src/orchestrator/keyword_loops.rs
+- M src/orchestrator/keyword_settle.rs
+- M src/orchestrator/meta_loop.rs
+- M src/orchestrator/mod.rs
+- M src/orchestrator/span_out.rs
+- M src/types/container.rs
+
+### 0167d8f CC: stored hotness is trusted (read as is) — consciousness store writes 0.0, one-time legacy scrub, facts_from_context takes hints.hotness_s
+- M src/consciousness/store.rs
+- M src/keyword_program.rs
+- M src/orchestrator/keyword_loops.rs
+- M src/orchestrator/keyword_settle.rs
+- M src/zsei/search.rs
+
+### 3d164db CC: FINAL CAPTURE 2026-11-08 (all insights, rulings, edit inventory, verification status, operator queue); guide §16.1 trust-stored-hotness; 
+- M CHECKLIST.md
+- A docs/FINAL_CAPTURE_2026-11-08.md
+- M docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md
