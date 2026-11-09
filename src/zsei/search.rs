@@ -220,6 +220,7 @@ impl SearchStrategy for TokenAware {
                 &ctx.keyword_meta,
                 &matched_keywords,
                 container.local_state.hints.last_accessed,
+                container.local_state.hints.hotness_score,
             );
             let mut cand_terms = km::meaning_terms(&terms);
             if cand_terms.is_empty() && !name.is_empty() {

@@ -436,6 +436,52 @@ pub async fn backfill_scope_once(store: &Arc<dyn StoreAccess>, stats: &mut PassS
     n
 }
 
+/// ONE-TIME LEGACY HOTNESS SCRUB (2026-11-08): `hints.hotness_score` is now the single stored source of hotness and the ranking reads it as is, so
+/// every value written before the rule "hotness = observed use only" must go. A container whose stored hotness is non-zero but that has NO observed
+/// traced returns (`keyword_meta["*"].hits.returned_traced == 0`) holds an invented value (a modality builder's grade, an experience's emotional
+/// significance …) and is reset to 0.0 with a hints-only update. Idempotent; a marker file records completion so later cycles skip the walk.
+/// Returns how many containers were reset.
+pub async fn scrub_legacy_hotness_once(store: &Arc<dyn StoreAccess>, stats: &mut PassStats) -> usize {
+    let marker = crate::keyword_program::data_dir().join("keyword_hotness_scrub.done");
+    if marker.exists() {
+        return 0;
+    }
+    let Ok(ids) = store.list_ids(None).await else { return 0 };
+    let mut n = 0usize;
+    let mut failed = 0usize;
+    for id in ids {
+        let Ok(Some(v)) = store.get_container(id).await else { continue };
+        let Ok(c) = serde_json::from_value::<Container>(v) else { continue };
+        let h = &c.local_state.hints;
+        let observed = c.local_state.context.keyword_meta.get(crate::keyword_program::CONTAINER_TOTALS_KEY).map(|m| m.hits.returned_traced).unwrap_or(0);
+        if h.hotness_score == 0.0 || observed > 0 {
+            continue;
+        }
+        let mut hints = h.clone();
+        hints.hotness_score = 0.0;
+        let upd = ContainerUpdate { metadata: None, context: None, storage: None, hints: Some(hints) };
+        match serde_json::to_value(&upd) {
+            Ok(uv) => {
+                if store.update_container(id, uv).await.is_ok() {
+                    n += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+            Err(_) => failed += 1,
+        }
+    }
+    if failed == 0 {
+        let _ = std::fs::write(&marker, format!("{n} containers reset"));
+    }
+    if n > 0 {
+        stats.candidates_consumed += n as u64;
+        stats.notes.push(format!("legacy hotness scrub: {n} container(s) reset to 0.0"));
+        tracing::info!(reset = n, failed, "keyword program: legacy invented hotness scrubbed (stored hotness is now observed use only)");
+    }
+    n
+}
+
 /// One settlement pass over every unsettled container (most-searched types first). No count cap; a container whose model call fails is
 /// retried on the next pass.
 pub async fn settle_once(

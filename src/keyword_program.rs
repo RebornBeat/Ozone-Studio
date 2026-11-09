@@ -521,6 +521,7 @@ pub fn facts_from_context(
     meta: &BTreeMap<String, TermMeta>,
     matched_keywords: &[String],
     last_accessed: u64,
+    stored_hotness: f32,
 ) -> km::RankFacts {
     let totals = meta.get(CONTAINER_TOTALS_KEY).map(|m| m.hits.clone()).unwrap_or_default();
     let mut f = km::RankFacts::new(class, matched_terms);
@@ -529,8 +530,10 @@ pub fn facts_from_context(
     f.packed = totals.packed;
     f.returned = totals.returned;
     f.dropped = totals.dropped;
-    // OBSERVED hotness from the real counts — never from `hints.hotness_score`, which may still hold a legacy invented literal
-    f.hotness = if totals.returned_traced > 0 { (totals.packed as f32 / totals.returned_traced as f32).min(1.0) } else { 0.0 };
+    // HOTNESS is the STORED `hints.hotness_score` — read as is (one map-free field read, no recomputation). It is trustworthy because the only
+    // writer of a non-zero value is the rollup (packed ÷ traced returns), creators write 0.0, and the one-time legacy scrub
+    // (`keyword_settle::scrub_legacy_hotness_once`) zeroed every invented value that was written before. Clamped and finite-checked.
+    f.hotness = if stored_hotness.is_finite() { stored_hotness.clamp(0.0, 1.0) } else { 0.0 };
     f.validated = matched_keywords.iter().any(|k| meta.get(k).map(|m| m.validated == Some(true)).unwrap_or(false));
     f.last_accessed = last_accessed;
     f
@@ -914,14 +917,16 @@ mod tests {
             TermMeta { source: String::new(), validated: None, hits: TermHits { returned: 9, returned_traced: 6, packed: 3, kept: 2, dropped: 1, applied: 4, human: 0 } },
         );
         meta.insert("static analysis".to_string(), TermMeta { source: "extracted".into(), validated: Some(true), hits: TermHits::default() });
-        let f = facts_from_context(km::MatchClass::ExactTerm, 2, &meta, &["static analysis".to_string()], 77);
+        let f = facts_from_context(km::MatchClass::ExactTerm, 2, &meta, &["static analysis".to_string()], 77, 0.5);
         assert_eq!((f.returned, f.packed, f.kept, f.dropped, f.applied, f.last_accessed), (9, 3, 2, 1, 4, 77));
         assert!(f.validated && f.class == km::MatchClass::ExactTerm && f.matched_terms == 2);
-        assert!((f.hotness - 3.0 / 6.0).abs() < 1e-6, "hotness = packed / TRACED returns (background searches cannot be packed and must not dilute it)");
-        let g = facts_from_context(km::MatchClass::ExactTerm, 1, &meta, &["other".to_string()], 0);
+        assert!((f.hotness - 0.5).abs() < 1e-6, "the stored hotness is read as is");
+        let g = facts_from_context(km::MatchClass::ExactTerm, 1, &meta, &["other".to_string()], 0, f32::NAN);
         assert!(!g.validated);
-        let none = facts_from_context(km::MatchClass::ExactTerm, 1, &BTreeMap::new(), &[], 0);
+        assert_eq!(g.hotness, 0.0, "a non-finite stored value is never used");
+        let none = facts_from_context(km::MatchClass::ExactTerm, 1, &BTreeMap::new(), &[], 0, 0.0);
         assert_eq!(none.hotness, 0.0, "never returned = no observed use");
+        assert_eq!(facts_from_context(km::MatchClass::ExactTerm, 1, &BTreeMap::new(), &[], 0, 7.0).hotness, 1.0, "clamped");
     }
 
     #[test]

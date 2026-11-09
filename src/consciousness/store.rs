@@ -426,7 +426,7 @@ impl ConsciousnessStore {
                 },
                 hints: TraversalHints {
                     access_frequency: 0,
-                    hotness_score: experience.emotional_significance,
+                    hotness_score: 0.0, // hotness = observed use only (the rollup writes it); emotional significance lives in the experience record, not here
                     last_accessed: experience.timestamp,
                     centroid: None,
                     ml_prediction_weight: experience.emotional_significance,

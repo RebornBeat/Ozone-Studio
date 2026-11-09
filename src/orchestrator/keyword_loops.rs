@@ -40,6 +40,7 @@ pub async fn run_keyword_housekeeping_loop(executor: Arc<dyn PipelineExecutor>, 
                     stats.notes.push(format!("rollup: {} events into {} containers ({} failed)", rolled.events, rolled.containers_updated, rolled.failures));
                 }
                 crate::orchestrator::keyword_settle::backfill_scope_once(&store, &mut stats).await;
+                crate::orchestrator::keyword_settle::scrub_legacy_hotness_once(&store, &mut stats).await;
                 match keyword_program::train_continuously(&executor, &store).await {
                     Ok(report) => {
                         if report.get("success").and_then(|s| s.as_bool()) == Some(true) {
