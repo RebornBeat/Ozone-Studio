@@ -1537,9 +1537,12 @@ impl OzoneRuntime {
             // turns this on in config.
             if runtime.read().await.config.network.auto_broadcast_sync {
                 tracing::info!("P2P auto-broadcast sync: ENABLED (auto_broadcast_sync=true)");
+                let bridge_store: Arc<dyn crate::orchestrator::StoreAccess> =
+                    Arc::new(crate::orchestrator::ZseiStoreAdapter { zsei: runtime.read().await.zsei.clone() });
                 crate::orchestrator::amt_loop::spawn_network_hook_bridge(
                     crate::graph_events::GraphEventHub::global(),
                     runtime.read().await.network.clone(),
+                    bridge_store,
                 );
                 // Periodic driver for the Normal-priority batch queue —
                 // process_batch_sync previously had no caller, so batched

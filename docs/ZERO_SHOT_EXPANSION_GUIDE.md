@@ -462,7 +462,7 @@ remain, in the order a review should consider them (each only after the mechanic
 | # | Where | Zero-shot or deterministic | Question / rule | Status |
 |---|---|---|---|---|
 | E13 | Stage 3 | zero-shot (batched windows) + strength-N only for DROPS | "does this methodology apply to this request?" per gathered methodology — the relevance filter the floor lacks beyond word overlap | design |
-| E14 | Stage 6 (rule → provider step) | zero-shot yes/no (strength-N) | "does this rule's CONDITION hold for this request?" before a provider step is attached | open — defect that failed step 0 of walk 1148 |
+| E14 (SUPERSEDED 2026-11-10 by the rule gate after the AMT — `rule_gate_rounds`; the per-rule vote at the end of Stage 6 is removed) | Stage 6 (rule → provider step) | zero-shot yes/no (strength-N) | "does this rule's CONDITION hold for this request?" before a provider step is attached | open — defect that failed step 0 of walk 1148 |
 | E15 | Stage 7 | zero-shot | feasibility "low" after closure → treat clarifications/risks as gap signals → another re-plan round | open |
 | E16 | Stage 2 keyword extraction | zero-shot (retry) | re-ask for keywords when hygiene leaves <3 usable (the hygiene already guarantees search terms deterministically) | optional |
 | E17 | Stage 10 provider tool choice | zero-shot yes/no | "which of this provider's tools fits this step?" instead of word overlap that fails ("none matches this step's text") | open |

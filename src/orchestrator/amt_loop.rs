@@ -1912,34 +1912,48 @@ Instruction with added constraints: IPv4 and IPv6..."#);
 pub fn spawn_network_hook_bridge(
     hub: &'static crate::graph_events::GraphEventHub,
     network: std::sync::Arc<tokio::sync::RwLock<crate::network::NetworkManager>>,
+    store: std::sync::Arc<dyn crate::orchestrator::StoreAccess>,
 ) {
+    use crate::network::SyncItemType;
     let mut rx = hub.subscribe();
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(evt) => {
-                    if evt.event == "created" {
-                        let data = serde_json::to_vec(&serde_json::json!({
-                            "container_id": evt.container_id,
-                            "parent_id": evt.parent_id,
-                            "container_type": evt.container_type,
-                            "source": evt.source,
-                            "scope_keywords": evt.scope_keywords,
-                        }))
-                        .unwrap_or_default();
-                        let net = network.read().await;
-                        match evt.container_type.as_str() {
-                            "Methodology" => {
-                                let _ = net.on_methodology_created(evt.container_id, data).await;
-                            }
-                            "Blueprint" => {
-                                let _ = net.on_blueprint_created(evt.container_id, data).await;
-                            }
-                            _ => {
-                                let _ = net.on_container_created(evt.container_id, data).await;
-                            }
-                        }
+                    if evt.event != "created" {
+                        continue;
                     }
+                    // NOTIFY AND GATE (operator 2026-11-10): only these kinds are ever announced, and only as a MANIFEST (name + body hash +
+                    // keywords, no content). Blueprints are PRIVATE; findings, events, chat and every other container are never announced.
+                    let item_type = match evt.container_type.as_str() {
+                        "Methodology" => SyncItemType::Methodology,
+                        "JurisdictionRuleSet" => SyncItemType::JurisdictionRuleSet,
+                        "Pipeline" => SyncItemType::Pipeline,
+                        "McpEntity" => SyncItemType::Tool,
+                        _ => continue,
+                    };
+                    let Ok(Some(c)) = store.get_container(evt.container_id).await else { continue };
+                    let name = c.pointer("/local_state/metadata/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let keywords: Vec<String> = c
+                        .pointer("/local_state/context/keywords")
+                        .and_then(|k| serde_json::from_value::<Vec<String>>(k.clone()).ok())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|k| !crate::shared_contracts::keyword_model::is_marker(k)) // scope markers can carry project ids — never announced
+                        .collect();
+                    // the body hash is the item's identity on the other side; an item with no readable body is announced without one
+                    let hash = c
+                        .pointer("/local_state/storage/object_store_path")
+                        .and_then(|v| v.as_str())
+                        .and_then(crate::orchestrator::tool_binding::read_object_file)
+                        .map(|body| crate::network::body_hash(body.as_bytes()))
+                        .unwrap_or_default();
+                    let manifest = crate::network::announce_envelope(&item_type, &name, &hash, &keywords, evt.container_id);
+                    let net = network.read().await;
+                    let _ = net.on_item_announced(evt.container_id, item_type, manifest).await;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!(lagged = n, "Network hook bridge: missed graph events");

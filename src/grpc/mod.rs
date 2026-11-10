@@ -980,6 +980,72 @@ async fn context_span_out(
 ///   * `blueprints` — blueprints with their steps' pipelines and the methodology ids they cite
 ///   * `policy`  — what is shared with peers (`auto_broadcast_sync`) and the review rules that apply to downloads
 /// docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6.
+/// PEER OFFERS (operator ruling 2026-11-10: notify and gate, never auto-sync). Every `announce` manifest received from a PAIRED peer
+/// (`peer_sync_candidates.jsonl`) is an OFFER; nothing is downloaded or applied. The deterministic part of the gate classifies a methodology
+/// offer against the local store by NAME + BODY HASH: `have` (same name, same hash → nothing to do), `conflict` (same name, different hash →
+/// review, never overwrite), `new`. Other kinds are `not_checked` until their local index exists. The decision (`download` / `ignore`) is the
+/// operator's and is recorded in `peer_offer_decisions.json`; `download` records approval only — the fetch step is not built yet.
+fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<String, String>) -> Vec<serde_json::Value> {
+    use serde_json::{json, Value};
+    let decisions: Value = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_offer_decisions.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({}));
+    let Ok(text) = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_sync_candidates.jsonl")) else { return Vec::new() };
+    let mut offers: std::collections::BTreeMap<String, Value> = Default::default();
+    for line in text.lines() {
+        let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
+        let env = &row["envelope"];
+        if env["kind"].as_str() != Some("announce") {
+            continue;
+        }
+        let from = row["from_peer"].as_str().unwrap_or("unknown-peer");
+        let (item_type, name, hash) = (env["item_type"].as_str().unwrap_or(""), env["name"].as_str().unwrap_or(""), env["body_hash"].as_str().unwrap_or(""));
+        if name.is_empty() || item_type.is_empty() || item_type == "blueprint" {
+            continue; // blueprints are private: even a peer's announcement of one is ignored
+        }
+        let key = format!("{from}|{item_type}|{name}|{hash}");
+        let local_status = if item_type == "methodology" {
+            match local_methods.get(name) {
+                Some(h) if !hash.is_empty() && h == hash => "have",
+                Some(_) => "conflict",
+                None => "new",
+            }
+        } else {
+            "not_checked"
+        };
+        let decision = decisions.get(&key).and_then(|d| d["decision"].as_str()).map(String::from).unwrap_or_else(|| if local_status == "have" { "not_needed".to_string() } else { "pending".to_string() });
+        offers.insert(
+            key.clone(),
+            json!({
+                "offer_key": key, "from_peer": from, "item_type": item_type, "name": name, "body_hash": hash,
+                "keywords": env["keywords"], "announced_at": env["announced_at"], "received_at": row["received_at"],
+                "local_status": local_status, "decision": decision,
+                "note": if local_status == "conflict" { "same name, different content — review; it is never overwritten" } else { "" },
+            }),
+        );
+    }
+    offers.into_values().collect()
+}
+
+/// Record the operator's decision on a peer offer. `download` records APPROVAL only (no fetch is built yet); `ignore` dismisses it.
+async fn marketplace_offer_decide(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    use serde_json::json;
+    let key = body["offer_key"].as_str().unwrap_or("").to_string();
+    let decision = body["decision"].as_str().unwrap_or("").to_string();
+    if key.is_empty() || !matches!(decision.as_str(), "download" | "ignore" | "pending") {
+        return Json(json!({"success": false, "error": "offer_key and decision (download | ignore | pending) are required"}));
+    }
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let path = std::path::Path::new(&data_dir).join("peer_offer_decisions.json");
+    let mut all: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
+    all[&key] = json!({"decision": decision, "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)});
+    match std::fs::write(&path, serde_json::to_string_pretty(&all).unwrap_or_default()) {
+        Ok(_) => Json(json!({"success": true, "offer_key": key, "decision": decision, "note": if decision == "download" { "approval recorded — the fetch/import step is not built yet; nothing was downloaded" } else { "recorded" }})),
+        Err(e) => Json(json!({"success": false, "error": e.to_string()})),
+    }
+}
+
 async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     use serde_json::{json, Value};
     let tools_v: Vec<Value> = mcp_list_tools(State(state.clone())).await.0["tools"].as_array().cloned().unwrap_or_default();
@@ -1075,7 +1141,10 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
                         .collect()
                 })
                 .unwrap_or_default();
+            // identity for the peer gate: NAME + BODY HASH (never a container id) — the same hash the announcing side computes
+            let local_body_hash = crate::network::body_hash(std::fs::read_to_string(&f).unwrap_or_default().as_bytes());
             methodologies.push(json!({
+                "body_hash": local_body_hash,
                 "id": idx.and_then(|i| i["methodology_id"].as_u64()).or_else(|| m["methodology_id"].as_u64()),
                 "name": idx.and_then(|i| i["name"].as_str()).or_else(|| m["name"].as_str()).unwrap_or(&fname),
                 "file": fname, "source": source,
@@ -1107,9 +1176,15 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
             }));
         }
     }
+    let local_method_hashes: std::collections::HashMap<String, String> =
+        methodologies.iter().filter_map(|m| Some((m["name"].as_str()?.to_string(), m["body_hash"].as_str()?.to_string()))).collect();
+    let peer_offers = peer_offers_view(&data_dir, &local_method_hashes);
+    let peer_offers_pending = peer_offers.iter().filter(|o| o["decision"].as_str() == Some("pending")).count();
     Json(json!({
         "success": true,
         "generated_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "peer_offers": peer_offers,
+        "peer_offers_pending": peer_offers_pending,
         "tools": { "count": tools_v.len(), "providers": providers_json },
         // WANTED: capabilities that were required (methodology binding / blueprint / simulation) but are not registered —
         // to be built or downloaded after review (tool_binding.rs `record_capability_gaps`)
@@ -1119,7 +1194,7 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
         "binding_proposals": crate::orchestrator::tool_binding::binding_proposals(),
         "peers": {
             "paired": paired,
-            "catalog_exchange": "not_implemented",
+            "catalog_exchange": "announce_only (manifests, no content) — offers are listed under peer_offers and gated; nothing is downloaded automatically",
             "note": "Peer catalogs are not exchanged yet (no tool/MCP offer protocol): nothing from other users is listed because nothing real is received. Pairing is real.",
         },
         "methodologies": methodologies,
@@ -4844,6 +4919,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/context/span_out", post(context_span_out))
         .route("/ripple/meta/status", get(ripple_meta_status))
         .route("/marketplace/overview", get(marketplace_overview))
+        .route("/marketplace/offers/decide", post(marketplace_offer_decide))
         // ORCHESTRATE STATUS — poll a submit_only run by run_token.
         .route("/orchestrate/status", get(orchestrate_status))
         .layer(cors)

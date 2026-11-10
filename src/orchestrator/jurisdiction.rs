@@ -638,7 +638,8 @@ fn jurisdiction_block_message(result: &JurisdictionGateResult, subject: &str) ->
 
 /// Pure categorization: for each rule that matches `haystack`, route it by
 /// action — Block sets `result.blocked`, Warn pushes a real surfaced
-/// warning, Log is recorded with no side effect, and every match is
+/// warning, Log ALSO surfaces as a cited warning (operator 2026-11-10: every matched
+/// rule acts; identical warnings collapse), and every match is
 /// recorded in `result.matched` regardless of action. Returns the
 /// RequireConfirmation matches separately since resolving those needs a
 /// real model call (a genuine decision_gate review), which this function

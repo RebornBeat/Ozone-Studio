@@ -21,6 +21,8 @@
 //! country, which would not be a responsible use of a search API and would
 //! produce a mountain of unreviewed content no human has looked at.
 //!
+//! [2026-11-10: `Log` is no longer inert — a matched `Log` rule now surfaces as a CITED WARNING (never a block), see
+//! `jurisdiction::categorize_jurisdiction_matches`; the severity stays "never above Warn" for web-derived content.]
 //! Every rule this produces gets `RuleAction::Log` regardless of topic —
 //! never `Block`/`RequireConfirmation`/`Warn`. Assigning real enforcement
 //! severity to an automatically retrieved search snippet (which might be a

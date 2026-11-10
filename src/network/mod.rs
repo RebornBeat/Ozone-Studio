@@ -7,12 +7,15 @@
 //! - Hook-based sync triggers for methodologies, blueprints, and findings
 //! - Network status monitoring
 //!
-//! SYNC BEHAVIOR:
-//! - Methodologies: ALWAYS sync (no significance check)
-//! - Blueprints: ALWAYS sync (no significance check)
-//! - New Container Findings: ALWAYS sync (queue for batch)
-//! - Pipeline Results: ON-DEMAND only (explicit share request)
-//! - User Data: NEVER sync (local only)
+//! SYNC BEHAVIOR (operator ruling 2026-11-10: NOTIFY AND GATE, never auto-sync):
+//! - ANNOUNCE, never send content: methodologies, jurisdiction rule sets, tools/MCPs and pipelines are announced to PAIRED peers as a
+//!   small manifest (type, name, body hash, keywords) — the body never travels in an announcement and nothing is applied automatically.
+//! - A receiving instance records the announcement as an OFFER; a review gate (duplicate / conflict / new, then operator or model decision)
+//!   decides whether to download and sync it; the decision is recorded, never assumed. Offers and decisions are listed in the marketplace.
+//! - Blueprints: PRIVATE — never announced, never synced.
+//! - New container findings: queue for batch (unchanged).  Pipeline results: ON-DEMAND only (explicit share request).
+//! - User data: NEVER sync (local only).
+//! - Identity of an item is NAME + BODY HASH (`body_hash`), never a container id (ids are per store and collide).
 
 use crate::config::NetworkConfig;
 use crate::types::{ContainerID, OzoneError, OzoneResult};
@@ -51,9 +54,55 @@ pub struct SyncItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncItemType {
     Methodology,
+    /// Kept for API compatibility only: blueprints are PRIVATE and are never announced (see `on_blueprint_created`).
     Blueprint,
     Container,
     PipelineResult,
+    JurisdictionRuleSet,
+    /// A pipeline (a built unit) — announced as a manifest; installing it is a reviewed, explicit step.
+    Pipeline,
+    /// A tool / MCP provider — announced as a manifest; installing it is a reviewed, explicit step (never auto-run).
+    Tool,
+}
+
+impl SyncItemType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SyncItemType::Methodology => "methodology",
+            SyncItemType::Blueprint => "blueprint",
+            SyncItemType::Container => "container",
+            SyncItemType::PipelineResult => "pipeline_result",
+            SyncItemType::JurisdictionRuleSet => "jurisdiction_rule_set",
+            SyncItemType::Pipeline => "pipeline",
+            SyncItemType::Tool => "tool",
+        }
+    }
+}
+
+/// Stable identity hash of an item's body (FNV-1a 64). The SAME function is used by the announcing side and by the receiving side's local
+/// index, so "same name + same hash" means "already have it", and "same name, different hash" is a CONFLICT to review — never an overwrite.
+pub fn body_hash(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+/// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
+/// reviewed fetch can ask for exactly this item; it is never used as an identity.
+pub fn announce_envelope(item_type: &SyncItemType, name: &str, hash: &str, keywords: &[String], source_container_id: ContainerID) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "kind": "announce",
+        "item_type": item_type.as_str(),
+        "name": name,
+        "body_hash": hash,
+        "keywords": keywords,
+        "source_container_id": source_container_id,
+        "announced_at": chrono::Utc::now().timestamp(),
+    }))
+    .unwrap_or_default()
 }
 
 /// Hook function type
@@ -618,12 +667,23 @@ impl NetworkManager {
         )
         .await;
 
-        // Blueprint hook - ALWAYS sync
+        // Blueprint hook - PRIVATE: kept registered for compatibility; `on_blueprint_created` never reaches it (it is a no-op).
         self.register_hook(
             "on_blueprint_created",
             Arc::new(|item: SyncItem| {
+                tracing::debug!("Blueprint {} is private — never synced", item.container_id);
+                Ok(())
+            }),
+        )
+        .await;
+
+        // Announcement hook - NOTIFY ONLY: a manifest (no body) goes to paired peers, who gate it.
+        self.register_hook(
+            "on_item_announced",
+            Arc::new(|item: SyncItem| {
                 tracing::info!(
-                    "Blueprint created, queuing for immediate sync: {}",
+                    "P2P: announcing {} {} to paired peers (manifest only, no content)",
+                    item.item_type.as_str(),
                     item.container_id
                 );
                 Ok(())
@@ -719,17 +779,32 @@ impl NetworkManager {
     pub async fn on_blueprint_created(
         &self,
         container_id: ContainerID,
-        data: Vec<u8>,
+        _data: Vec<u8>,
     ) -> OzoneResult<()> {
+        // BLUEPRINTS ARE PRIVATE (operator 2026-11-10): never announced, never synced. Kept as a deliberate no-op so existing callers compile.
+        tracing::debug!(container_id, "P2P: blueprint creation is private — not announced");
+        Ok(())
+    }
+
+    /// ANNOUNCE one allowed item (methodology, jurisdiction rule set, pipeline, tool) to paired peers as a manifest. Nothing is applied on the
+    /// other side: the receiver records an offer and gates it.
+    pub async fn on_item_announced(
+        &self,
+        container_id: ContainerID,
+        item_type: SyncItemType,
+        manifest: Vec<u8>,
+    ) -> OzoneResult<()> {
+        if matches!(item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
+            return Ok(()); // not an announceable kind
+        }
         let item = SyncItem {
             container_id,
-            item_type: SyncItemType::Blueprint,
+            item_type,
             priority: SyncPriority::High,
-            data,
+            data: manifest,
             timestamp: chrono::Utc::now().timestamp() as u64,
         };
-
-        self.trigger_hooks("on_blueprint_created", item).await
+        self.trigger_hooks("on_item_announced", item).await
     }
 
     /// Notify of new container finding (ALWAYS syncs, batched)

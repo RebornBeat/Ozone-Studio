@@ -606,6 +606,9 @@ pub struct NetworkConfig {
     pub enable_mdns: bool,
     /// Sync interval in seconds for batch sync
     pub batch_sync_interval_secs: u64,
+    /// [2026-11-10: NOTIFY AND GATE — when true, only MANIFESTS (type, name, body hash, keywords; no content) of methodologies, jurisdiction
+    /// rule sets, pipelines and tools are announced to PAIRED peers; blueprints are private and never announced; the receiving side lists
+    /// them as offers and gates them (marketplace `peer_offers`). Nothing is downloaded or applied automatically.]
     /// Whether real container-creation events (methodologies/blueprints/
     /// findings) actually broadcast to connected P2P peers. The chain that
     /// does this (`orchestrator::amt_loop::spawn_network_hook_bridge` →
