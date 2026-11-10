@@ -789,61 +789,175 @@ impl PromptOrchestrator {
         super::amt::render_within_window(state, "file_relationships", 8, text)
     }
 
-    /// RULE-CONDITION GATE (E14, 2026-11-07; operator: a provider step must not be attached to a plan whose request the rule does
-    /// not apply to — task 1148 step 0 called threed-mcp for a text request and failed). BEFORE `reconcile_tool_bindings` turns a
-    /// declared per-rule provider into a provider STEP, each declared rule is judged once per walk: "does this rule's condition clearly
-    /// NOT apply to this request?". Dropping a step is the assured action, so it needs `configured_strength()` consecutive YES
-    /// (the first NO keeps the provider step and ends the vote — one call for the common applicable case). A dropped binding is marked
-    /// `applicability: "not_applicable"` / `status: "not_applicable"` on the manifest row (the row stays visible, only no step is made);
-    /// an applicable one is marked `applicability: "applies"` so a re-plan does not vote again. No model call is removed anywhere.
-    pub(crate) async fn gate_rule_applicability(&self, state: &mut OrchestrationState) -> usize {
-        let request = state.request.prompt.clone();
-        let mut dropped = 0usize;
-        let n = state.tool_manifest.len();
-        let mut pending: Vec<(usize, String, String, String, String)> = Vec::new(); // (manifest index, prompt, rule_text, rule_ref, provider name)
-        for i in 0..n {
-            let (status, judged, rule_text, rule_ref, name) = {
-                let m = &state.tool_manifest[i];
-                (
-                    m["status"].as_str().unwrap_or("").to_string(),
-                    m.get("applicability").is_some(),
-                    m["rule_text"].as_str().unwrap_or("").trim().to_string(),
-                    m["rule_ref"].as_str().unwrap_or("").to_string(),
-                    m["name"].as_str().unwrap_or("").to_string(),
-                )
-            };
-            if judged || rule_text.is_empty() || (status != "registered" && status != "degraded") {
-                continue;
-            }
-            let prompt = format!(
-                "REQUEST (the user's request, whole):\n{request}\n\nA methodology RULE (its condition/outcome) that would call the provider \"{name}\":\n{rule_text}\n\nQUESTION: Does this rule clearly NOT apply to the request above — i.e. the situation the rule describes is not what this request asks for, so calling \"{name}\" would be irrelevant to it? Answer YES only if the rule is clearly irrelevant. Answer NO if the rule applies or you are unsure."
-            );
-            pending.push((i, prompt, rule_text, rule_ref, name));
+    /// RULES TEXT FOR A METHODOLOGY, applicability-filtered: the rules the rule gate judged "clearly NOT applicable" to this request are left
+    /// out; everything else (including every rule that was never judged) is rendered. Used by every prompt built AFTER the AMT.
+    pub(crate) fn rules_text_for(state: &OrchestrationState, method_id: u64, container: &serde_json::Value) -> Option<String> {
+        let prefix = format!("m{method_id}:");
+        let skip: std::collections::HashSet<String> = state
+            .rule_verdicts
+            .iter()
+            .filter(|(k, applies)| !**applies && k.starts_with(&prefix))
+            .map(|(k, _)| k[prefix.len()..].to_string())
+            .collect();
+        Self::load_methodology_rules_applicable(container, &skip)
+    }
+
+    /// RULE APPLICABILITY GATE (operator 2026-11-10; replaces the per-rule E14 vote that ran at the END of blueprint design).
+    /// WHERE: right after the AMT is built and BEFORE the blueprint is drafted — at methodology aggregation (Stage 3) there is no AMT yet, so
+    /// a judgment there would see only the raw request; here the AMT branches are the structured breakdown of what the request needs. WHAT:
+    /// for every gathered methodology, ONE batched question per round lists its rules and asks which CLEARLY do not apply to the request and
+    /// its AMT. A rule is left out only if EVERY round (strength N) says "clearly not" — one "applies / might apply" keeps it, an unanswered
+    /// rule is kept (a failed call can never drop a rule). Methodologies are judged concurrently (independent). The verdicts go to
+    /// `state.rule_verdicts` (read by every later prompt via `rules_text_for`) and to the tool manifest rows (provider rules), so a provider
+    /// step is never drafted for a rule that does not apply.
+    pub(crate) async fn judge_rule_applicability(&self, state: &mut OrchestrationState) {
+        if state.methodologies.is_empty() {
+            return;
         }
-        // each rule's judgment is independent → the votes run concurrently; results are applied in order below
-        let strength = crate::shared_contracts::k_validation::configured_strength();
-        let verdicts = self.confirm_yes_no_batch(state, pending.iter().map(|p| p.1.clone()).collect(), strength).await;
-        for ((i, _prompt, rule_text, rule_ref, name), not_applicable) in pending.into_iter().zip(verdicts.into_iter()) {
-            // HIT/LABEL capture (keyword program): a labelled sample + a kept/dropped event on the methodology that declared the rule
-            let method_id = state.tool_manifest[i]["methodology_id"].as_u64().unwrap_or(0);
-            crate::keyword_program::record_judgment("rule_applicability", if method_id != 0 { Some(method_id) } else { None }, &rule_text, &request, "does this rule clearly NOT apply to the request?", not_applicable, strength);
-            if method_id != 0 {
-                crate::keyword_program::record_event(if not_applicable { "dropped" } else { "kept" }, method_id, &state.keywords, serde_json::json!({"kind": "rule_applicability", "rule_ref": rule_ref}));
-            }
-            if let Some(o) = state.tool_manifest[i].as_object_mut() {
-                if not_applicable {
-                    o.insert("applicability".to_string(), serde_json::json!("not_applicable"));
-                    o.insert("status".to_string(), serde_json::json!("not_applicable"));
-                } else {
-                    o.insert("applicability".to_string(), serde_json::json!("applies"));
+        let request = super::amt::request_intent_text(state);
+        let mut branches = String::new();
+        if let Some(amt) = &state.amt {
+            for c in &amt.children {
+                branches.push_str(&format!("- {}\n", c.content));
+                for g in &c.children {
+                    branches.push_str(&format!("    - {}\n", g.content));
                 }
             }
-            if not_applicable {
-                dropped += 1;
-                tracing::info!(rule_ref = %rule_ref, provider = %name, "rule-condition gate: rule judged NOT applicable — no provider step attached");
+        }
+        let branches = super::amt::render_within_window(state, "rule_gate_branches", 4, branches);
+        let strength = crate::shared_contracts::k_validation::configured_strength();
+        // (methodology id, name, rules not judged yet)
+        let mut work: Vec<(u64, String, Vec<(String, String)>)> = Vec::new();
+        for id in state.methodologies.clone() {
+            let Ok(Some(container)) = self.store.get_container(id).await else { continue };
+            let name = container.pointer("/local_state/metadata/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            let Some(body) = super::tool_binding::read_methodology_body_value(&container) else { continue };
+            let items: Vec<(String, String)> =
+                Self::rule_items(&body).into_iter().filter(|(k, _)| !state.rule_verdicts.contains_key(&format!("m{id}:{k}"))).collect();
+            if !items.is_empty() {
+                work.push((id, name, items));
             }
         }
-        dropped
+        if work.is_empty() {
+            return;
+        }
+        let results = futures::future::join_all(work.iter().map(|(_, name, items)| self.rule_gate_rounds(&request, &branches, name, items, strength))).await;
+        let (mut judged, mut dropped) = (0usize, 0usize);
+        for ((id, name, items), (not_applicable, tokens)) in work.into_iter().zip(results) {
+            state.tokens_used_so_far += tokens as u32;
+            for (key, text) in &items {
+                let na = not_applicable.contains(key);
+                let rule_ref = format!("m{id}:{key}");
+                state.rule_verdicts.insert(rule_ref.clone(), !na);
+                judged += 1;
+                if na {
+                    dropped += 1;
+                }
+                crate::keyword_program::record_judgment("rule_applicability", Some(id), text, &request, "does this rule clearly NOT apply to the request and its AMT?", na, strength);
+                if let Some(row) = state.tool_manifest.iter_mut().find(|m| m["rule_ref"].as_str() == Some(rule_ref.as_str())) {
+                    if let Some(o) = row.as_object_mut() {
+                        if na {
+                            o.insert("applicability".to_string(), serde_json::json!("not_applicable"));
+                            o.insert("status".to_string(), serde_json::json!("not_applicable"));
+                        } else {
+                            o.insert("applicability".to_string(), serde_json::json!("applies"));
+                        }
+                    }
+                }
+            }
+            if !not_applicable.is_empty() {
+                tracing::info!(stage = 6, methodology = %name, left_out = not_applicable.len(), of = items.len(), "rule gate: rules judged clearly NOT applicable are left out of the plan");
+            }
+        }
+        tracing::info!(stage = 6, methodologies = state.methodologies.len(), rules_judged = judged, left_out = dropped, "rule applicability gate complete");
+    }
+
+    /// The rounds for ONE methodology (no state borrowed, so methodologies run concurrently). Returns (rule keys left out, tokens used).
+    async fn rule_gate_rounds(&self, request: &str, branches: &str, methodology: &str, items: &[(String, String)], strength: u32) -> (std::collections::BTreeSet<String>, u64) {
+        use crate::orchestrator::keyword_settle::{parse_round, step_round};
+        let mut tokens = 0u64;
+        let mut alive: Vec<(String, String)> = items.to_vec();
+        for round in 1..=strength.max(1) {
+            if alive.is_empty() {
+                break;
+            }
+            // a different presentation order each round, so the votes are not the same prompt repeated
+            let rot = ((round - 1) as usize * alive.len()) / strength.max(1) as usize;
+            let rot = rot.min(alive.len().saturating_sub(1));
+            alive.rotate_left(rot);
+            let list = alive.iter().enumerate().map(|(i, (_, t))| format!("{}. {}", i + 1, t)).collect::<Vec<_>>().join("\n");
+            let prompt = format!(
+                "REQUEST (the user's request, whole):\n{request}\n\nWHAT THE REQUEST BREAKS DOWN INTO (the plan's branches):\n{branches}\n\nMETHODOLOGY: {methodology}\nITS RULES (numbered):\n{list}\n\nQUESTION: For EACH numbered rule, does it clearly NOT apply to this request — its subject or condition has nothing to do with what the request and its branches ask for? When a rule might apply, or you are unsure, it APPLIES.\nReturn ONLY JSON: {{\"applies\": [numbers], \"clearly_not\": [numbers]}} — every number in exactly one list."
+            );
+            let input = serde_json::json!({
+                "prompt": prompt, "max_tokens": 600, "temperature": 0.1,
+                "system_prompt": "You decide which methodology rules apply to a request. Return only valid JSON."
+            });
+            let res = self.executor.execute(9, input).await;
+            let parsed = match &res {
+                Ok(r) => {
+                    if let Some(t) = r.get("tokens_used").and_then(|x| x.as_u64()) {
+                        tokens += t;
+                    }
+                    let text = r.get("response").and_then(|x| x.as_str()).unwrap_or("");
+                    if text.trim().is_empty() {
+                        None
+                    } else {
+                        serde_json::from_str::<serde_json::Value>(PromptOrchestrator::extract_json_object_shared(text).trim()).ok()
+                    }
+                }
+                Err(_) => None,
+            };
+            let Some(v) = parsed else {
+                return (std::collections::BTreeSet::new(), tokens); // a failed call can never drop a rule
+            };
+            // map the reply onto the shared round bookkeeping: "applies" = keep (the stored-term side), "clearly_not" = go on to the next round
+            let mapped = serde_json::json!({"yes": v.get("applies").cloned().unwrap_or_default(), "no": v.get("clearly_not").cloned().unwrap_or_default()});
+            let (yes, no) = parse_round(&mapped, alive.len());
+            let texts: Vec<String> = alive.iter().map(|(k, _)| k.clone()).collect();
+            let step = step_round(true, &texts, &yes, &no);
+            let keep: std::collections::BTreeSet<&String> = step.next.iter().collect();
+            alive.retain(|(k, _)| keep.contains(k));
+        }
+        // what is left said "clearly not" in EVERY round
+        (alive.into_iter().map(|(k, _)| k).collect(), tokens)
+    }
+
+    /// THE BLUEPRINT GATE (deterministic, no model): after the steps are final, every cited `rule_ref` must exist and must not be a rule the
+    /// gate judged inapplicable. Invalid and inapplicable citations are removed from the step (counted and logged); the rules the steps DO
+    /// cite are recorded as applied (rule-level evidence for later learning).
+    pub(crate) fn audit_rule_refs(state: &mut OrchestrationState) {
+        let known: std::collections::HashSet<String> = state.rule_verdicts.keys().cloned().collect();
+        let manifest_refs: std::collections::HashSet<String> = state.tool_manifest.iter().filter_map(|m| m["rule_ref"].as_str().map(String::from)).collect();
+        let (mut invalid, mut inapplicable, mut cited) = (0usize, 0usize, 0usize);
+        let mut applied: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for st in state.blueprint_steps.iter_mut() {
+            let before = st.rule_refs.len();
+            let verdicts = &state.rule_verdicts;
+            st.rule_refs.retain(|r| {
+                let exists = known.contains(r) || manifest_refs.contains(r);
+                if !exists {
+                    invalid += 1;
+                    return false;
+                }
+                if verdicts.get(r) == Some(&false) {
+                    inapplicable += 1;
+                    return false;
+                }
+                applied.insert(r.clone());
+                true
+            });
+            cited += st.rule_refs.len().min(before);
+        }
+        if invalid + inapplicable > 0 {
+            tracing::warn!(invalid, inapplicable, "blueprint gate: removed rule citations that do not exist / were judged inapplicable");
+        }
+        for r in &applied {
+            if let Some(mid) = r.strip_prefix('m').and_then(|x| x.split(':').next()).and_then(|x| x.parse::<u64>().ok()) {
+                crate::keyword_program::record_event("rule_cited", mid, &state.keywords, serde_json::json!({"kind": "rule", "rule_ref": r})); // its own kind: never inflates the methodology-level `applied` counter
+            }
+        }
+        tracing::info!(cited, distinct_rules_applied = applied.len(), "blueprint gate: rule citations audited");
     }
 
     /// CAPABILITY CLOSURE, step 1 + 2 (see the call site in the walk). Returns `(methodologies_created, gaps_judged_necessary)`.
@@ -979,6 +1093,9 @@ impl PromptOrchestrator {
         let tools_note = format!("{} applicable tool(s)/MCP(s) carried into the blueprint", state.applicable_tools.len());
         self.emit_marker(state, "[6.tools]", &tools_note);
 
+        // RULE GATE: which of the gathered methodologies' rules apply to THIS request — judged against the finished AMT, before anything is drafted
+        self.judge_rule_applicability(state).await;
+
         // Search for blueprint with 100% match — skipped when the capability-closure step is RE-PLANNING with newly created methodologies
         // (a stored blueprint that matches the keywords is exactly the plan that reported the gaps).
         let blueprint_ids = if state.replan {
@@ -1062,7 +1179,7 @@ impl PromptOrchestrator {
                     state.blueprint_steps = loaded_steps;
                     // a reused plan is held to the SAME binding rules as a new one: this run's declared per-rule tools are
                     // attached, stale/unknown tool calls dropped, missing capabilities captured (tool_binding.rs)
-                    let _ = self.gate_rule_applicability(state).await;
+                    Self::audit_rule_refs(state);
                     let _ = Self::reconcile_tool_bindings(state, &format!("blueprint {}", bp_id), &[]).await;
                     self.record_stage_timed(
                         state,
@@ -1149,7 +1266,7 @@ impl PromptOrchestrator {
                         .get("local_state").and_then(|ls| ls.get("metadata"))
                         .and_then(|m| m.get("name")).and_then(|n| n.as_str())
                         .unwrap_or("Unknown");
-                    match Self::load_methodology_rules_full(&container) {
+                    match Self::rules_text_for(state, method_id, &container) {
                         Some(rules) => {
                             let rules = super::amt::render_within_window(
                                 state,
@@ -1778,7 +1895,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // create_container always failed and the failure was swallowed.
         // PROVIDER STEPS (tool_binding.rs): validate model provider steps, insert the methodologies' declared per-rule providers as
         // provider steps before their carriers (authoritative), and CAPTURE every missing capability durably — not just log it.
-        let _ = self.gate_rule_applicability(state).await;
+        Self::audit_rule_refs(state);
         let all_missing = Self::reconcile_tool_bindings(state, &name, &missing_capabilities).await;
         let blueprint_body = serde_json::json!({
             "name": name,
@@ -1915,7 +2032,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
                         .get("local_state").and_then(|ls| ls.get("metadata"))
                         .and_then(|m| m.get("name")).and_then(|n| n.as_str())
                         .unwrap_or("Unknown");
-                    match Self::load_methodology_rules_full(&container) {
+                    match Self::rules_text_for(state, method_id, &container) {
                         Some(rules) => lines.push(format!("  - {}: {}", name, rules)),
                         None => lines.push(format!("  - {} (no detailed rules on file yet)", name)),
                     }
@@ -2381,7 +2498,7 @@ Return JSON:
                     .get("local_state").and_then(|l| l.get("metadata"))
                     .and_then(|m| m.get("name")).and_then(|n| n.as_str())
                     .unwrap_or("Unknown");
-                match Self::load_methodology_rules_full(&container) {
+                match Self::rules_text_for(state, method_id, &container) {
                     Some(rules) => methods_render.push_str(&format!("  - {}: {}\n", name, rules)),
                     None => methods_render.push_str(&format!("  - {} (no rules on file)\n", name)),
                 }
@@ -3622,7 +3739,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             let mut rules_text_parts = Vec::new();
             for &method_id in &step.methodology_ids {
                 if let Ok(Some(container)) = self.store.get_container(method_id).await {
-                    if let Some(rules) = Self::load_methodology_rules_full(&container) {
+                    if let Some(rules) = Self::rules_text_for(state, method_id, &container) {
                         let rules = super::amt::render_within_window(
                             state,
                             "compliance_methodology_rules",

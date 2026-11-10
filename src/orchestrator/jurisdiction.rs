@@ -769,12 +769,15 @@ pub(crate) fn categorize_jurisdiction_matches(
         if let Some(matched_term) = rule_match_term(rule, haystack) {
             match rule.action {
                 RuleAction::Block => result.blocked = true,
-                RuleAction::Warn => result.warnings.push(format!(
-                    "Request content touches a flagged area (matched \"{}\"): {}",
-                    matched_term, rule.source
-                )),
+                // EVERY matched rule ACTS (operator 2026-11-10: "all should be able to act"): a Log rule is no longer inert — it surfaces as a
+                // cited warning exactly like Warn (never blocking). Identical warnings (same term + source from several rule sets) collapse to one.
+                RuleAction::Warn | RuleAction::Log => {
+                    let w = format!("Request content touches a flagged area (matched \"{}\"): {}", matched_term, rule.source);
+                    if !result.warnings.contains(&w) {
+                        result.warnings.push(w);
+                    }
+                }
                 RuleAction::RequireConfirmation => confirmation_matches.push(rule.clone()),
-                RuleAction::Log => {}
             }
             result.matched.push((rule.clone(), rule.action.clone()));
         }
@@ -1495,13 +1498,23 @@ mod graph_tests {
         );
 
         assert!(result.blocked, "a Block match must set blocked");
-        assert_eq!(result.warnings.len(), 1, "exactly one Warn match should produce one warning");
-        assert!(result.warnings[0].contains("discriminate"));
+        assert_eq!(result.warnings.len(), 2, "Warn AND Log matches both surface as cited warnings (every matched rule acts)");
+        assert!(result.warnings.iter().any(|w| w.contains("discriminate")));
+        assert!(result.warnings.iter().any(|w| w.contains("noise")), "a Log rule is no longer inert");
         assert_eq!(confirmation_matches.len(), 1, "RequireConfirmation matches are returned, not resolved here");
         assert_eq!(confirmation_matches[0].condition, "self-harm");
         // Log + all 4 real matches (not the 5th, irrelevant one) land in `matched`.
         assert_eq!(result.matched.len(), 4);
         assert!(!result.matched.iter().any(|(r, _)| r.condition == "irrelevant"));
+    }
+
+    #[test]
+    fn identical_warnings_from_several_rule_sets_collapse_to_one() {
+        let rules = vec![rule("personal data", RuleAction::Log, "GDPR Art. 4"), rule("personal data", RuleAction::Warn, "GDPR Art. 4")];
+        let mut result = super::JurisdictionGateResult::default();
+        super::categorize_jurisdiction_matches(&rules, "we process personal data here", &mut result);
+        assert_eq!(result.warnings.len(), 1, "same matched term + same source = one warning");
+        assert_eq!(result.matched.len(), 2, "both matches are still recorded");
     }
 
     #[test]

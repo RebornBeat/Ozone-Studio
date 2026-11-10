@@ -63,6 +63,11 @@ fn read_methodology_body(container: &Value) -> Option<Value> {
     serde_json::from_str(&read_object_file(rel)?).ok()
 }
 
+/// The methodology body JSON of a container value (shared reader: data dir, then app root).
+pub(crate) fn read_methodology_body_value(container: &Value) -> Option<Value> {
+    read_methodology_body(container)
+}
+
 /// Every DECLARED per-rule requirement of the given methodologies (empty when none declare any — legacy methodologies).
 pub async fn gather_bindings(store: &Arc<dyn StoreAccess>, methodology_ids: &[u64]) -> Vec<Binding> {
     let mut out: Vec<Binding> = Vec::new();

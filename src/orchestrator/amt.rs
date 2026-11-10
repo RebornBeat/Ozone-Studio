@@ -2557,20 +2557,53 @@ Return ONLY valid JSON with a single one-word answer:
     pub(crate) fn load_methodology_rules_text(container: &serde_json::Value) -> Option<String> {
         // NO-CAP (audit #4, 2026-11-04): this used to load only 5 rules + 3 heuristics; callers fit the text to the reading model's window
         // (render_within_window) like `_full`, so the limited variant is now the same thing.
-        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, &Default::default())
     }
 
     /// Every decision rule and heuristic, no per-methodology count cap. The
     /// caller sizes the block against the reading model's window
     /// (`render_within_window`), so nothing is cut silently.
     pub(crate) fn load_methodology_rules_full(container: &serde_json::Value) -> Option<String> {
-        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, &Default::default())
+    }
+
+    /// Like `_full`, leaving out the rules whose key (`r<index>` for a decision rule, `h<index>` for a heuristic — the index is the position in
+    /// the body's own array, the same index `m<id>:r<n>` refs use) is in `skip`: the rules the rule gate judged clearly NOT applicable.
+    pub(crate) fn load_methodology_rules_applicable(container: &serde_json::Value, skip: &std::collections::HashSet<String>) -> Option<String> {
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, skip)
+    }
+
+    /// The JUDGEABLE rules of a methodology body as (key, text): `r<i>` = decision rule i ("IF cond THEN action", the action being `action` or
+    /// `outcome`), `h<j>` = heuristic j ("WHEN when_to_apply: description"). Entries without real text are not rules and are skipped (their
+    /// index is still counted, so keys always match the body's own positions).
+    pub(crate) fn rule_items(body: &serde_json::Value) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        if let Some(rules) = body.get("decision_rules").and_then(|r| r.as_array()) {
+            for (i, rule) in rules.iter().enumerate() {
+                let condition = rule.get("condition").and_then(|c| c.as_str()).unwrap_or("").trim();
+                let action = rule.get("action").or_else(|| rule.get("outcome")).and_then(|a| a.as_str()).unwrap_or("").trim();
+                if !condition.is_empty() && !action.is_empty() {
+                    out.push((format!("r{i}"), format!("IF {condition} THEN {action}")));
+                }
+            }
+        }
+        if let Some(heuristics) = body.get("heuristics").and_then(|h| h.as_array()) {
+            for (j, h) in heuristics.iter().enumerate() {
+                let when = h.get("when_to_apply").and_then(|w| w.as_str()).unwrap_or("").trim();
+                let desc = h.get("description").and_then(|d| d.as_str()).unwrap_or("").trim();
+                if !when.is_empty() && !desc.is_empty() {
+                    out.push((format!("h{j}"), format!("WHEN {when}: {desc}")));
+                }
+            }
+        }
+        out
     }
 
     fn load_methodology_rules_limited(
         container: &serde_json::Value,
         rule_limit: usize,
         heuristic_limit: usize,
+        skip: &std::collections::HashSet<String>,
     ) -> Option<String> {
         let object_store_path = container
             .get("local_state")
@@ -2583,25 +2616,24 @@ Return ONLY valid JSON with a single one-word answer:
         let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
         let mut lines: Vec<String> = Vec::new();
-
-        if let Some(rules) = parsed.get("decision_rules").and_then(|r| r.as_array()) {
-            for rule in rules.iter().take(rule_limit) {
-                let condition = rule.get("condition").and_then(|c| c.as_str()).unwrap_or("");
-                let action = rule.get("action").and_then(|a| a.as_str()).unwrap_or("");
-                if !condition.is_empty() && !action.is_empty() {
-                    lines.push(format!("IF {} THEN {}", condition, action));
-                }
+        let items = Self::rule_items(&parsed);
+        let (mut n_rules, mut n_heur) = (0usize, 0usize);
+        for (key, text) in items {
+            if skip.contains(&key) {
+                continue;
             }
-        }
-
-        if let Some(heuristics) = parsed.get("heuristics").and_then(|h| h.as_array()) {
-            for h in heuristics.iter().take(heuristic_limit) {
-                let when = h.get("when_to_apply").and_then(|w| w.as_str()).unwrap_or("");
-                let desc = h.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                if !when.is_empty() && !desc.is_empty() {
-                    lines.push(format!("WHEN {}: {}", when, desc));
+            if key.starts_with('r') {
+                if n_rules >= rule_limit {
+                    continue;
                 }
+                n_rules += 1;
+            } else {
+                if n_heur >= heuristic_limit {
+                    continue;
+                }
+                n_heur += 1;
             }
+            lines.push(text);
         }
 
         if lines.is_empty() {
@@ -4238,6 +4270,7 @@ mod tests {
             capability_summary: None,
             applicable_tools: Vec::new(),
             tool_manifest: Vec::new(),
+            rule_verdicts: Default::default(),
             missing_capabilities: Vec::new(),
             available_pipelines: Vec::new(),
         }

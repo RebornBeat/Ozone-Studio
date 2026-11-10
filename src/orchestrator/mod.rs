@@ -1268,6 +1268,9 @@ pub(crate) struct OrchestrationState {
     /// (`m<id>:r<index>`). Authoritative input to blueprint creation and simulation (tool_binding.rs). Empty = no gathered
     /// methodology declares required tools.
     pub tool_manifest: Vec<serde_json::Value>,
+    /// RULE GATE verdicts (stage 6, after the AMT): `m<id>:r<n>` / `m<id>:h<n>` → does the rule apply to this request. `false` = judged clearly NOT applicable
+    /// (left out of every later prompt and of the provider steps). A rule absent from the map was never judged and is rendered.
+    pub rule_verdicts: std::collections::BTreeMap<String, bool>,
     /// Required-but-unavailable capabilities discovered this run (declared bindings with no provider, blueprint-reported
     /// `missing_capabilities`, invalid tool calls, simulation `tool_checks` misses). Also persisted to capability_gaps.json.
     pub missing_capabilities: Vec<serde_json::Value>,
@@ -2078,6 +2081,7 @@ impl PromptOrchestrator {
             capability_summary,
             applicable_tools: Vec::new(),
             tool_manifest: Vec::new(),
+            rule_verdicts: Default::default(),
             missing_capabilities: Vec::new(),
         };
 

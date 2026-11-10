@@ -140,12 +140,17 @@ pub(crate) async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> 
 /// modify pass drafts the additions (nothing existing is dropped). Idempotent: a methodology that already has a quality-audit gap
 /// (open or handled) is not raised again, so a methodology the modify pass could not improve does not loop.
 async fn audit_methodology_quality_once(store: &Arc<dyn StoreAccess>, stats: &mut PassStats) {
-    let Ok(Some(root)) = store.get_container(2).await else { return };
-    let Some(children) = root
-        .pointer("/global_state/child_ids")
-        .and_then(|c| serde_json::from_value::<Vec<u64>>(c.clone()).ok())
-    else {
-        return;
+    // EVERY methodology, not just the root's children: live EU 2026-11-10 — the root has 55 children and they are exactly the 55 methodologies
+    // WITH rules; the 43 without (auto-synthesized, parented elsewhere) were never audited, so nothing ever repaired them.
+    let children: Vec<u64> = match store.list_ids(Some("Methodology")).await {
+        Ok(ids) if !ids.is_empty() => ids,
+        _ => {
+            let Ok(Some(root)) = store.get_container(2).await else { return };
+            let Some(kids) = root.pointer("/global_state/child_ids").and_then(|c| serde_json::from_value::<Vec<u64>>(c.clone()).ok()) else {
+                return;
+            };
+            kids
+        }
     };
     let existing: Vec<serde_json::Value> = std::fs::read_to_string(gaps_log_path())
         .ok()
@@ -176,10 +181,8 @@ async fn audit_methodology_quality_once(store: &Arc<dyn StoreAccess>, stats: &mu
             problems.push("fewer than 3 usable keywords");
         }
         let parsed: Option<serde_json::Value> = serde_json::from_str(&body).ok();
-        let has_rule = parsed
-            .as_ref()
-            .map(|b| real(b.get("decision_rules"), &["outcome", "condition"]) || real(b.get("heuristics"), &["action", "condition"]))
-            .unwrap_or(false);
+        // the same structured reader the blueprint uses: a methodology counts as having rules only if the blueprint would actually render one
+        let has_rule = parsed.as_ref().map(|b| !crate::orchestrator::PromptOrchestrator::rule_items(b).is_empty()).unwrap_or(false);
         if parsed.is_some() && !has_rule {
             problems.push("no decision rule or heuristic with real text");
         }
