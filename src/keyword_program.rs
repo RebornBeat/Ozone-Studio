@@ -73,6 +73,9 @@ pub struct Origin {
     pub request_terms: Arc<Mutex<Vec<String>>>,
     /// Short hash of the request text (dedupe / join key; the text itself is never stored).
     pub request_hash: String,
+    /// True for work the SYSTEM generated itself (an AMT re-expansion task, a sensor tick …) — its "request" is machine text (ids, route
+    /// names), so its events are logged for observed use but kept OUT of the training pairs (they would teach the ranker machine tokens).
+    pub internal: bool,
     /// The file graphs the scope is handling NOW — shared and growing (the orchestrator appends as Stage 4 graphs the attached files).
     #[serde(skip)]
     pub files: Arc<Mutex<Vec<u64>>>,
@@ -82,6 +85,13 @@ impl Origin {
     /// A background actor (meta loop, I-loop, AMT loop …): global by nature.
     pub fn actor(call_site: &str) -> Self {
         Origin { call_site: call_site.to_string(), global: true, ..Default::default() }
+    }
+
+    /// This origin, re-labelled as system-generated work run by `call_site` (e.g. `amt-loop`).
+    pub fn mark_internal(mut self, call_site: &str) -> Self {
+        self.call_site = call_site.to_string();
+        self.internal = true;
+        self
     }
 
     /// An origin for a request: scope from the request, `global` when it has neither project nor workspace.
@@ -125,7 +135,7 @@ impl Origin {
         let request_terms: Vec<String> = self.request_terms.lock().map(|t| t.clone()).unwrap_or_default();
         json!({
             "call_site": self.call_site, "task_id": self.task_id, "workspace_id": self.workspace_id, "project_id": self.project_id,
-            "global": self.global, "request_terms": request_terms, "request_hash": self.request_hash, "file_ids": files,
+            "global": self.global, "request_terms": request_terms, "request_hash": self.request_hash, "file_ids": files, "internal": self.internal,
         })
     }
 }
@@ -602,6 +612,8 @@ struct Ev {
     terms: Vec<String>,
     ids: Vec<u64>,
     yes: Option<bool>,
+    /// the event came from system-generated work (origin.internal) — never a training pair
+    internal: bool,
 }
 
 pub fn dataset_path() -> PathBuf {
@@ -626,6 +638,7 @@ fn parse_ev(line: &str) -> Option<Ev> {
         terms: v.get("terms").and_then(|t| serde_json::from_value(t.clone()).ok()).unwrap_or_default(),
         ids: v.get("ids").and_then(|t| serde_json::from_value(t.clone()).ok()).unwrap_or_default(),
         yes: v.get("yes").and_then(|y| y.as_bool()),
+        internal: v.get("origin").and_then(|o| o.get("internal")).and_then(|i| i.as_bool()).unwrap_or(false),
     })
 }
 
@@ -650,7 +663,7 @@ pub async fn build_dataset(store: &Arc<dyn StoreAccess>) -> Result<DatasetStats,
     let mut gathered: BTreeSet<(String, u64)> = BTreeSet::new();
     let mut gathered_by_trace: BTreeMap<String, Vec<u64>> = BTreeMap::new();
     for_each_event(|_, e| {
-        if e.trace.is_empty() || e.container_id == 0 {
+        if e.internal || e.trace.is_empty() || e.container_id == 0 {
             return;
         }
         let key = (e.trace.clone(), e.container_id);
@@ -688,6 +701,9 @@ pub async fn build_dataset(store: &Arc<dyn StoreAccess>) -> Result<DatasetStats,
         for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
         let Some(e) = parse_ev(&line) else { continue };
         n += 1;
+        if e.internal {
+            continue; // system-generated work: observed use only, never a training pair
+        }
         // a SEARCH and a CREATION PAIR are built the same way: query terms + candidate ids, each labelled from the same trace's outcomes
         let search_like: Option<(Vec<u64>, Vec<String>)> = match e.kind.as_str() {
             "search" => Some((e.ids.clone(), e.terms.clone())),
@@ -996,11 +1012,24 @@ mod tests {
             terms: terms.iter().map(|s| s.to_string()).collect(),
             ids: vec![],
             yes: None,
+            internal: false,
         };
         assert!(creation_pair_eligible(&ev("Methodology", &["static analysis"])));
         assert!(creation_pair_eligible(&ev("Blueprint", &["x"])));
         assert!(!creation_pair_eligible(&ev("Methodology", &[])), "no request terms (created outside a request) = no pair");
         assert!(!creation_pair_eligible(&ev("CoordinationEvent", &["x"])));
+    }
+
+    #[test]
+    fn system_generated_work_is_flagged_internal_and_read_back_from_the_log() {
+        let o = Origin::for_request("orchestrate", None, Some(3), "AMT re-expansion container 40211 InitialBuild").mark_internal("amt-loop");
+        assert!(o.internal && o.call_site == "amt-loop");
+        let line = json!({"event": "search", "trace": "t", "container_id": 1, "terms": ["amt"], "ids": [1], "origin": o.to_json()}).to_string();
+        assert!(parse_ev(&line).unwrap().internal, "the flag survives the log round trip");
+        let user = Origin::for_request("orchestrate", None, Some(3), "explain the call order");
+        let line = json!({"event": "search", "trace": "t", "origin": user.to_json()}).to_string();
+        assert!(!parse_ev(&line).unwrap().internal);
+        assert!(!parse_ev("{\"event\":\"search\"}").unwrap().internal, "no origin = not internal (older log lines)");
     }
 
     #[test]

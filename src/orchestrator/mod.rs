@@ -185,6 +185,11 @@ pub struct OrchestrationRequest {
     pub fallback_order: Vec<String>,
     #[serde(default)]
     pub fallback_free_only: bool,
+    /// Set when the SYSTEM created this task itself (the task's `source` stamp, e.g. `amt-loop`, `sensor-tick`); `None` for a user/UI
+    /// request. Internal work is logged for observed use but never becomes a training pair, and its machine-text prompt contributes no
+    /// request terms (keyword program).
+    #[serde(default)]
+    pub internal_source: Option<String>,
     /// The primary attempt's model when the call carries no per-call override:
     /// config `[models] api_model` for api model types, set by the host when it
     /// builds the request. Lets the fallback walk see the model the primary
@@ -1958,7 +1963,10 @@ impl PromptOrchestrator {
         let trace_id = ctx.trace_id.clone();
         // ORIGIN (keyword program): where this walk came from — project / workspace / global; its request terms and attached files are
         // filled in as the walk learns them (Stage 2 / Stage 4), so every created / search / outcome event carries them.
-        let origin = crate::keyword_program::Origin::for_request("orchestrate", request.workspace_id, request.project_id, &request.prompt);
+        let mut origin = crate::keyword_program::Origin::for_request("orchestrate", request.workspace_id, request.project_id, &request.prompt);
+        if let Some(src) = request.internal_source.as_deref() {
+            origin = origin.mark_internal(src);
+        }
         crate::trace::with_trace(ctx, crate::keyword_program::with_origin(origin, self.orchestrate_traced(request, trace_id))).await
     }
 
@@ -2544,7 +2552,9 @@ impl PromptOrchestrator {
             }
         }
         state.keywords = request_terms::sanitize_keywords(&state.cleaned_prompt, all_keywords.into_iter().collect());
-        crate::keyword_program::note_request_terms(state.keywords.clone());
+        if state.request.internal_source.is_none() {
+            crate::keyword_program::note_request_terms(state.keywords.clone()); // a system-generated prompt's machine words are not request terms
+        }
         state.entities = all_entities;
         state.topics = all_topics.into_iter().collect();
 
@@ -5893,6 +5903,7 @@ mod tests {
             available_models: Vec::new(),
             fallback_order: Vec::new(),
             fallback_free_only: false,
+            internal_source: None,
             primary_default_model: None,
             meta_fallback_order: Vec::new(),
             meta_fallback_free_only: false,

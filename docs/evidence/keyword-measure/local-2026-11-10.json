@@ -1,0 +1,809 @@
+{
+  "label": "local",
+  "date": "2026-11-10T01:29:11.207Z",
+  "data_dir": "target/release/zsei_data",
+  "host": "http://127.0.0.1:50051",
+  "store": {
+    "containers": 5983,
+    "unreadable": 0,
+    "keyword_slots": 32354,
+    "distinct_vocabulary": 10618,
+    "sentence_like_keywords": 66,
+    "slots_in_use": {
+      "embedding": 0,
+      "learned_associations": 0,
+      "access_frequency_gt0": 2881,
+      "keyword_meta": 3108,
+      "typed_scope": 1494
+    },
+    "top_vocabulary": [
+      [
+        "scope:global",
+        1469
+      ],
+      [
+        "ws:0",
+        1245
+      ],
+      [
+        "tool_call",
+        1059
+      ],
+      [
+        "run-span",
+        1014
+      ],
+      [
+        "loop:assistant",
+        734
+      ],
+      [
+        "claude-code",
+        729
+      ],
+      [
+        "release",
+        609
+      ],
+      [
+        "sensor-tick",
+        599
+      ],
+      [
+        "review-pass",
+        538
+      ],
+      [
+        "assistant-check-up",
+        531
+      ],
+      [
+        "task",
+        311
+      ],
+      [
+        "zcode",
+        301
+      ],
+      [
+        "claim",
+        288
+      ],
+      [
+        "no-emotion-update",
+        272
+      ],
+      [
+        "i_loop_reflection",
+        242
+      ],
+      [
+        "i-loop",
+        242
+      ],
+      [
+        "loop:i_loop",
+        242
+      ],
+      [
+        "handoff",
+        220
+      ],
+      [
+        "failure",
+        190
+      ],
+      [
+        "task_failure",
+        173
+      ]
+    ],
+    "garbage_probe": {
+      "you": 15,
+      "the": 0,
+      "it": 1,
+      "this": 0,
+      "and": 3,
+      "a": 3
+    },
+    "by_type": [
+      {
+        "type": "CoordinationEvent",
+        "n": 2560,
+        "with_keywords": 2560,
+        "keyword_slots": 9510,
+        "marker_slots": 4390,
+        "with_topics": 2560,
+        "pct_with_keywords": 100,
+        "mean_keywords": 3.71,
+        "marker_share_pct": 46.2
+      },
+      {
+        "type": "Derived",
+        "n": 1871,
+        "with_keywords": 1825,
+        "keyword_slots": 5518,
+        "marker_slots": 2370,
+        "with_topics": 1067,
+        "pct_with_keywords": 97.5,
+        "mean_keywords": 2.95,
+        "marker_share_pct": 43
+      },
+      {
+        "type": "ModalityGraph",
+        "n": 332,
+        "with_keywords": 264,
+        "keyword_slots": 4169,
+        "marker_slots": 0,
+        "with_topics": 212,
+        "pct_with_keywords": 79.5,
+        "mean_keywords": 12.56,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "Experience",
+        "n": 297,
+        "with_keywords": 297,
+        "keyword_slots": 1163,
+        "marker_slots": 0,
+        "with_topics": 297,
+        "pct_with_keywords": 100,
+        "mean_keywords": 3.92,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "Methodology",
+        "n": 294,
+        "with_keywords": 294,
+        "keyword_slots": 8520,
+        "marker_slots": 0,
+        "with_topics": 294,
+        "pct_with_keywords": 100,
+        "mean_keywords": 28.98,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "JurisdictionRuleSet",
+        "n": 159,
+        "with_keywords": 159,
+        "keyword_slots": 922,
+        "marker_slots": 0,
+        "with_topics": 159,
+        "pct_with_keywords": 100,
+        "mean_keywords": 5.8,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "FileReference",
+        "n": 156,
+        "with_keywords": 156,
+        "keyword_slots": 311,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1.99,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "Pipeline",
+        "n": 59,
+        "with_keywords": 59,
+        "keyword_slots": 335,
+        "marker_slots": 4,
+        "with_topics": 59,
+        "pct_with_keywords": 100,
+        "mean_keywords": 5.68,
+        "marker_share_pct": 1.2
+      },
+      {
+        "type": "Blueprint",
+        "n": 45,
+        "with_keywords": 45,
+        "keyword_slots": 378,
+        "marker_slots": 0,
+        "with_topics": 32,
+        "pct_with_keywords": 100,
+        "mean_keywords": 8.4,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "Project",
+        "n": 37,
+        "with_keywords": 37,
+        "keyword_slots": 365,
+        "marker_slots": 1,
+        "with_topics": 1,
+        "pct_with_keywords": 100,
+        "mean_keywords": 9.86,
+        "marker_share_pct": 0.3
+      },
+      {
+        "type": "Workspace",
+        "n": 34,
+        "with_keywords": 34,
+        "keyword_slots": 831,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 24.44,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "McpEntity",
+        "n": 30,
+        "with_keywords": 30,
+        "keyword_slots": 108,
+        "marker_slots": 48,
+        "with_topics": 30,
+        "pct_with_keywords": 100,
+        "mean_keywords": 3.6,
+        "marker_share_pct": 44.4
+      },
+      {
+        "type": "Category",
+        "n": 27,
+        "with_keywords": 27,
+        "keyword_slots": 27,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ChatTurn",
+        "n": 19,
+        "with_keywords": 19,
+        "keyword_slots": 95,
+        "marker_slots": 42,
+        "with_topics": 19,
+        "pct_with_keywords": 100,
+        "mean_keywords": 5,
+        "marker_share_pct": 44.2
+      },
+      {
+        "type": "Modality",
+        "n": 9,
+        "with_keywords": 9,
+        "keyword_slots": 9,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "McpResult",
+        "n": 7,
+        "with_keywords": 7,
+        "keyword_slots": 26,
+        "marker_slots": 12,
+        "with_topics": 7,
+        "pct_with_keywords": 100,
+        "mean_keywords": 3.71,
+        "marker_share_pct": 46.2
+      },
+      {
+        "type": "ChatSession",
+        "n": 5,
+        "with_keywords": 5,
+        "keyword_slots": 24,
+        "marker_slots": 13,
+        "with_topics": 5,
+        "pct_with_keywords": 100,
+        "mean_keywords": 4.8,
+        "marker_share_pct": 54.2
+      },
+      {
+        "type": "Root",
+        "n": 1,
+        "with_keywords": 0,
+        "keyword_slots": 0,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 0,
+        "mean_keywords": 0,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ModalityRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ThreeDRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "MethodologyRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 2,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 2,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "SoundReconstructionRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "BiologyRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ProteomicsRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "HapticRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ThermalRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "DepthRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "IMURoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "GeospatialRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ElectromagneticRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "BCIRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "BlueprintRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 2,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 2,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ParametricCADRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "KinematicsRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ControlSystemsRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "NetworkTopologyRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ActiveRadarRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ActiveSonarRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "HyperspectralRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "UiDocumentRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "PipelineRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ConsciousnessRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ExperienceMemory",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "CoreMemoryRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "EmotionalRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "IdentityRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "MetaCognitionRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "RelationshipRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "EthicsRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "NarrativeRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "CollectiveRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ExternalRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "JurisdictionRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "PackageRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "URLRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "ChunkGraphRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "FileGraphRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "CrossModalIndexRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      },
+      {
+        "type": "SharedContextRoot",
+        "n": 1,
+        "with_keywords": 1,
+        "keyword_slots": 1,
+        "marker_slots": 0,
+        "with_topics": 0,
+        "pct_with_keywords": 100,
+        "mean_keywords": 1,
+        "marker_share_pct": 0
+      }
+    ]
+  },
+  "hit_log": {
+    "exists": true,
+    "bytes": 864087,
+    "judgment_samples_bytes": 157234,
+    "models_registry": true
+  },
+  "search_probe": {
+    "code": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "file": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "review": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "graph": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "data": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "explain": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "the": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    },
+    "you": {
+      "scan": "error: fetch failed",
+      "token": "error: fetch failed",
+      "exact": "error: fetch failed"
+    }
+  }
+}

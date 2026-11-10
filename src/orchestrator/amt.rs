@@ -4176,6 +4176,7 @@ mod tests {
             available_models: Vec::new(),
             fallback_order: Vec::new(),
             fallback_free_only: false,
+            internal_source: None,
             meta_fallback_order: Vec::new(),
             meta_fallback_free_only: false,
             allow_paid_models: false,

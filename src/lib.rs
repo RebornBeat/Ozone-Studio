@@ -1745,6 +1745,8 @@ impl OzoneRuntime {
             available_models: self.config.models.available_models.clone(),
             fallback_order: self.config.models.fallback.order.clone(),
             fallback_free_only: self.config.models.fallback.free_only,
+            // system-created tasks stamp `source` (amt-loop, sensor-tick …); a user/UI request never does
+            internal_source: input.data.get("source").and_then(|v| if let crate::types::Value::String(s) = v { Some(s.trim().to_string()) } else { None }).filter(|s| !s.is_empty()),
             meta_fallback_order: self.config.models.meta_fallback.order.clone(),
             meta_fallback_free_only: self.config.models.meta_fallback.free_only,
             allow_paid_models: self.config.models.allow_paid_models,
