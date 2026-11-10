@@ -1,0 +1,122 @@
+{
+  "name": "Incident Postmortem to Methodology",
+  "description": "Turn a live incident into durable knowledge: capture the real finding, codify it as a methodology, pin it with a regression test.",
+  "created_by": "bootstrap",
+  "blueprint_id": 14,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "capture",
+      "description": "Record the real finding with live evidence (log lines, container ids, measured numbers) — no folklore",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "codify",
+      "description": "Draft the methodology with content-depth-gated rules (bp 10 flow)",
+      "pipeline_id": 12,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "test",
+      "description": "Write the regression test that fails on the old behavior and passes on the fix",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30043,
+    30036,
+    30029,
+    30028,
+    30030
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "capture_finding",
+      "outputs": [
+        "finding"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "1": {
+      "name": "codify_methodology",
+      "outputs": [
+        "methodology_id"
+      ],
+      "legacy_pipeline_id": 33
+    },
+    "2": {
+      "name": "pin_regression",
+      "outputs": [
+        "test"
+      ],
+      "legacy_pipeline_id": 101
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      43,
+      36,
+      29
+    ],
+    "suggested_methodologies": [
+      28,
+      30
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

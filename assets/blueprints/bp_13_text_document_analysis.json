@@ -1,0 +1,151 @@
+{
+  "name": "Text Document Analysis",
+  "description": "Analyze a text document: chunk, extract keywords/topics with the fallback walk, build chunk graphs, persist under the project, link to existing.",
+  "created_by": "bootstrap",
+  "blueprint_id": 13,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "normalize",
+      "description": "Normalize and chunk the document (no-overlap boundaries)",
+      "pipeline_id": 100,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "extract",
+      "description": "Extract keywords/topics via pipeline 9 with the OZONE_FALLBACK_CHAIN walk and deterministic frequency tier",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "persist",
+      "description": "CreateGraph per chunk; persist ModalityGraph containers parented under the project",
+      "pipeline_id": 100,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 3,
+      "action": "link",
+      "description": "link_to_existing wires relationship-neighborhood edges; fresh-process QueryGraph verifies",
+      "pipeline_id": 100,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30019,
+    30035,
+    30038
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "chunk_and_normalize",
+      "outputs": [
+        "chunks"
+      ],
+      "legacy_pipeline_id": 100
+    },
+    "1": {
+      "name": "extract_terms",
+      "outputs": [
+        "keywords",
+        "topics"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "2": {
+      "name": "build_and_persist",
+      "outputs": [
+        "graph_ids"
+      ],
+      "legacy_pipeline_id": 100
+    },
+    "3": {
+      "name": "link_and_verify",
+      "outputs": [
+        "edges",
+        "retrieval_ok"
+      ],
+      "legacy_pipeline_id": 100
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      19,
+      35
+    ],
+    "suggested_methodologies": [
+      38
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

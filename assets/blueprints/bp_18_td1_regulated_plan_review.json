@@ -1,0 +1,121 @@
+{
+  "name": "TD-1 Regulated Plan Review",
+  "description": "Top-down context-assurance test (TOP_DOWN_REVIEW_GUIDE.md §4, TD-1): submit a prompt matching a jurisdiction RequireConfirmation rule end to end, then assert from the real decision-review capture store that the confirmation review's reasoning genuinely cites the blueprint's own step content — proof the review traversed the real plan rather than judging a generic summary string.",
+  "created_by": "bootstrap",
+  "blueprint_id": 18,
+  "version": "1.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "submit",
+      "description": "Submit a real /orchestrate request whose prompt matches an existing RequireConfirmation rule in assets/jurisdiction/global.json (a real, already-loaded ruleset — no fabricated rule content), through the full 14-stage pipeline.",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "read_capture",
+      "description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the confirmation review line(s) this request produced (by timestamp proximity to step 1).",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "assert",
+      "description": "Assert the review's reasoning_preview references concrete content from the request's own generated blueprint steps (action/description text), not generic boilerplate — the real proof of top-down traversal per the doctrine's core claim.",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30035,
+    30036,
+    30043,
+    30021
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "submit_regulated_prompt",
+      "outputs": [
+        "task_id",
+        "blueprint_id_generated"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "1": {
+      "name": "read_capture_store",
+      "outputs": [
+        "capture_lines"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "2": {
+      "name": "assert_plan_citation",
+      "outputs": [
+        "assertion_result"
+      ],
+      "legacy_pipeline_id": 9
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      35,
+      36,
+      43
+    ],
+    "suggested_methodologies": [
+      21
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

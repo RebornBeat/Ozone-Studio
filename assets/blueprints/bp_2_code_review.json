@@ -1,0 +1,409 @@
+{
+  "name": "Code Review",
+  "description": "Comprehensive code review using modality graphs for structural analysis and ZSEI for semantic understanding",
+  "created_by": "bootstrap",
+  "blueprint_id": 2,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "receive_task",
+      "description": "Receive code files for review",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "Analyze",
+      "description": "Create structural graph using Code Analysis Pipeline",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "CreateGraph",
+      "description": "Build traversable code graph",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 3,
+      "action": "ComputeDependencies",
+      "description": "Analyze dependency relationships",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 4,
+      "action": "TriggerHook",
+      "description": "ZSEI adds semantic layer to structural graph",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 5,
+      "action": "LoadMethodologies",
+      "description": "Load required code review methodologies",
+      "pipeline_id": 11,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        4
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 6,
+      "action": "AggregateForTask",
+      "description": "Build comprehensive review context",
+      "pipeline_id": 21,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0,
+        3,
+        4,
+        5
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 7,
+      "action": "Execute",
+      "description": "Generate code review using LLM with graph context",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        6
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 8,
+      "action": "structure_review",
+      "description": "Organize review findings by severity and category",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2,
+        7
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 9,
+      "action": "UpdateGraph",
+      "description": "Link review findings to graph nodes",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2,
+        8
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30003,
+    30005,
+    30004,
+    30006,
+    30010
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "receive_code",
+      "outputs": [
+        "code_files",
+        "review_context"
+      ],
+      "legacy_pipeline_id": 1
+    },
+    "1": {
+      "name": "analyze_code_structure",
+      "inputs": [
+        "code_files"
+      ],
+      "outputs": [
+        "code_analysis"
+      ],
+      "config": {
+        "depth": "deep",
+        "include_metrics": true
+      },
+      "legacy_pipeline_id": 101
+    },
+    "2": {
+      "name": "create_code_graph",
+      "inputs": [
+        "code_analysis"
+      ],
+      "outputs": [
+        "code_graph_id"
+      ],
+      "triggers_hooks": [
+        "OnGraphCreated"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "3": {
+      "name": "compute_dependencies",
+      "inputs": [
+        "code_graph_id"
+      ],
+      "outputs": [
+        "dependency_map"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "4": {
+      "name": "semantic_analysis",
+      "inputs": [
+        "code_graph_id"
+      ],
+      "outputs": [
+        "enriched_graph_id"
+      ],
+      "config": {
+        "hook_type": "OnInferRelationships",
+        "semantic_depth": "deep",
+        "analyze_patterns": true
+      },
+      "legacy_pipeline_id": 10
+    },
+    "5": {
+      "name": "load_methodologies",
+      "inputs": [
+        "required_methodologies",
+        "suggested_methodologies"
+      ],
+      "outputs": [
+        "active_methodologies"
+      ],
+      "legacy_pipeline_id": 16
+    },
+    "6": {
+      "name": "aggregate_review_context",
+      "inputs": [
+        "enriched_graph_id",
+        "dependency_map",
+        "active_methodologies",
+        "review_context"
+      ],
+      "outputs": [
+        "review_prompt_context"
+      ],
+      "legacy_pipeline_id": 12
+    },
+    "7": {
+      "name": "generate_review",
+      "inputs": [
+        "review_prompt_context"
+      ],
+      "outputs": [
+        "raw_review"
+      ],
+      "config": {
+        "response_format": "structured",
+        "include_graph_references": true
+      },
+      "legacy_pipeline_id": 9
+    },
+    "8": {
+      "name": "structure_findings",
+      "inputs": [
+        "raw_review",
+        "code_graph_id"
+      ],
+      "outputs": [
+        "structured_review"
+      ],
+      "config": {
+        "categories": [
+          "security",
+          "performance",
+          "maintainability",
+          "correctness",
+          "style"
+        ],
+        "severity_levels": [
+          "critical",
+          "major",
+          "minor",
+          "suggestion"
+        ]
+      },
+      "legacy_pipeline_id": 1
+    },
+    "9": {
+      "name": "link_to_graph",
+      "inputs": [
+        "code_graph_id",
+        "structured_review"
+      ],
+      "outputs": [
+        "annotated_graph_id"
+      ],
+      "legacy_pipeline_id": 101
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      3,
+      5
+    ],
+    "suggested_methodologies": [
+      4,
+      6,
+      10
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

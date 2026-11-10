@@ -1,0 +1,118 @@
+{
+  "name": "Methodology Creation and Registration",
+  "description": "Draft a methodology with content-depth-gated rules, register it in the index and both stores — what the meta-loop does, as a deliberate plan.",
+  "created_by": "bootstrap",
+  "blueprint_id": 10,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "draft",
+      "description": "Draft principles + heuristics + decision rules; every rule must be concrete 'if X then do Y' with real text (no placeholders)",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "gate",
+      "description": "Content-depth gate: at least one rule/heuristic with real text; reject ellipsis shells and prompt-example echoes",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "register",
+      "description": "Persist to assets/methodologies + both stores; register in the index (bootstrap default + zsei_data)",
+      "pipeline_id": 12,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30036,
+    30043,
+    30032
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "draft_content",
+      "outputs": [
+        "draft_json"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "1": {
+      "name": "depth_gate",
+      "outputs": [
+        "valid_draft"
+      ],
+      "legacy_pipeline_id": 33
+    },
+    "2": {
+      "name": "persist_and_register",
+      "outputs": [
+        "methodology_id"
+      ],
+      "legacy_pipeline_id": 33
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      36,
+      43
+    ],
+    "suggested_methodologies": [
+      32
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

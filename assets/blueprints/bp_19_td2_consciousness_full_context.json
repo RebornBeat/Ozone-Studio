@@ -1,0 +1,117 @@
+{
+  "name": "TD-2 Consciousness Full-Context",
+  "description": "Top-down context-assurance test (TOP_DOWN_REVIEW_GUIDE.md §4, TD-2): submit a consciousness-enabled request end to end, then assert from the real decision-review capture store that the stage-8 Consciousness Gate review genuinely references both the AMT's own branch content and the zero-shot simulation's risk/feasibility predictions — the two context pieces confirmed wired into stage 8 this session (2026-09-22).",
+  "created_by": "bootstrap",
+  "blueprint_id": 19,
+  "version": "1.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "submit",
+      "description": "Submit a real /orchestrate request with consciousness_enabled: true, a prompt substantive enough to produce a real multi-branch AMT and a zero-shot simulation with at least one real risk/clarification, through the full 14-stage pipeline including stage 8.",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "read_capture",
+      "description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the stage-8 consciousness review line this request produced.",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "assert",
+      "description": "Assert the review's reasoning_preview references concrete AMT branch content AND concrete simulation risk/feasibility content — both, not just one — proving stage 8 genuinely saw the full traversed picture per the doctrine, not a partial or generic one.",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30035,
+    30036,
+    30043
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "submit_consciousness_enabled_prompt",
+      "outputs": [
+        "task_id"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "1": {
+      "name": "read_capture_store",
+      "outputs": [
+        "capture_line"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "2": {
+      "name": "assert_amt_and_simulation_citation",
+      "outputs": [
+        "assertion_result"
+      ],
+      "legacy_pipeline_id": 9
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      35,
+      36,
+      43
+    ],
+    "suggested_methodologies": [],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

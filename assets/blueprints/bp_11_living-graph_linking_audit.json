@@ -1,0 +1,120 @@
+{
+  "name": "Living-Graph Linking Audit",
+  "description": "Audit a project's link quality: uncapped neighborhood linking metrics, placeholder detection, and orphaned-duplicate discovery.",
+  "created_by": "bootstrap",
+  "blueprint_id": 11,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "measure",
+      "description": "CreateGraph with link_to_existing on fresh signals; capture link_metrics (candidates, qualified, edges, duration)",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "verify",
+      "description": "Verify no persisted edge or child is placeholder echo (content-depth rules)",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "audit",
+      "description": "Scan the project subtree for duplicate names; resolve canonical by min id; report scatter",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30041,
+    30038,
+    30036,
+    30037
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "collect_metrics",
+      "outputs": [
+        "link_metrics"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "1": {
+      "name": "reject_placeholders",
+      "outputs": [
+        "clean_content"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "2": {
+      "name": "find_duplicates",
+      "outputs": [
+        "dup_report"
+      ],
+      "legacy_pipeline_id": 9
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      41,
+      38,
+      36
+    ],
+    "suggested_methodologies": [
+      37
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

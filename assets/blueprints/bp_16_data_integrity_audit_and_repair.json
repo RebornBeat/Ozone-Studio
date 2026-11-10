@@ -1,0 +1,151 @@
+{
+  "name": "Data Integrity Audit and Repair",
+  "description": "Audit a data subtree for duplicates, placeholders, and shape drift; repair in place with full accounting; never drop silently.",
+  "created_by": "bootstrap",
+  "blueprint_id": 16,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "enumerate",
+      "description": "Enumerate the subtree, group by logical identity, count duplicates (full accounting before any change)",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "resolve",
+      "description": "Resolve canonical by min id (order-independent); verify wiring/consumers target canonicals",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "repair",
+      "description": "Delete/annotate non-canonical copies with the approved plan; log deleted/kept counts and zero-failure check",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 3,
+      "action": "verify",
+      "description": "Re-run the consumer that drifted (e.g. boot wiring) and verify the convergence count is 0",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30037,
+    30036,
+    30043,
+    30023
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "enumerate_and_group",
+      "outputs": [
+        "dup_report"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "1": {
+      "name": "canonical_resolve",
+      "outputs": [
+        "canonical_set"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "2": {
+      "name": "repair_with_accounting",
+      "outputs": [
+        "accounting"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "3": {
+      "name": "verify_convergence",
+      "outputs": [
+        "converged"
+      ],
+      "legacy_pipeline_id": 101
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      37,
+      36,
+      43
+    ],
+    "suggested_methodologies": [
+      23
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}

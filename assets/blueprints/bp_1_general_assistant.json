@@ -1,0 +1,242 @@
+{
+  "name": "General Assistant",
+  "description": "Default blueprint for general conversational tasks, information retrieval, and multi-modal assistance",
+  "created_by": "bootstrap",
+  "blueprint_id": 1,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "receive_task",
+      "description": "Receive and parse user request",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "detect_modalities",
+      "description": "Auto-detect modalities from request and attachments",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "parallel_modality_analysis",
+      "description": "Create structural graphs for detected modalities",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0,
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 3,
+      "action": "AggregateForTask",
+      "description": "Aggregate context from ZSEI and modality graphs",
+      "pipeline_id": 21,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0,
+        2
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 4,
+      "action": "Execute",
+      "description": "Generate response using prompt pipeline",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0,
+        3
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 5,
+      "action": "format_response",
+      "description": "Format response and update session graph",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2,
+        4
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30001,
+    30002
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "receive_request",
+      "outputs": [
+        "raw_request",
+        "attachments"
+      ],
+      "legacy_pipeline_id": 1
+    },
+    "1": {
+      "name": "detect_modalities",
+      "inputs": [
+        "raw_request",
+        "attachments"
+      ],
+      "outputs": [
+        "detected_modalities"
+      ],
+      "conditional_next": {
+        "has_modalities": 3,
+        "no_modalities": 4
+      },
+      "legacy_pipeline_id": 1
+    },
+    "2": {
+      "name": "process_modalities",
+      "inputs": [
+        "detected_modalities",
+        "attachments"
+      ],
+      "outputs": [
+        "modality_graphs"
+      ],
+      "loop_config": {
+        "iterate_over": "detected_modalities",
+        "parallel": true,
+        "max_concurrent": 4
+      },
+      "legacy_pipeline_id": "dynamic"
+    },
+    "3": {
+      "name": "build_context",
+      "inputs": [
+        "raw_request",
+        "modality_graphs"
+      ],
+      "outputs": [
+        "aggregated_context"
+      ],
+      "legacy_pipeline_id": 12
+    },
+    "4": {
+      "name": "generate_response",
+      "inputs": [
+        "raw_request",
+        "aggregated_context"
+      ],
+      "outputs": [
+        "response"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "5": {
+      "name": "format_and_return",
+      "inputs": [
+        "response",
+        "modality_graphs"
+      ],
+      "outputs": [
+        "final_response"
+      ],
+      "legacy_pipeline_id": 1
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [],
+    "suggested_methodologies": [
+      1,
+      2
+    ],
+    "methodology_selection_strategy": "context_based"
+  }
+}

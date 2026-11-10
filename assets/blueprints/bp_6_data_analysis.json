@@ -1,0 +1,592 @@
+{
+  "name": "Data Analysis",
+  "description": "Multi-modal data analysis supporting text, code, and math modalities for comprehensive analytical workflows",
+  "created_by": "bootstrap",
+  "blueprint_id": 6,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "receive_task",
+      "description": "Receive data and analysis request",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "detect_modalities",
+      "description": "Identify data modalities",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "parallel_modality_analysis",
+      "description": "Create structural graphs for each data modality",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0,
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 3,
+      "action": "Analyze",
+      "description": "Parse analysis requirements",
+      "pipeline_id": 100,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 4,
+      "action": "Execute",
+      "description": "Create analysis plan with LLM",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1,
+        2,
+        3
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 5,
+      "action": "CreateProvisionalNodes",
+      "description": "Generate code for analysis steps",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        4
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 6,
+      "action": "ExecuteInSandbox",
+      "description": "Run analysis code in sandbox",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0,
+        5
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 7,
+      "action": "process_results",
+      "description": "Process and validate analysis results",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        3,
+        6
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 8,
+      "action": "CreateGraph",
+      "description": "Create math graph for statistical results",
+      "pipeline_id": 105,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        7
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 9,
+      "action": "TriggerHook",
+      "description": "Create cross-modality links",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        2,
+        8
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 10,
+      "action": "Execute",
+      "description": "Create visualizations from results",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        4,
+        7
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 11,
+      "action": "AggregateForTask",
+      "description": "Build report context",
+      "pipeline_id": 21,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        7,
+        9,
+        10
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 12,
+      "action": "Execute",
+      "description": "Generate analysis report",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        11
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 13,
+      "action": "FinalizeProvisional",
+      "description": "Finalize provisional code nodes",
+      "pipeline_id": 101,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        5
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 14,
+      "action": "CreateFiles",
+      "description": "Write report and code to files",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        10,
+        12,
+        13
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30009,
+    30003,
+    30005,
+    30013
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "receive_data",
+      "outputs": [
+        "data_sources",
+        "analysis_request"
+      ],
+      "legacy_pipeline_id": 1
+    },
+    "1": {
+      "name": "detect_data_types",
+      "inputs": [
+        "data_sources"
+      ],
+      "outputs": [
+        "detected_modalities",
+        "data_metadata"
+      ],
+      "legacy_pipeline_id": 1
+    },
+    "2": {
+      "name": "create_data_graphs",
+      "inputs": [
+        "data_sources",
+        "detected_modalities"
+      ],
+      "outputs": [
+        "data_graphs"
+      ],
+      "loop_config": {
+        "iterate_over": "detected_modalities",
+        "parallel": true
+      },
+      "legacy_pipeline_id": "dynamic"
+    },
+    "3": {
+      "name": "analyze_request",
+      "inputs": [
+        "analysis_request"
+      ],
+      "outputs": [
+        "analysis_requirements"
+      ],
+      "config": {
+        "extract_metrics": true,
+        "extract_hypotheses": true,
+        "extract_visualizations": true
+      },
+      "legacy_pipeline_id": 100
+    },
+    "4": {
+      "name": "plan_analysis",
+      "inputs": [
+        "analysis_requirements",
+        "data_graphs",
+        "data_metadata"
+      ],
+      "outputs": [
+        "analysis_plan"
+      ],
+      "config": {
+        "response_format": "json",
+        "schema": "analysis_plan_schema"
+      },
+      "legacy_pipeline_id": 9
+    },
+    "5": {
+      "name": "generate_analysis_code",
+      "inputs": [
+        "analysis_plan"
+      ],
+      "outputs": [
+        "provisional_code"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "6": {
+      "name": "execute_analysis",
+      "inputs": [
+        "provisional_code",
+        "data_sources"
+      ],
+      "outputs": [
+        "analysis_results",
+        "execution_logs"
+      ],
+      "config": {
+        "sandbox_type": "python",
+        "timeout_seconds": 300,
+        "memory_limit_mb": 1024
+      },
+      "legacy_pipeline_id": 101
+    },
+    "7": {
+      "name": "process_results",
+      "inputs": [
+        "analysis_results",
+        "analysis_requirements"
+      ],
+      "outputs": [
+        "processed_results",
+        "validation_status"
+      ],
+      "legacy_pipeline_id": 1
+    },
+    "8": {
+      "name": "create_math_graph",
+      "inputs": [
+        "processed_results"
+      ],
+      "outputs": [
+        "math_graph_id"
+      ],
+      "conditional": {
+        "condition": "has_statistical_analysis"
+      },
+      "legacy_pipeline_id": 105
+    },
+    "9": {
+      "name": "link_all_graphs",
+      "inputs": [
+        "data_graphs",
+        "math_graph_id"
+      ],
+      "outputs": [
+        "linked_analysis_graph"
+      ],
+      "config": {
+        "hook_type": "OnCrossModalityLink"
+      },
+      "legacy_pipeline_id": 10
+    },
+    "10": {
+      "name": "generate_visualizations",
+      "inputs": [
+        "processed_results",
+        "analysis_plan"
+      ],
+      "outputs": [
+        "visualization_code"
+      ],
+      "conditional": {
+        "condition": "visualizations_requested"
+      },
+      "legacy_pipeline_id": 9
+    },
+    "11": {
+      "name": "aggregate_context",
+      "inputs": [
+        "linked_analysis_graph",
+        "processed_results",
+        "visualization_code"
+      ],
+      "outputs": [
+        "report_context"
+      ],
+      "legacy_pipeline_id": 12
+    },
+    "12": {
+      "name": "generate_report",
+      "inputs": [
+        "report_context"
+      ],
+      "outputs": [
+        "analysis_report"
+      ],
+      "config": {
+        "include_methodology": true,
+        "include_limitations": true,
+        "include_recommendations": true
+      },
+      "legacy_pipeline_id": 9
+    },
+    "13": {
+      "name": "finalize_code",
+      "inputs": [
+        "provisional_code"
+      ],
+      "outputs": [
+        "final_code_graph"
+      ],
+      "legacy_pipeline_id": 101
+    },
+    "14": {
+      "name": "write_outputs",
+      "inputs": [
+        "analysis_report",
+        "final_code_graph",
+        "visualization_code"
+      ],
+      "outputs": [
+        "output_paths"
+      ],
+      "legacy_pipeline_id": 11
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      9
+    ],
+    "suggested_methodologies": [
+      3,
+      5,
+      13
+    ],
+    "methodology_selection_strategy": "context_based"
+  }
+}

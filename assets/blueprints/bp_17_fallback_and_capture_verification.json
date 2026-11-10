@@ -1,0 +1,122 @@
+{
+  "name": "Fallback and Capture Verification",
+  "description": "Verify every LLM call site's fallback coverage and JSON capture: forced-failure walks, extraction rescue, placeholder gates — the BitNet coherency sweep.",
+  "created_by": "bootstrap",
+  "blueprint_id": 17,
+  "version": "2.0.0",
+  "steps": [
+    {
+      "step_index": 0,
+      "action": "audit",
+      "description": "Enumerate every LLM call site; assert each walks a fallback chain (or needs none, like deterministic extractors)",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 1,
+      "action": "test",
+      "description": "Drive pipeline 9 forced to BitNet across each call site's real prompt shape; run the balanced-scan extractor on every response",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    },
+    {
+      "step_index": 2,
+      "action": "verify",
+      "description": "Feed shell/placeholder drafts through the persist gates; verify honest discard with reasons",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false
+    }
+  ],
+  "missing_capabilities": [],
+  "methodology_ids": [
+    30019,
+    30035,
+    30036,
+    30043,
+    30038
+  ],
+  "legacy_step_fields": {
+    "0": {
+      "name": "audit_call_sites",
+      "outputs": [
+        "coverage_map"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "1": {
+      "name": "force_capture",
+      "outputs": [
+        "capture_report"
+      ],
+      "legacy_pipeline_id": 9
+    },
+    "2": {
+      "name": "gate_verification",
+      "outputs": [
+        "gate_report"
+      ],
+      "legacy_pipeline_id": 33
+    }
+  },
+  "legacy_methodology_config": {
+    "required_methodologies": [
+      19,
+      35,
+      36,
+      43
+    ],
+    "suggested_methodologies": [
+      38
+    ],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  }
+}
