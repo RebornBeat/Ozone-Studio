@@ -114,7 +114,6 @@ export const ConsciousnessGateSection: React.FC<ConsciousnessGateSectionProps> =
                 </div>
                 <div style={{ color: C_MUTED, marginBottom: 4 }}>
                   {r.ts} · {r.model_used}
-                  {r.confidence !== null && ` · confidence ${r.confidence.toFixed(2)}`}
                 </div>
                 <div style={{ color: C_BODY, whiteSpace: "pre-wrap" }}>{r.reasoning_preview}</div>
               </div>

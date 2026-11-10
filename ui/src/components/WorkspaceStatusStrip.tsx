@@ -62,7 +62,24 @@ export function CaptureChip() {
   );
 }
 
-interface TaskRow { task_id: number; status: string; progress: number; description?: string | null; blueprint_name?: string; error?: string | null }
+interface TaskRow {
+  task_id: number;
+  status: string;
+  progress: number;
+  description?: string | null;
+  blueprint_name?: string;
+  error?: string | null;
+  /** NOT returned by /task/list today (TaskInfo has no `kind`; a Rust-side gap) — used when present so work-order tasks (wo_*) are recognised exactly */
+  kind?: string;
+}
+
+/** A work-order task (the universal checklist's AMT branch / step / capability-gap nodes). They are not the user's tasks: they live in the
+ * work-order tree of the task detail view and must not flood the recent-task list. Exact when `kind` is returned; until then the only tasks the
+ * host creates with the status "open" are work-order tasks (src/task/mod.rs create_work_task). */
+function isWorkOrderRow(t: TaskRow, norm: (v: string) => string): boolean {
+  if (typeof t.kind === "string") return t.kind.startsWith("wo_");
+  return norm(t.status) === "open";
+}
 
 /** TaskChip — real /task/list: running / queued / failed counts, click for the
  * most recent tasks with their own status + progress (never an invented %). */
@@ -70,8 +87,10 @@ export function TaskChip() {
   const data = usePolled(() => hostPost<{ tasks: TaskRow[] }>("/task/list", { limit: 30 }), 8000);
   const [open, setOpen] = useState(false);
   if (!data || !Array.isArray(data.tasks)) return null;
-  const tasks = data.tasks;
   const norm = (v: string) => String(v ?? "").replace(/["']/g, "").toLowerCase();
+  const allRows = data.tasks;
+  const tasks = allRows.filter((t) => !isWorkOrderRow(t, norm));
+  const workOrderOpen = allRows.length - tasks.length;
   const n = (st: string) => tasks.filter((t) => norm(t.status) === st).length;
   const running = n("running"), queued = n("queued"), failed = n("failed"), interrupted = n("interrupted");
   const awaiting = tasks.filter((t) => norm(t.status).startsWith("awaiting")).length;
@@ -95,6 +114,11 @@ export function TaskChip() {
       {open && (
         <div className="gnw-ind-pop" role="dialog" aria-label="Recent tasks">
           <div className="gnw-ind-pop-h">Recent tasks <span>live from /task/list</span></div>
+          {workOrderOpen > 0 && (
+            <div className="gnw-ind-pop-empty" title="open the task's detail view to see its work-order tree (AMT branches, steps, capability gaps and their checklists)">
+              {workOrderOpen} work-order item{workOrderOpen === 1 ? "" : "s"} open — see a task's work order
+            </div>
+          )}
           {tasks.length === 0 && <div className="gnw-ind-pop-empty">No tasks recorded.</div>}
           {tasks.slice(0, 8).map((t) => (
             <div key={t.task_id} className="gnw-ind-row" title={t.error ?? undefined}>

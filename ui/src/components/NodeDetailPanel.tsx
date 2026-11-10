@@ -20,6 +20,7 @@
  * links (SimilarTo, ForkOf, ...), NOT edges incident to this node — and are
  * labelled as such.
  */
+import { KeywordChips, type KeywordMetaEntry } from "./KeywordChips";
 import React, { useState } from "react";
 import type { ContainerRelation, GraphViewNode } from "../graphViewTypes";
 import { navigateTo } from "../navigation";
@@ -246,7 +247,7 @@ const NodeBody: React.FC<{ node: GraphViewNode; relations: ContainerRelation[] |
         <>
           {isPresent(raw.materialized_path) && <Row label="Materialized path">{formatScalar(raw.materialized_path)}</Row>}
           {Array.isArray(raw.keywords) && raw.keywords.length > 0 && (
-            <Row label="Keywords">{raw.keywords.map(formatScalar).join(", ")}</Row>
+            <Row label="Keywords"><KeywordChips keywords={raw.keywords.map(formatScalar)} meta={raw.keyword_meta && typeof raw.keyword_meta === "object" ? (raw.keyword_meta as Record<string, KeywordMetaEntry>) : null} /></Row>
           )}
           {typeof raw.provisional === "boolean" && <Row label="Provisional">{raw.provisional ? "yes" : "no"}</Row>}
           {isPresent(raw.provisional_status) && <Row label="Provisional status">{formatEnumish(raw.provisional_status)}</Row>}

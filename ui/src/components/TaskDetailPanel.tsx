@@ -14,6 +14,7 @@ import TaskInsightSections from "../views/task/TaskInsightSections";
 import { getGraphEventClient, GraphEventFrame } from "../graphEventClient";
 import { TaskStateIcon, StepPips } from "../graphkit/indicators";
 import { AwaitingBadge } from "./AwaitingBadge";
+import { WorkOrderTree } from "./WorkOrderTree";
 import { fetchAwaiting, resumeTask, resolveReview, resumeRun, parsePause, type AwaitingOrderItem } from "../ozoneClient";
 
 interface TaskStep {
@@ -538,6 +539,12 @@ export const TaskDetailPanel: React.FC = () => {
               </div>
             </div>
           )}
+          {/* the universal checklist: AMT branches → steps → capability gaps, completion derived by the host from the checklists */}
+          <WorkOrderTree
+            taskId={task.task_id}
+            refreshKey={`${normalizeStatus(task.status)}:${(task.steps ?? []).length}:${(task.steps ?? []).filter((s) => s.status === "completed").length}`}
+            onOpenTask={(id) => setTaskIdInput(String(id))}
+          />
           <TaskInsightSections task={task} />
         </>
       )}

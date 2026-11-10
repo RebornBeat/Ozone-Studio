@@ -35,6 +35,7 @@
  *   resolves against, no `object_store_path`, no host route reads it. This
  *   view says so rather than attempting (and failing) to fetch it.
  */
+import { KeywordChips, type KeywordMetaEntry } from "../../components/KeywordChips";
 import React, { useEffect, useState } from "react";
 import { zseiQuery } from "../../ozoneClient";
 import { useSelectedFile } from "../../fileSelection";
@@ -68,7 +69,7 @@ interface ContainerJson {
       updated_at?: number;
       materialized_path?: string | null;
     };
-    context: { keywords: string[]; relationships: ContainerRelationRaw[] };
+    context: { keywords: string[]; keyword_meta?: Record<string, KeywordMetaEntry>; relationships: ContainerRelationRaw[] };
     storage: { object_store_path?: string | null };
   };
 }
@@ -350,7 +351,7 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
           <Empty>No package identity recorded for this reference.</Empty>
         ))}
 
-      {keywords.length > 0 && <Row label="Keywords">{keywords.join(", ")}</Row>}
+      {keywords.length > 0 && <Row label="Keywords"><KeywordChips keywords={keywords} meta={container.local_state.context.keyword_meta ?? null} /></Row>}
       <Row label="Modality">
         {meta.modality === "Unknown" ? (
           <span style={{ color: C_MUTED, fontStyle: "italic" }}>not recorded (always "Unknown" at creation time)</span>

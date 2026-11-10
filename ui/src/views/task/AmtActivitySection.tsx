@@ -89,7 +89,6 @@ const BranchRow: React.FC<{ branch: AmtBranch }> = ({ branch }) => {
         >
           {branch.verified ? "verified" : "unverified"}
         </span>
-        <span style={{ fontSize: 10.5, color: C_MUTED }}>conf {branch.confidence.toFixed(2)}</span>
         <span style={{ fontSize: 12, color: C_BODY }}>{branch.content}</span>
         {rels.length > 0 && (
           <span style={{ fontSize: 10.5, color: C_MUTED }}>
@@ -102,7 +101,6 @@ const BranchRow: React.FC<{ branch: AmtBranch }> = ({ branch }) => {
           {rels.map((r, i) => (
             <div key={i} style={{ fontSize: 10.5, color: C_MUTED }}>
               {r.relation_type ?? "relation"} → #{r.target_id ?? "?"}
-              {typeof r.confidence === "number" ? ` (conf ${r.confidence.toFixed(2)})` : ""}
             </div>
           ))}
         </div>

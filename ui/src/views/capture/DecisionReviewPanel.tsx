@@ -385,9 +385,6 @@ export const DecisionReviewPanel: React.FC<DecisionReviewPanelProps> = ({ projec
                         whole review
                       </span>
                     )}
-                    <span style={{ color: C_MUTED, fontSize: 11.5 }}>
-                      confidence: {row.confidence === null ? "none recorded" : row.confidence.toFixed(2)}
-                    </span>
                     <span style={{ color: C_MUTED, fontSize: 11.5 }}>{row.tokens_used} tok</span>
                     <span
                       style={{ color: row.model_used === "none (all models failed)" ? C_FAIL : C_BODY, fontSize: 11.5, overflowWrap: "anywhere" }}

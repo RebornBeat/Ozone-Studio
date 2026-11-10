@@ -576,7 +576,8 @@ export interface MarketplaceProvider {
 export interface MarketplaceWanted {
   kind: string;
   name: string;
-  status: "wanted" | "satisfied";
+  /** the gaps file also holds missing / methodology_drafted / not_needed; the overview endpoint currently returns only the `wanted` ones */
+  status: string;
   count: number;
   first_seen: number;
   last_seen: number;
@@ -635,4 +636,43 @@ export function fetchMarketplaceOverview(): Promise<MarketplaceOverview> {
  *  activated — and tools / pipelines stay approval-only); `ignore` dismisses it. */
 export function decidePeerOffer(offerKey: string, decision: "download" | "ignore" | "pending"): Promise<{ success: boolean; note?: string; error?: string }> {
   return hostPost("/marketplace/offers/decide", { offer_key: offerKey, decision });
+}
+
+// ── Work-order tree (GET /order/work/:task_id) ─────────────────────────────────────────────
+// The universal checklist derived at read time from task records (src/task/mod.rs `work_order`): a `wo_*` task is complete exactly when all of its
+// checklist items are done and all its children are complete; completed is FINAL; a rerun is a NEW task that points at the old one (`rerun_of`).
+
+export interface WorkOrderItem {
+  key: string;
+  text: string;
+  done: boolean;
+  /** present once the item is done — the real event that completed it */
+  evidence?: string;
+  by?: string;
+  completed_at?: number;
+  ref?: string;
+}
+
+export interface WorkOrderNode {
+  task_id: number;
+  /** "wo_branch" | "wo_step" | "wo_capability" for work-order tasks; the walk's own task has its own kind (e.g. "todo"/"task") */
+  kind: string;
+  key?: string | null;
+  title?: unknown;
+  status: string;
+  /** derived by the host: all items done and every child complete — the ONLY source of "complete" */
+  complete: boolean;
+  created_at?: number;
+  completed_at?: number | null;
+  rerun_of?: number | null;
+  checklist: WorkOrderItem[];
+  items_done: number;
+  items_total: number;
+  children: WorkOrderNode[];
+}
+
+export interface WorkOrderResponse { success: boolean; work_order?: WorkOrderNode; error?: string }
+
+export function fetchWorkOrder(taskId: number): Promise<WorkOrderResponse> {
+  return hostGet<WorkOrderResponse>(`/order/work/${taskId}`);
 }

@@ -302,7 +302,7 @@ const GateSummary: React.FC<{ a: Analyzed }> = ({ a }) =>
       <Row label="Model">{a.row.model_used}</Row>
       <Row label="Gate decision">
         <b style={{ color: isJudgment(a.row.decision) ? C_TEXT : C_BAD }}>{a.row.decision}</b>
-        {typeof a.row.confidence === "number" && ` (confidence ${a.row.confidence.toFixed(2)})`}
+        {/* confidence not displayed (operator doctrine: a judgment is yes/no; no self-reported confidence) */}
       </Row>
       <Row label="Gate reasoning">{a.row.reasoning_preview || <i style={{ color: C_MUTED }}>none recorded</i>}</Row>
       <Row label="Task">{a.row.task_summary_preview}</Row>

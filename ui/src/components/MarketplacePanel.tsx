@@ -21,6 +21,7 @@ import {
   fetchMarketplaceOverview,
   decidePeerOffer,
 } from "../ozoneClient";
+import { KeywordChips } from "./KeywordChips";
 
 type View = "catalog" | "installed" | "relations" | "contribute";
 
@@ -55,7 +56,7 @@ function usageIndex(ms: MarketplaceMethodology[], providers: MarketplaceProvider
 // status → tone. Colours are fixed per meaning so a state reads the same everywhere (and is never the only cue: the label is always shown).
 const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
   imported: "ok", have: "ok", staged: "warn", approval_only: "info", failed: "bad", rejected: "bad", downloading: "info",
-  download: "info", ignore: "muted", not_needed: "muted", pending: "warn", new: "info", conflict: "warn", same_name: "warn", not_checked: "muted", review: "warn",
+  download: "info", ignore: "muted", not_needed: "muted", pending: "warn", new: "info", conflict: "warn", same_name: "warn", not_checked: "muted", review: "warn", missing: "warn", methodology_drafted: "info",
 };
 const TONE_STYLE: Record<string, React.CSSProperties> = {
   ok: { borderColor: "rgba(63,185,80,0.55)", color: "#56d364" },
@@ -91,6 +92,9 @@ const OfferRow: React.FC<{ o: MarketplacePeerOffer; onDecide: (key: string, d: "
         </>
       )}
       {o.downloading && <div className="omkt-progress" role="progressbar" aria-label={`downloading ${o.name}`} style={{ marginTop: 5 }} />}
+      {Array.isArray(o.keywords) && o.keywords.length > 0 && (
+        <div style={{ marginTop: 3 }}><KeywordChips keywords={o.keywords} /></div>
+      )}
       {(o.import?.detail || o.review?.reason || o.note) && (
         <div style={{ fontSize: 10.5, color: "#6f7f93", marginTop: 2 }}>{o.import?.detail ?? (o.review?.reason ? `gate: ${o.review.reason}` : o.note)}</div>
       )}
@@ -189,10 +193,11 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
           <div style={card}>
             <div className="omono" style={{ color: "#e8eef6", fontWeight: 600, marginBottom: 6 }}>Wanted capabilities ({data.wanted.length})</div>
             {data.wanted.length === 0
-              ? <div className="oempty" style={{ textAlign: "left" }}>Nothing is wanted: every provider a methodology rule or blueprint required is registered. A required-but-missing provider appears here the moment a walk needs it — captured, with a methodology drafted around it — to be built or downloaded after review.</div>
+              ? <div className="oempty" style={{ textAlign: "left" }}>No capability is currently marked wanted. A capability that a walk needed but could not close appears here as wanted — to be built or downloaded after review. Gaps still being worked on (missing, methodology drafted) or judged not needed are kept in capability_gaps.json but this view does not list them yet (the overview endpoint returns only the wanted ones).</div>
               : data.wanted.map((w) => (
                 <div key={w.kind + w.name} style={{ marginBottom: 6 }}>
                   <span style={warnChip}>{w.kind}</span><span className="omono" style={{ color: "#e8eef6" }}>{w.name}</span>
+                  <span style={toneChip(w.status === "wanted" ? "pending" : w.status)}>{w.status}</span>
                   <span style={chip}>needed {w.count}×</span>
                   <div style={{ fontSize: 11.5, color: "#8b98ab", marginLeft: 4 }}>{w.details[w.details.length - 1]?.detail} ({w.details[w.details.length - 1]?.source})</div>
                 </div>
