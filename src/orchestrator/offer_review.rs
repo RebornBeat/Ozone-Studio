@@ -91,13 +91,14 @@ fn tool_names(dir: &Path) -> Vec<String> {
 }
 
 /// Ask the model for ONE verdict about an offer. None = no usable answer (the offer is retried on the next pass).
-async fn one_round(executor: &Arc<dyn PipelineExecutor>, o: &RawOffer, similar: &[String], conflict: bool) -> Option<(String, String)> {
+async fn one_round(executor: &Arc<dyn PipelineExecutor>, o: &RawOffer, similar: &[String], conflict: bool, wanted: Option<&str>) -> Option<(String, String)> {
     let prompt = format!(
-        "An instance of Ozone-Studio (a graph-based, model-agnostic system) was OFFERED an item by another instance.\n\nOFFER: type {}, name \"{}\", keywords: {}\n{}\nWHAT THIS INSTANCE ALREADY HAS THAT LOOKS SIMILAR:\n{}\n\nQUESTION: Is this offer useful to add to this instance? Answer \"useful\" only if it clearly adds something this instance does not already have; \"not_useful\" if it duplicates what is already here or its subject has nothing to do with this instance; otherwise \"unsure\". You are judging from the manifest alone (name and keywords) — you have NOT seen the content.\nReturn ONLY JSON: {{\"verdict\": \"useful\" | \"not_useful\" | \"unsure\", \"reason\": \"one short sentence\"}}",
+        "An instance of Ozone-Studio (a graph-based, model-agnostic system) was OFFERED an item by another instance.\n\nOFFER: type {}, name \"{}\", keywords: {}\n{}{}\nWHAT THIS INSTANCE ALREADY HAS THAT LOOKS SIMILAR:\n{}\n\nQUESTION: Is this offer useful to add to this instance? Answer \"useful\" only if it clearly adds something this instance does not already have; \"not_useful\" if it duplicates what is already here or its subject has nothing to do with this instance; otherwise \"unsure\". You are judging from the manifest alone (name and keywords) — you have NOT seen the content.\nReturn ONLY JSON: {{\"verdict\": \"useful\" | \"not_useful\" | \"unsure\", \"reason\": \"one short sentence\"}}",
         o.item_type.replace('_', " "),
         o.name,
         if o.keywords.is_empty() { "(none)".to_string() } else { o.keywords.join(", ") },
         if conflict { "NOTE: this instance already has an item with this name but DIFFERENT content.\n" } else { "" },
+        wanted.map(|g| format!("NOTE: this instance has a WANTED capability gap named \"{g}\" (something it needs and cannot do today) that this offer may satisfy — that is a reason it could be useful.\n")).unwrap_or_default(),
         if similar.is_empty() { "  (nothing similar)".to_string() } else { similar.iter().map(|n| format!("  - {n}")).collect::<Vec<_>>().join("\n") },
     );
     let input = json!({"prompt": prompt, "max_tokens": 200, "temperature": 0.1, "system_prompt": "You review marketplace offers for an instance. Return only valid JSON."});
@@ -125,6 +126,9 @@ async fn review_pass(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn Store
     }
     let local = local_methodologies(store).await;
     let strength = k_validation::configured_strength().max(1);
+    // what this instance has per kind (tools, installed pipelines, jurisdiction scope files) and the capabilities it still WANTS
+    let idx = crate::orchestrator::peer_import::LocalOfferIndex::load(dir);
+    let wanted = crate::orchestrator::peer_import::wanted_gap_names();
     for o in todo {
         // 1. mechanical first: identical content already here = nothing to download
         let same_name: Vec<&(String, Vec<String>, String)> = local.iter().filter(|(n, _, _)| n.eq_ignore_ascii_case(&o.name)).collect();
@@ -135,19 +139,23 @@ async fn review_pass(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn Store
         // 2. the zero-shot question, strength-N rounds; the first round that disagrees with the first answer ends it (no unanimity possible)
         let conflict = o.item_type == "methodology" && !same_name.is_empty();
         // what this instance already has OF THE SAME KIND: methodologies for a methodology offer, registered tool names for a tool offer;
-        // other kinds have no local index to compare against (the prompt says so rather than listing unrelated items). No cap on the list —
+        // pipelines compare with the installed pipeline registry and jurisdiction sets with the local scope files; other kinds have no local index (the prompt says so rather than listing unrelated items). No cap on the list —
         // names only, so it is small, and a cut would hide exactly the duplicate the reviewer must see.
         let pool: Vec<(String, Vec<String>)> = match o.item_type.as_str() {
             "methodology" => local.iter().map(|(n, k, _)| (n.clone(), k.clone())).collect(),
             "tool" => tool_names(dir).into_iter().map(|n| (n, Vec::new())).collect(),
+            "pipeline" => idx.pipeline_names.iter().map(|n| (n.clone(), Vec::new())).collect(),
+            "jurisdiction_rule_set" => idx.jurisdiction.keys().map(|n| (n.clone(), Vec::new())).collect(),
             _ => Vec::new(),
         };
         let similar = similar_local(&o.name, &o.keywords, &pool, usize::MAX);
+        // ADVISORY: a tool / pipeline offer that matches a wanted capability gap (deterministic by name / keyword); it only informs the vote
+        let matches_wanted = crate::orchestrator::peer_import::matches_wanted(&o, &wanted);
         let mut verdicts: Vec<String> = Vec::new();
         let mut reason = String::new();
         let mut failed = false;
         for _ in 0..strength {
-            match one_round(executor, &o, &similar, conflict).await {
+            match one_round(executor, &o, &similar, conflict, matches_wanted.as_deref()).await {
                 Some((v, r)) => {
                     if reason.is_empty() {
                         reason = r;
@@ -169,12 +177,12 @@ async fn review_pass(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn Store
         }
         let rec = recommendation(&verdicts);
         crate::keyword_program::record_judgment("offer_review", None, &o.name, &o.from, "is this marketplace offer useful to add to this instance?", rec == "download", strength);
-        reviews.insert(o.key.clone(), json!({"recommendation": rec, "reason": reason, "rounds": verdicts, "strength": strength, "by": "zero-shot", "at": now_secs()}));
+        reviews.insert(o.key.clone(), json!({"recommendation": rec, "reason": reason, "rounds": verdicts, "strength": strength, "matches_wanted": matches_wanted, "by": "zero-shot", "at": now_secs()}));
     }
     let _ = std::fs::write(&reviews_path, serde_json::to_string_pretty(&reviews).unwrap_or_default());
 }
 
-/// The review loop (spawned with the marketplace exchange, only when `auto_broadcast_sync` is on). Polls every 2 minutes; a model failure leaves an
+/// The review loop (spawned only when `marketplace_accept_offers` is on — or the deprecated alias `auto_broadcast_sync`). Polls every 2 minutes; a model failure leaves an
 /// offer unreviewed (retried). Advisory: it never decides.
 pub fn spawn_offer_review_loop(executor: Arc<dyn PipelineExecutor>, store: Arc<dyn StoreAccess>, data_dir: String) {
     tokio::spawn(async move {

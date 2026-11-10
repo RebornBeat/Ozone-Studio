@@ -606,13 +606,37 @@ pub struct NetworkConfig {
     pub enable_mdns: bool,
     /// Sync interval in seconds for batch sync
     pub batch_sync_interval_secs: u64,
-    /// NOTIFY AND GATE (operator 2026-11-10). When true, creation of a methodology, jurisdiction rule set or pipeline is published as a
-    /// MANIFEST (type, name, body hash, keywords — no content) to THIS instance's marketplace listing, and ONE notification is pushed to every
-    /// connected peer on the shared marketplace topic (never a message per peer). Blueprints are private and never published. Paired peers
-    /// pull the listing; the receiving marketplace lists each item as an offer and a gate / the operator decides whether to download it.
-    /// Nothing is downloaded or applied automatically. Default false (opt-in, so an upgraded deployment shares nothing until enabled).
+    /// MARKETPLACE — PUBLISH (operator 2026-11-10: notify and gate). When true, creation of a methodology, jurisdiction rule set or pipeline
+    /// is published as a MANIFEST (type, name, body hash, keywords — no content) to THIS instance's marketplace listing, and ONE notification
+    /// (no names, no content) is pushed to every connected peer on the shared marketplace topic — one push per batch of creations, never a
+    /// message per peer. Blueprints, user data, tool-result nodes and every other container are never published. A connected peer that
+    /// asks for an item you published is served it (chunked) only if the operator on THEIR side approved the download. Default false.
+    #[serde(default)]
+    pub marketplace_publish: bool,
+    /// MARKETPLACE — ACCEPT OFFERS (operator 2026-11-10). When true, this instance pulls the manifests connected peers have published, lists
+    /// each as an OFFER (with a local have / same_name / conflict / new classification and an advisory zero-shot recommendation), and
+    /// downloads an item ONLY after the operator decided `download` on that offer; a download is re-verified against the announced hash and
+    /// then imported through the normal create path (methodology), staged (jurisdiction) or recorded as approval-only (tools, pipelines).
+    /// Nothing is ever downloaded, applied or synced automatically. Default false.
+    #[serde(default)]
+    pub marketplace_accept_offers: bool,
+    /// DEPRECATED ALIAS (kept so existing configs behave the same): `auto_broadcast_sync = true` turns on BOTH `marketplace_publish` and
+    /// `marketplace_accept_offers`. The name is historical — nothing syncs automatically; use the two explicit switches. Default false.
     #[serde(default)]
     pub auto_broadcast_sync: bool,
+}
+
+impl NetworkConfig {
+    /// Publish this instance's own creations to the marketplace listing (`marketplace_publish`, or the deprecated alias).
+    pub fn publish_enabled(&self) -> bool {
+        self.marketplace_publish || self.auto_broadcast_sync
+    }
+
+    /// Collect peers' offers, serve fetches for items this instance published, review offers and run the import loop for operator-approved
+    /// downloads (`marketplace_accept_offers`, or the deprecated alias).
+    pub fn accept_offers_enabled(&self) -> bool {
+        self.marketplace_accept_offers || self.auto_broadcast_sync
+    }
 }
 
 impl Default for NetworkConfig {
@@ -624,6 +648,8 @@ impl Default for NetworkConfig {
             max_peers: 50,
             enable_mdns: true,
             batch_sync_interval_secs: 60,
+            marketplace_publish: false,
+            marketplace_accept_offers: false,
             auto_broadcast_sync: false,
         }
     }

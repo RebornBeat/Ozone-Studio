@@ -256,6 +256,15 @@ fn append_marketplace_rejected(path: &std::path::Path, from: &PeerId, reason: &s
     let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}"));
 }
 
+/// One item handed to [`NetworkManager::on_items_announced`]: the manifest bytes (see [`announce_envelope`]) and where the body lives locally
+/// (never sent).
+pub struct AnnounceItem {
+    pub container_id: ContainerID,
+    pub item_type: SyncItemType,
+    pub manifest: Vec<u8>,
+    pub body_path: Option<String>,
+}
+
 /// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
 /// reviewed fetch can ask for exactly this item; it is never used as an identity.
 pub fn announce_envelope(item_type: &SyncItemType, name: &str, hash: &str, keywords: &[String], source_container_id: ContainerID) -> Vec<u8> {
@@ -977,9 +986,7 @@ impl NetworkManager {
         Ok(())
     }
 
-    /// PUBLISH one allowed item (methodology, jurisdiction rule set, pipeline, tool) to MY marketplace listing and push ONE notification to
-    /// every connected instance (a single publish on the shared marketplace topic). Nothing is applied anywhere: a connected peer pulls the
-    /// listing and gates what it sees.
+    /// PUBLISH one allowed item — the single-item form of [`NetworkManager::on_items_announced`].
     pub async fn on_item_announced(
         &self,
         container_id: ContainerID,
@@ -987,35 +994,57 @@ impl NetworkManager {
         manifest: Vec<u8>,
         body_path: Option<String>,
     ) -> OzoneResult<()> {
-        if matches!(item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
-            return Ok(()); // not a publishable kind
+        self.on_items_announced(vec![AnnounceItem { container_id, item_type, manifest, body_path }]).await
+    }
+
+    /// PUBLISH a BATCH of allowed items (methodology, jurisdiction rule set, pipeline, tool) to MY marketplace listing and push ONE
+    /// notification to every connected instance (a single publish on the shared marketplace topic), however many items the batch holds
+    /// (operator 2026-11-10: "one push", event-driven coalescing — the bridge hands over every creation event that is already available, so
+    /// there is no timer and no fixed window or size). The notification still names nothing (listing version + count only), so the door's
+    /// strict shapes are unchanged: a connected peer pulls the listing and gates what it sees. Nothing is applied anywhere.
+    pub async fn on_items_announced(&self, items: Vec<AnnounceItem>) -> OzoneResult<()> {
+        let mut to_publish: Vec<(SyncItemType, serde_json::Value)> = Vec::new();
+        let imported: serde_json::Value =
+            std::fs::read_to_string(self.data_dir_of().join("peer_imported_items.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
+        let idx_path = self.data_dir_of().join("marketplace_published_bodies.json");
+        let mut idx: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&idx_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let mut idx_changed = false;
+        for it in items {
+            if matches!(it.item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
+                continue; // not a publishable kind
+            }
+            let Ok(m) = serde_json::from_slice::<serde_json::Value>(&it.manifest) else { continue };
+            // an item we just IMPORTED from a peer is not re-published (it would only echo back to where it came from)
+            let imported_key = format!("{}|{}", m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or(""));
+            if imported.get(&imported_key).is_some() {
+                continue;
+            }
+            // LOCAL-ONLY index of where each published body lives (never sent): what a later fetch request is answered from
+            if let Some(path) = it.body_path.as_deref() {
+                idx.insert(format!("{}|{}|{}", it.item_type.as_str(), m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or("")), serde_json::json!(path));
+                idx_changed = true;
+            }
+            // observability hooks only; priority Never = nothing is queued for per-peer sending
+            let item = SyncItem {
+                container_id: it.container_id,
+                item_type: it.item_type.clone(),
+                priority: SyncPriority::Never,
+                data: it.manifest,
+                timestamp: chrono::Utc::now().timestamp() as u64,
+            };
+            self.trigger_hooks("on_item_announced", item).await?;
+            to_publish.push((it.item_type, m));
         }
-        let Ok(m) = serde_json::from_slice::<serde_json::Value>(&manifest) else { return Ok(()) };
-        // an item we just IMPORTED from a peer is not re-published (it would only echo back to where it came from)
-        let imported_key = format!("{}|{}", m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or(""));
-        let imported: serde_json::Value = std::fs::read_to_string(self.data_dir_of().join("peer_imported_items.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
-        if imported.get(&imported_key).is_some() {
-            return Ok(());
-        }
-        // LOCAL-ONLY index of where each published body lives (never sent): what a later fetch request is answered from
-        if let Some(path) = body_path.as_deref() {
-            let idx_path = self.data_dir_of().join("marketplace_published_bodies.json");
-            let mut idx: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&idx_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-            idx.insert(format!("{}|{}|{}", item_type.as_str(), m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or("")), serde_json::json!(path));
+        if idx_changed {
             let _ = std::fs::write(&idx_path, serde_json::to_string_pretty(&idx).unwrap_or_default());
         }
-        // observability hooks only; priority Never = nothing is queued for per-peer sending
-        let item = SyncItem {
-            container_id,
-            item_type: item_type.clone(),
-            priority: SyncPriority::Never,
-            data: manifest,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-        self.trigger_hooks("on_item_announced", item).await?;
-        match self.publish_to_marketplace(&item_type, &m).await {
-            Ok(n) => tracing::info!("P2P: marketplace updated; one notification pushed to {} connected peer(s)", n),
-            Err(e) => tracing::debug!("P2P: marketplace updated locally; no push ({})", e),
+        if to_publish.is_empty() {
+            return Ok(());
+        }
+        let n_items = to_publish.len();
+        match self.publish_batch_to_marketplace(&to_publish).await {
+            Ok(n) => tracing::info!("P2P: marketplace updated with {} item(s); ONE notification pushed to {} connected peer(s)", n_items, n),
+            Err(e) => tracing::debug!("P2P: marketplace updated locally with {} item(s); no push ({})", n_items, e),
         }
         Ok(())
     }
@@ -1024,22 +1053,31 @@ impl NetworkManager {
         self.paired_peers_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."))
     }
 
-    /// Add `manifest` to MY marketplace listing (`marketplace_published.json`, keyed by type + name, so a re-publish replaces) and push ONE
-    /// notification on the shared topic. The notification names nothing — only the listing version and how many items there are.
+    /// Add `manifest` to MY marketplace listing — the single-item form of [`NetworkManager::publish_batch_to_marketplace`].
     pub async fn publish_to_marketplace(&self, item_type: &SyncItemType, manifest: &serde_json::Value) -> OzoneResult<usize> {
+        self.publish_batch_to_marketplace(&[(item_type.clone(), manifest.clone())]).await
+    }
+
+    /// Add every manifest of the batch to MY marketplace listing (`marketplace_published.json`, keyed by type + name, so a re-publish replaces;
+    /// written ONCE) and push ONE notification on the shared topic. The notification names nothing — only the listing version, how many items
+    /// the listing holds, and the item type when the whole batch is of one type (otherwise none; the receiver's door accepts both).
+    pub async fn publish_batch_to_marketplace(&self, items: &[(SyncItemType, serde_json::Value)]) -> OzoneResult<usize> {
         let path = self.data_dir_of().join("marketplace_published.json");
         let mut listing: serde_json::Map<String, serde_json::Value> =
             std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        listing.insert(format!("{}|{}", item_type.as_str(), manifest["name"].as_str().unwrap_or("")), manifest.clone());
+        for (item_type, manifest) in items {
+            listing.insert(format!("{}|{}", item_type.as_str(), manifest["name"].as_str().unwrap_or("")), manifest.clone());
+        }
         let version = body_hash(serde_json::to_string(&listing).unwrap_or_default().as_bytes());
         if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&listing).unwrap_or_default()) {
             tracing::warn!("P2P: could not write the marketplace listing: {}", e);
         }
+        let one_type = items.first().map(|(t, _)| t.as_str()).filter(|t0| items.iter().all(|(t, _)| t.as_str() == *t0));
         let notify = serde_json::to_vec(&serde_json::json!({
             "kind": "marketplace_notify",
             "listing_version": version,
             "count": listing.len(),
-            "item_type": item_type.as_str(),
+            "item_type": one_type,
         }))
         .unwrap_or_default();
         self.broadcast(MARKETPLACE_TOPIC, &notify).await
@@ -1514,9 +1552,11 @@ pub fn split_chunks(body: &str, max_bytes: usize) -> Vec<String> {
 /// * a `catalog_request` → answer with MY listing (`marketplace_published.json`) — manifests only, no bodies;
 /// * a `fetch_request` → serve ONLY an item that is in my published index, only if its body still hashes to the requested hash, in chunks
 ///   (`fetch_chunk`, `FETCH_CHUNK_BYTES` each; blueprints and anything unpublished can never be served); otherwise a `fetch_error`.
+/// `serve` (= `marketplace_publish`) turns on the catalog_request / fetch_request answers; `pull` (= `marketplace_accept_offers`) turns on the
+/// catalog_request sent for a `marketplace_notify`. Either may be on without the other.
 /// A `catalog` / `fetch_chunk` / `fetch_error` is only recorded here — the marketplace lists offers and `orchestrator::peer_import` handles
 /// the chunks of requests WE made. Progress is an offset file; only COMPLETE lines are processed.
-pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<NetworkManager>>, data_dir: String) {
+pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<NetworkManager>>, data_dir: String, serve: bool, pull: bool) {
     tokio::spawn(async move {
         let dir = std::path::PathBuf::from(&data_dir);
         let log = dir.join("peer_marketplace_inbox.jsonl");
@@ -1546,7 +1586,8 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                 let Some(from) = row["from_peer"].as_str() else { continue };
                 let Ok(peer) = from.parse::<PeerId>() else { continue };
                 match env["kind"].as_str() {
-                    Some("marketplace_notify") => {
+                    // PULL side (`marketplace_accept_offers`): a peer published something — ask for its listing
+                    Some("marketplace_notify") if pull => {
                         let v = env["listing_version"].as_str().unwrap_or("");
                         if v.is_empty() || versions.get(from).and_then(|x| x.as_str()) == Some(v) {
                             continue;
@@ -1556,7 +1597,8 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                             versions.insert(from.to_string(), serde_json::json!(v));
                         }
                     }
-                    Some("catalog_request") => {
+                    // SERVE side (`marketplace_publish`): hand our listing (manifests only) to a connected peer that asks for it
+                    Some("catalog_request") if serve => {
                         let listing: serde_json::Map<String, serde_json::Value> =
                             std::fs::read_to_string(&published_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
                         if listing.is_empty() {
@@ -1566,7 +1608,8 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                         let msg = serde_json::json!({"kind": "catalog", "items": items}).to_string();
                         let _ = network.read().await.send_to_connected_peer(&peer, msg.as_bytes()).await;
                     }
-                    Some("fetch_request") => {
+                    // SERVE side: a body goes out only for an item WE published and only when its hash still matches (the peer's operator approved it)
+                    Some("fetch_request") if serve => {
                         let (item_type, name, hash) = (env["item_type"].as_str().unwrap_or(""), env["name"].as_str().unwrap_or(""), env["body_hash"].as_str().unwrap_or(""));
                         let idx: serde_json::Map<String, serde_json::Value> =
                             std::fs::read_to_string(&bodies_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();

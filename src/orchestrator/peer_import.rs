@@ -124,6 +124,131 @@ pub struct RawOffer {
     pub received_at: Option<u64>,
 }
 
+/// What THIS instance already has, per offer kind, for the deterministic part of the gate (no model). Built from real local state only:
+///   * tools      — names in `mcp_tool_registry.json`;
+///   * pipelines  — the installed pipeline registry (display name and folder name);
+///   * jurisdiction — the scope files under `<data_dir>/jurisdiction/` (`global.json`, `national/<iso>.json`): stem → hash of the file's bytes
+///                    (the body hash the announcing side computes from its own body file, so identical content hashes equal).
+#[derive(Debug, Default, Clone)]
+pub struct LocalOfferIndex {
+    pub tool_names: HashSet<String>,
+    pub pipeline_names: HashSet<String>,
+    pub jurisdiction: std::collections::HashMap<String, String>,
+}
+
+impl LocalOfferIndex {
+    pub fn load(data_dir: &Path) -> Self {
+        let tool_names = std::fs::read_to_string(data_dir.join("mcp_tool_registry.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|e| e["name"].as_str().map(|n| n.trim().to_lowercase())).collect::<HashSet<String>>()))
+            .unwrap_or_default();
+        let mut pipeline_names: HashSet<String> = HashSet::new();
+        for id in crate::pipeline::registry::get_all_pipeline_ids() {
+            if let Some(n) = crate::pipeline::registry::get_pipeline_name(id) {
+                pipeline_names.insert(n.trim().to_lowercase());
+            }
+            if let Some(f) = crate::pipeline::registry::get_pipeline_folder(id) {
+                pipeline_names.insert(f.trim().to_lowercase());
+            }
+        }
+        let mut jurisdiction = std::collections::HashMap::new();
+        let root = data_dir.join("jurisdiction");
+        let mut dirs = vec![root.clone(), root.join("national")];
+        dirs.dedup();
+        for d in dirs {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let path = e.path();
+                if path.extension().map_or(true, |x| x != "json") {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|x| x.to_str()).map(|x| x.to_lowercase()) else { continue };
+                if stem.contains("registry") || stem.contains("candidates") {
+                    continue; // not scope files
+                }
+                let hash = std::fs::read(&path).map(|b| body_hash(&b)).unwrap_or_default();
+                jurisdiction.insert(stem, hash);
+            }
+        }
+        Self { tool_names, pipeline_names, jurisdiction }
+    }
+}
+
+/// Lower-case, non-alphanumerics collapsed to single spaces — the form names are compared in.
+pub fn norm_name(s: &str) -> String {
+    s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+/// The local status of ONE offer — the labels the UI chips handle: `have` (same name, same body hash), `conflict` (same name, different body
+/// hash), `same_name` (same name, and no hash can be compared for this kind — NEVER "identical"), `new`, `not_checked`. Methodologies compare
+/// name + hash against `local_methods`; jurisdiction rule sets compare the region key (the name without a "Jurisdiction:" prefix) against the
+/// local scope files and, when the offer carries a body hash, the file's hash; tools and pipelines compare names only.
+pub fn classify_offer(o: &RawOffer, local_methods: &std::collections::HashMap<String, String>, idx: &LocalOfferIndex) -> &'static str {
+    match o.item_type.as_str() {
+        "methodology" => match local_methods.get(&o.name) {
+            Some(h) if !o.hash.is_empty() && *h == o.hash => "have",
+            Some(_) => "conflict",
+            None => "new",
+        },
+        "tool" => {
+            if idx.tool_names.contains(&o.name.trim().to_lowercase()) {
+                "same_name"
+            } else {
+                "new"
+            }
+        }
+        "pipeline" => {
+            if idx.pipeline_names.contains(&o.name.trim().to_lowercase()) {
+                "same_name"
+            } else {
+                "new"
+            }
+        }
+        "jurisdiction_rule_set" => {
+            let lower = o.name.trim().to_lowercase();
+            let key = lower.strip_prefix("jurisdiction:").map(str::trim).unwrap_or(&lower).to_string();
+            match idx.jurisdiction.get(&key) {
+                Some(h) if !o.hash.is_empty() && !h.is_empty() => {
+                    if *h == o.hash {
+                        "have"
+                    } else {
+                        "conflict"
+                    }
+                }
+                Some(_) => "same_name",
+                None => "new",
+            }
+        }
+        _ => "not_checked",
+    }
+}
+
+/// The names of capability gaps this instance still WANTS (`capability_gaps.json`, status `wanted` or `missing`).
+pub fn wanted_gap_names() -> Vec<String> {
+    crate::orchestrator::tool_binding::capability_gaps()
+        .into_iter()
+        .filter(|g| matches!(g["status"].as_str(), Some("wanted") | Some("missing")))
+        .filter_map(|g| g["name"].as_str().map(String::from))
+        .collect()
+}
+
+/// A tool or pipeline offer that matches a WANTED capability gap, deterministically (no model): the offer's name equals the gap's name, one
+/// contains the other as whole words, or an offer keyword equals the gap's name. Returns the gap name. ADVISORY ONLY — it marks the offer in the
+/// view and in the review; it never approves, downloads or installs anything.
+pub fn matches_wanted(o: &RawOffer, wanted: &[String]) -> Option<String> {
+    if !matches!(o.item_type.as_str(), "tool" | "pipeline") {
+        return None;
+    }
+    let offer = norm_name(&o.name);
+    let kws: Vec<String> = o.keywords.iter().map(|k| norm_name(k)).collect();
+    let words_in = |hay: &str, needle: &str| -> bool { !needle.is_empty() && format!(" {hay} ").contains(&format!(" {needle} ")) };
+    wanted.iter().find(|g| {
+        let gn = norm_name(g);
+        !gn.is_empty() && (offer == gn || words_in(&offer, &gn) || words_in(&gn, &offer) || kws.iter().any(|k| *k == gn))
+    }).cloned()
+}
+
 /// Every distinct offer in the marketplace inbox (`announce` rows and the items of `catalog` rows), latest wins. Blueprints and unknown types can
 /// never be here (the door refuses them) but are skipped again defensively.
 pub fn collect_offers(dir: &Path) -> Vec<RawOffer> {
@@ -362,7 +487,7 @@ async fn import_pass(network: &Arc<tokio::sync::RwLock<NetworkManager>>, store: 
     Ok(())
 }
 
-/// The download loop (spawned with the marketplace exchange, only when `auto_broadcast_sync` is on). No model call; polls every 30 s.
+/// The download loop (spawned only when `marketplace_accept_offers` is on — or the deprecated alias `auto_broadcast_sync`). No model call; polls every 30 s.
 pub fn spawn_peer_import_loop(network: Arc<tokio::sync::RwLock<NetworkManager>>, store: Arc<dyn StoreAccess>, data_dir: String) {
     tokio::spawn(async move {
         let dir = PathBuf::from(&data_dir);
@@ -379,6 +504,40 @@ pub fn spawn_peer_import_loop(network: Arc<tokio::sync::RwLock<NetworkManager>>,
 
 #[cfg(test)]
 mod tests {
+    fn offer(item_type: &str, name: &str, hash: &str, kws: &[&str]) -> RawOffer {
+        RawOffer {
+            key: format!("p|{item_type}|{name}|{hash}"), from: "p".into(), item_type: item_type.into(), name: name.into(), hash: hash.into(),
+            keywords: kws.iter().map(|k| k.to_string()).collect(), announced_at: None, received_at: None,
+        }
+    }
+
+    #[test]
+    fn classify_offer_labels_every_kind_and_never_claims_identical_without_a_hash() {
+        let mut idx = LocalOfferIndex::default();
+        idx.tool_names.insert("document-mcp".into());
+        idx.pipeline_names.insert("textanalysis".into());
+        idx.jurisdiction.insert("mk".into(), "aaaaaaaaaaaaaaaa".into());
+        let none = std::collections::HashMap::new();
+        assert_eq!(classify_offer(&offer("tool", "Document-MCP", "", &[]), &none, &idx), "same_name");
+        assert_eq!(classify_offer(&offer("tool", "mesh-mcp", "", &[]), &none, &idx), "new");
+        assert_eq!(classify_offer(&offer("pipeline", "TextAnalysis", "", &[]), &none, &idx), "same_name");
+        assert_eq!(classify_offer(&offer("pipeline", "Voice2", "", &[]), &none, &idx), "new");
+        assert_eq!(classify_offer(&offer("jurisdiction_rule_set", "Jurisdiction: mk", "aaaaaaaaaaaaaaaa", &[]), &none, &idx), "have");
+        assert_eq!(classify_offer(&offer("jurisdiction_rule_set", "Jurisdiction: mk", "bbbbbbbbbbbbbbbb", &[]), &none, &idx), "conflict");
+        assert_eq!(classify_offer(&offer("jurisdiction_rule_set", "Jurisdiction: mk", "", &[]), &none, &idx), "same_name");
+        assert_eq!(classify_offer(&offer("jurisdiction_rule_set", "Jurisdiction: ie", "", &[]), &none, &idx), "new");
+        assert_eq!(classify_offer(&offer("blueprint", "x", "", &[]), &none, &idx), "not_checked");
+    }
+
+    #[test]
+    fn matches_wanted_is_deterministic_advisory_and_only_for_tools_and_pipelines() {
+        let wanted = vec!["code_callgraph".to_string(), "threed-mcp".to_string()];
+        assert_eq!(matches_wanted(&offer("tool", "Code Callgraph", "", &[]), &wanted).as_deref(), Some("code_callgraph"));
+        assert_eq!(matches_wanted(&offer("tool", "mesh", "", &["threed-mcp"]), &wanted).as_deref(), Some("threed-mcp"));
+        assert_eq!(matches_wanted(&offer("tool", "unrelated", "", &["other"]), &wanted), None);
+        assert_eq!(matches_wanted(&offer("methodology", "code callgraph", "", &[]), &wanted), None, "a methodology offer is never matched to a tool gap");
+    }
+
     use super::*;
 
     #[test]

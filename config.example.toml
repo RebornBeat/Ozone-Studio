@@ -46,6 +46,15 @@ p2p_port = 9090
 max_peers = 50
 enable_mdns = true
 batch_sync_interval_secs = 60
+# MARKETPLACE (notify and gate — NOTHING syncs, downloads or applies automatically; both default to false):
+#   marketplace_publish       = true  -> announce this instance's own methodologies / jurisdiction rule sets / pipelines as MANIFESTS
+#                                        (name, hash, keywords — no content) on its marketplace listing, with ONE push per batch of creations.
+#                                        Blueprints, user data and tool-result nodes are never published.
+#   marketplace_accept_offers = true  -> list what connected peers have published as OFFERS (with a local have / same_name / conflict / new
+#                                        label and an advisory recommendation); an item is downloaded only after YOU decide `download`.
+# `auto_broadcast_sync = true` is the DEPRECATED alias that turns on both.
+marketplace_publish = false
+marketplace_accept_offers = false
 
 [grpc]
 address = "127.0.0.1"

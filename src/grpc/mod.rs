@@ -972,20 +972,10 @@ async fn context_span_out(
     Json(v)
 }
 
-/// Lower-cased `name` of every entry of a JSON array file (e.g. `mcp_tool_registry.json`); empty when the file is absent or not an array.
-fn read_json_array_names(path: &std::path::Path) -> std::collections::HashSet<String> {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|e| e["name"].as_str().map(|n| n.to_lowercase())).collect()))
-        .unwrap_or_default()
-}
-
 /// PEER OFFERS (operator ruling 2026-11-10: notify and gate, never auto-sync). Every offer in the marketplace inbox / catalog
 /// (`collect_offers`) is only an OFFER; nothing is downloaded or applied by listing it. The deterministic part of the gate classifies a
 /// methodology offer against the local store by NAME + BODY HASH: `have` (same name, same hash → nothing to do), `conflict` (same name,
-/// different hash → review, never overwrite), `new`. A TOOL offer is classified by name against `mcp_tool_registry.json` (`same_name` /
-/// `new`, never "identical"). Pipelines and jurisdiction sets stay `not_checked` (no reliable local name/hash index). The decision
+/// different hash → review, never overwrite), `new`. A TOOL offer is classified by name against `mcp_tool_registry.json`, a PIPELINE offer by name against the installed pipeline registry, a JURISDICTION offer by region key against the local scope files (+ the file's body hash when the offer carries one) — `same_name` / `new` (or `have` / `conflict` where a hash compares), never "identical" without a hash (`peer_import::classify_offer`). A tool / pipeline offer that matches a WANTED capability gap carries `matches_wanted` (advisory). The decision
 /// (`download` / `ignore`) is the operator's, recorded in `peer_offer_decisions.json`; an approved download is then fetched and imported by
 /// `orchestrator::peer_import` (methodologies imported, jurisdiction files staged, tools and pipelines approval-only).
 fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<String, String>) -> Vec<serde_json::Value> {
@@ -993,28 +983,16 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
     let dir = std::path::Path::new(data_dir);
     let read = |name: &str| -> Value { std::fs::read_to_string(dir.join(name)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({})) };
     let (decisions, import_done, pending, reviews) = (read("peer_offer_decisions.json"), read("peer_import_done.json"), read("peer_fetch_pending.json"), read("peer_offer_reviews.json"));
-    let local_tool_names: std::collections::HashSet<String> = read_json_array_names(&dir.join("mcp_tool_registry.json"));
+    // what this instance already has per kind (tools, installed pipelines, jurisdiction scope files) + the capabilities it still WANTS
+    let local_index = crate::orchestrator::peer_import::LocalOfferIndex::load(dir);
+    let wanted = crate::orchestrator::peer_import::wanted_gap_names();
     crate::orchestrator::peer_import::collect_offers(dir)
         .into_iter()
         .map(|o| {
-            let local_status = if o.item_type == "methodology" {
-                match local_methods.get(&o.name) {
-                    Some(h) if !o.hash.is_empty() && *h == o.hash => "have",
-                    Some(_) => "conflict",
-                    None => "new",
-                }
-            } else if o.item_type == "tool" {
-                // LOCAL CLASSIFICATION of a tool offer (deterministic, no model): is a provider of this NAME already registered here?
-                // Name only — a tool offer carries no body hash to compare — so the honest labels are `same_name` / `new`; it never
-                // claims the two are identical, and nothing acts on it (the operator still decides).
-                if local_tool_names.contains(&o.name.to_lowercase()) {
-                    "same_name"
-                } else {
-                    "new"
-                }
-            } else {
-                "not_checked"
-            };
+            // the deterministic local classification (no model): have / conflict / same_name / new / not_checked — never "identical" without a hash
+            let local_status = crate::orchestrator::peer_import::classify_offer(&o, local_methods, &local_index);
+            // ADVISORY: a tool / pipeline offer that matches a WANTED capability gap (never approves anything)
+            let matches_wanted = crate::orchestrator::peer_import::matches_wanted(&o, &wanted);
             let decision = decisions
                 .get(&o.key)
                 .and_then(|d| d["decision"].as_str())
@@ -1024,6 +1002,8 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
                 "offer_key": o.key, "from_peer": o.from, "item_type": o.item_type, "name": o.name, "body_hash": o.hash,
                 "keywords": o.keywords, "announced_at": o.announced_at, "received_at": o.received_at,
                 "local_status": local_status, "decision": decision,
+                // the WANTED capability gap this offer could satisfy (null = none); acquiring a tool is only ever through this gated path
+                "matches_wanted": matches_wanted,
                 // the gate's ADVISORY recommendation (download / ignore / review) with its reason — the operator's decision is what acts
                 "review": reviews.get(&o.key).cloned().unwrap_or(Value::Null),
                 // true while an approved download has been requested and the chunks have not all arrived
@@ -1070,18 +1050,19 @@ async fn marketplace_offer_decide(State(state): State<Arc<AppState>>, Json(body)
 ///   * `methodologies` — every methodology on disk with its RULES; per rule the DECLARED `requires[]` (the binding) and,
 ///                 for rules that declare none, tools INFERRED by keyword overlap (labelled `inferred`, never presented as binding)
 ///   * `blueprints` — blueprints with their steps' pipelines and the methodology ids they cite
-///   * `policy`  — what is shared with peers (`auto_broadcast_sync`) and the review rules that apply to downloads
+///   * `policy`  — what is shared with peers (`marketplace_publish` / `marketplace_accept_offers`; `auto_broadcast_sync` is the deprecated alias for both) and the review rules that apply to downloads
 /// docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6.
 async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     use serde_json::{json, Value};
     let tools_v: Vec<Value> = mcp_list_tools(State(state.clone())).await.0["tools"].as_array().cloned().unwrap_or_default();
-    let (data_dir, auto_sync, paired, net_status, net_dir) = {
+    let (data_dir, (publish_on, accept_on, alias_on, publish_cfg, accept_cfg), paired, net_status, net_dir) = {
         let runtime = state.runtime.read().await;
         let net_dir = runtime.config.general.data_dir.clone();
         let dd = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.config.general.data_dir.clone());
         let paired = runtime.network.read().await.paired_peer_ids().await;
         let net_status = runtime.network.read().await.get_status().await;
-        (dd, runtime.config.network.auto_broadcast_sync, paired, net_status, net_dir)
+        let nc = &runtime.config.network;
+        (dd, (nc.publish_enabled(), nc.accept_offers_enabled(), nc.auto_broadcast_sync, nc.marketplace_publish, nc.marketplace_accept_offers), paired, net_status, net_dir)
     };
     // PROVIDERS (operator doctrine 2026-11-04): a provider is the MCP SERVER process behind one or more tool names — the unit that
     // is installed, trusted, started/stopped and shared. Grouped by provider id (the supervisor port table's tool dir).
@@ -1216,7 +1197,13 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
         "peer_offers_pending": peer_offers_pending,
         // live state of the exchange (real values only): connected peers, whether publishing is on, and how many inbound messages the door refused
         "exchange": {
-            "publishing_enabled": auto_sync,
+            // each switch reports what it really does; `publishing_enabled` is kept for existing readers (= publish side on)
+            "publishing_enabled": publish_on,
+            "publish_enabled": publish_on,
+            "accept_offers_enabled": accept_on,
+            "marketplace_publish": publish_cfg,
+            "marketplace_accept_offers": accept_cfg,
+            "auto_broadcast_sync_alias": alias_on,
             "p2p_enabled": net_status.enabled,
             "connected_peers": net_status.connected_peers,
             "refused_inbound": std::fs::read_to_string(std::path::Path::new(&net_dir).join("peer_marketplace_rejected.jsonl")).map(|t| t.lines().count()).unwrap_or(0),
@@ -1242,7 +1229,9 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
         "methodologies": methodologies,
         "blueprints": blueprints,
         "policy": {
-            "auto_broadcast_sync": auto_sync,
+            "auto_broadcast_sync": alias_on,
+            "marketplace_publish": publish_cfg,
+            "marketplace_accept_offers": accept_cfg,
             "downloads_require_review": true,
             "executables_require_human_approval": true,
             "installed_from_peer": [],
@@ -2539,9 +2528,9 @@ pub struct ConnectPeerRequest {
 /// empty on a fresh instance. Explicit, operator-triggered only: never
 /// called automatically by anything in this codebase. Does not itself
 /// enable broadcasting anything to the new peer — that's gated separately
-/// by `NetworkConfig::auto_broadcast_sync` (see
-/// `orchestrator::amt_loop::spawn_network_hook_bridge`'s call site in
-/// `lib.rs`).
+/// by `NetworkConfig::marketplace_publish` / `marketplace_accept_offers`
+/// (deprecated alias: `auto_broadcast_sync` = both; see the marketplace
+/// block in `lib.rs`).
 async fn connect_peer_route(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ConnectPeerRequest>,

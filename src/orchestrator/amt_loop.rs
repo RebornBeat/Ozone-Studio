@@ -1899,71 +1899,98 @@ Instruction with added constraints: IPv4 and IPv6..."#);
 }
 
 /// Bridge the graph ripple to the marketplace (operator 2026-11-10: NOTIFY AND GATE). Spawns a subscriber that turns `created` GraphEvents
-/// of the ALLOWED kinds (methodology, jurisdiction rule set, pipeline — never tool RESULT nodes, never user data) into a MANIFEST on this instance's marketplace listing plus one
-/// push notification (`NetworkManager::on_item_announced`). Blueprints are private and every other container is never announced.
+/// of the ALLOWED kinds (methodology, jurisdiction rule set, pipeline — never tool RESULT nodes, never user data) into a MANIFEST on this instance's marketplace listing plus ONE
+/// push notification (`NetworkManager::on_items_announced`). Blueprints are private and every other container is never announced.
 ///
-/// Gated by `NetworkConfig::auto_broadcast_sync` at the one real call site
-/// (src/lib.rs) — this function itself runs unconditionally once spawned,
-/// the gate is the caller's responsibility (only spawn it when the operator
-/// opted in), matching every other boot-spawned loop's convention.
+/// COALESCING (operator 2026-11-10, event-driven — no timer, no window, no size cap): after one creation event the bridge takes every event
+/// that is ALREADY available (`try_recv` until empty) and hands the whole batch over, so a burst of creations is ONE listing write and ONE push.
+///
+/// Gated by `NetworkConfig::publish_enabled()` (`marketplace_publish`, or the deprecated alias `auto_broadcast_sync`) at the one real call
+/// site (src/lib.rs) — this function itself runs unconditionally once spawned, the gate is the caller's responsibility (only spawn it when
+/// the operator opted in), matching every other boot-spawned loop's convention.
 ///
 /// Takes the SAME `Arc<RwLock<NetworkManager>>` the runtime already stores
 /// (not a bare `Arc<NetworkManager>` — there was no other real caller to
-/// have fixed this mismatch before; `on_*_created` are all `&self` methods,
-/// so a `.read().await` guard per event is correct and does not block
+/// have fixed this mismatch before; `on_*` are all `&self` methods,
+/// so a `.read().await` guard per batch is correct and does not block
 /// unrelated readers for long).
 pub fn spawn_network_hook_bridge(
     hub: &'static crate::graph_events::GraphEventHub,
     network: std::sync::Arc<tokio::sync::RwLock<crate::network::NetworkManager>>,
     store: std::sync::Arc<dyn crate::orchestrator::StoreAccess>,
 ) {
-    use crate::network::SyncItemType;
+    use crate::network::{AnnounceItem, SyncItemType};
+    use tokio::sync::broadcast::error::{RecvError, TryRecvError};
     let mut rx = hub.subscribe();
     tokio::spawn(async move {
+        // One event -> one manifest (or None: not an allowed kind / no name / unreadable).
+        async fn manifest_of(store: &std::sync::Arc<dyn crate::orchestrator::StoreAccess>, evt: &crate::graph_events::GraphEvent) -> Option<AnnounceItem> {
+            if evt.event != "created" {
+                return None;
+            }
+            // NOTIFY AND GATE (operator 2026-11-10): only these kinds are ever announced, and only as a MANIFEST (name + body hash +
+            // keywords, no content). Blueprints are PRIVATE; findings, events, chat and every other container are never announced.
+            let item_type = match evt.container_type.as_str() {
+                "Methodology" => SyncItemType::Methodology,
+                "JurisdictionRuleSet" => SyncItemType::JurisdictionRuleSet,
+                "Pipeline" => SyncItemType::Pipeline,
+                // NOT "McpEntity": an McpEntity container is a graph NODE built from an MCP tool's RESULT (e.g. every Element / StyleRule of an
+                // ingested UI document) — user data, not a tool. Announcing those as "tool" offers would publish the user's own content to
+                // peers. A tool offer, if ever published, comes from the tool REGISTRY, never from a container-created event.
+                _ => return None,
+            };
+            let Ok(Some(c)) = store.get_container(evt.container_id).await else { return None };
+            let name = c.pointer("/local_state/metadata/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            if name.is_empty() {
+                return None;
+            }
+            let keywords: Vec<String> = c
+                .pointer("/local_state/context/keywords")
+                .and_then(|k| serde_json::from_value::<Vec<String>>(k.clone()).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|k| !crate::shared_contracts::keyword_model::is_marker(k)) // scope markers can carry project ids — never announced
+                .collect();
+            // the body hash is the item's identity on the other side; an item with no readable body is announced without one
+            let body_path = c.pointer("/local_state/storage/object_store_path").and_then(|v| v.as_str()).map(String::from);
+            let hash = body_path
+                .as_deref()
+                .and_then(crate::orchestrator::tool_binding::read_object_file)
+                .map(|body| crate::network::body_hash(body.as_bytes()))
+                .unwrap_or_default();
+            let manifest = crate::network::announce_envelope(&item_type, &name, &hash, &keywords, evt.container_id);
+            Some(AnnounceItem { container_id: evt.container_id, item_type, manifest, body_path })
+        }
         loop {
-            match rx.recv().await {
-                Ok(evt) => {
-                    if evt.event != "created" {
-                        continue;
-                    }
-                    // NOTIFY AND GATE (operator 2026-11-10): only these kinds are ever announced, and only as a MANIFEST (name + body hash +
-                    // keywords, no content). Blueprints are PRIVATE; findings, events, chat and every other container are never announced.
-                    let item_type = match evt.container_type.as_str() {
-                        "Methodology" => SyncItemType::Methodology,
-                        "JurisdictionRuleSet" => SyncItemType::JurisdictionRuleSet,
-                        "Pipeline" => SyncItemType::Pipeline,
-                        // NOT "McpEntity": an McpEntity container is a graph NODE built from an MCP tool's RESULT (e.g. every Element / StyleRule of an
-                        // ingested UI document) — user data, not a tool. Announcing those as "tool" offers would publish the user's own content to
-                        // peers. A tool offer, if ever published, comes from the tool REGISTRY, never from a container-created event.
-                        _ => continue,
-                    };
-                    let Ok(Some(c)) = store.get_container(evt.container_id).await else { continue };
-                    let name = c.pointer("/local_state/metadata/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-                    if name.is_empty() {
-                        continue;
-                    }
-                    let keywords: Vec<String> = c
-                        .pointer("/local_state/context/keywords")
-                        .and_then(|k| serde_json::from_value::<Vec<String>>(k.clone()).ok())
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|k| !crate::shared_contracts::keyword_model::is_marker(k)) // scope markers can carry project ids — never announced
-                        .collect();
-                    // the body hash is the item's identity on the other side; an item with no readable body is announced without one
-                    let body_path = c.pointer("/local_state/storage/object_store_path").and_then(|v| v.as_str()).map(String::from);
-                    let hash = body_path
-                        .as_deref()
-                        .and_then(crate::orchestrator::tool_binding::read_object_file)
-                        .map(|body| crate::network::body_hash(body.as_bytes()))
-                        .unwrap_or_default();
-                    let manifest = crate::network::announce_envelope(&item_type, &name, &hash, &keywords, evt.container_id);
-                    let net = network.read().await;
-                    let _ = net.on_item_announced(evt.container_id, item_type, manifest, body_path).await;
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+            let first = match rx.recv().await {
+                Ok(evt) => evt,
+                Err(RecvError::Lagged(n)) => {
                     tracing::warn!(lagged = n, "Network hook bridge: missed graph events");
+                    continue;
                 }
                 Err(_) => break,
+            };
+            let mut batch: Vec<AnnounceItem> = Vec::new();
+            batch.extend(manifest_of(&store, &first).await);
+            let mut closed = false;
+            // everything that arrived meanwhile joins the SAME batch (no timer: only what is already available)
+            loop {
+                match rx.try_recv() {
+                    Ok(evt) => batch.extend(manifest_of(&store, &evt).await),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Lagged(n)) => tracing::warn!(lagged = n, "Network hook bridge: missed graph events"),
+                    Err(TryRecvError::Closed) => {
+                        closed = true;
+                        break;
+                    }
+                }
+            }
+            if !batch.is_empty() {
+                let net = network.read().await;
+                let _ = net.on_items_announced(batch).await;
+            }
+            if closed {
+                break;
             }
         }
     });

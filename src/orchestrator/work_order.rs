@@ -69,12 +69,45 @@ async fn sync_one(tm: &TaskManager, task_id: TaskID, row: &serde_json::Value) {
         tm.complete_item(task_id, "tool", &ev, "registry").await;
         tm.complete_item(task_id, "register", &ev, "registry").await;
     }
+    // MARKETPLACE OFFERS that could satisfy this gap (deterministic name / keyword match, `peer_import::matches_wanted`; ADVISORY — acquiring a tool is
+    // only ever through the gated marketplace: the operator decides each offer). A necessary gap gets ONE open item per matching offer, ticked
+    // only when the operator RECORDS a decision on that offer (`peer_offer_decisions.json`); the `tool` item itself still ticks only when the
+    // provider is observed registered.
+    if necessary {
+        if let Some(gap_name) = row["name"].as_str() {
+            for (key, text, decided) in offers_for_gap(gap_name) {
+                let _ = tm.graft_item(task_id, &key, &text).await;
+                if let Some(d) = decided {
+                    tm.complete_item(task_id, &key, &format!("the operator decided `{d}` on this marketplace offer"), "operator").await;
+                }
+            }
+        }
+    }
     if let Some(r) = resolution(row, "replanned", since) {
         tm.complete_item(task_id, "replan", r["reason"].as_str().unwrap_or(""), r["by"].as_str().unwrap_or("walk")).await;
     }
     if let Some(v) = resolution(row, "verified", since) {
         tm.complete_item(task_id, "verify", v["reason"].as_str().unwrap_or(""), v["by"].as_str().unwrap_or("walk")).await;
     }
+}
+
+/// The marketplace offers (tool / pipeline) that match the wanted gap `gap_name`, as (checklist key, text, the operator's decision if recorded).
+/// Reads the marketplace inbox and decisions from the data dir (`OZONE_ZSEI_DATA_DIR`, as `capability_gaps.json` does). No model, no network.
+fn offers_for_gap(gap_name: &str) -> Vec<(String, String, Option<String>)> {
+    let dir = std::path::PathBuf::from(std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string()));
+    let decisions: serde_json::Map<String, serde_json::Value> =
+        std::fs::read_to_string(dir.join("peer_offer_decisions.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let wanted = vec![gap_name.to_string()];
+    super::peer_import::collect_offers(&dir)
+        .into_iter()
+        .filter(|o| super::peer_import::matches_wanted(o, &wanted).is_some())
+        .map(|o| {
+            let key = format!("offer:{}", o.key);
+            let text = format!("a marketplace offer — {} \"{}\" from peer {} — may satisfy this capability; it needs the operator's decision (download after review, or ignore)", o.item_type, o.name, o.from);
+            let decided = decisions.get(&o.key).and_then(|d| d["decision"].as_str()).map(String::from);
+            (key, text, decided)
+        })
+        .collect()
 }
 
 /// Re-sync EVERY linked gap task from `capability_gaps.json` (the registry-observed `satisfied_at` can arrive outside any walk).

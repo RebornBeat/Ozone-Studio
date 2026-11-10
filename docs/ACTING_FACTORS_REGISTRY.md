@@ -83,7 +83,7 @@ Finding routes dedupe on (container, route, detail digest) [code]. Budget discip
 | OpenRouter quota monitor / catalog refresh / free-model probe | periodic | free | key present |
 | MCP autostart supervisor | boot + on demand | free | per-tool autostart; knows ports in `facts_for_port` |
 | **Task executor** | 60 s tick, one queued *prompt* task / pass | full gated walk | **opt-in `OZONE_AUTO_EXECUTE_TASKS=1`**; memory gate `OZONE_MIN_AVAIL_MB` (default 1536) after two silent host deaths |
-| P2P auto-broadcast bridge + batch driver | event / `batch_sync_interval_secs` | free | `network.auto_broadcast_sync` (default false) |
+| P2P auto-broadcast bridge + batch driver | event / `batch_sync_interval_secs` | free | `network.marketplace_publish` / `network.marketplace_accept_offers` (default false; `auto_broadcast_sync` = deprecated alias for both) |
 | Review pass (consciousness) | on demand route `/consciousness/review_pass` | creates tasks | S10 + S11 inputs; S12/S13 gap per PA §5 [doc, **unverified now**] |
 
 ### 2d. Gates (act by stopping, warning or confirming)
@@ -130,7 +130,7 @@ tool-contract defect (methodology 45), not consciousness misbehaving.
 
 ## 6. Switch and environment inventory (acting-relevant)
 `[consciousness] enabled` (I-Loop + assistant) · `OZONE_AUTO_EXECUTE_TASKS=1` (executor) · `OZONE_MIN_AVAIL_MB` · `OZONE_REQUIRE_SESSION=1`
-· `network.enable_p2p` / `auto_broadcast_sync` / `batch_sync_interval_secs` · `OZONE_JURISDICTION_FORCE_SYNC=1` · per-MCP:
+· `network.enable_p2p` / `marketplace_publish` / `marketplace_accept_offers` (alias `auto_broadcast_sync`) / `batch_sync_interval_secs` · `OZONE_JURISDICTION_FORCE_SYNC=1` · per-MCP:
 `OZONE_TERMINAL_ROLES(_FILE)`/`_ALLOW`/`_TOKEN`, `OZONE_ANDROID_SHELL_ALLOW`/`_ALLOW_EMULATOR`/`_TOKEN`,
 `OZONE_BROWSER_ALLOW_HOSTS`/`_ALLOW_EVAL`/`_NO_SANDBOX`/`_ALLOW_GLOBALS`, `OZONE_FARM_URL`/`_API_KEY_FILE`/`_ALLOW_HOSTS`.
 

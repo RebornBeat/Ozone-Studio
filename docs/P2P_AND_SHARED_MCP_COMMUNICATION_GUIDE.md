@@ -172,8 +172,10 @@ real and already connected: `orchestrator::amt_loop::spawn_network_hook_bridge`
 subscribes to the `GraphEventHub` and, on every `"created"` event, calls
 the matching `on_methodology_created` / `on_blueprint_created` /
 `on_container_created` method based on the container's real type — gated
-by `NetworkConfig::auto_broadcast_sync` at its one call site in
-`src/lib.rs`. So the *domain logic* ("what should sync, and when") is not
+by `NetworkConfig::marketplace_publish` / `marketplace_accept_offers`
+(deprecated alias `auto_broadcast_sync` = both; 2026-11-10: the bridge now
+announces only manifests of the allowed kinds, coalesced into one push) at its
+one call site in `src/lib.rs`. So the *domain logic* ("what should sync, and when") is not
 the broken part of this system.
 
 ### 2.3 Current real state of the transport — verified live, this pass

@@ -1524,34 +1524,45 @@ impl OzoneRuntime {
                 );
             }
 
-            // P2P MARKETPLACE BRIDGE (operator 2026-11-10: NOTIFY AND GATE). spawn_network_hook_bridge turns real creation events of the ALLOWED
-            // kinds (methodology, jurisdiction rule set, pipeline — never blueprints, never tool-result nodes, never user data) into MANIFESTS on this instance's
-            // marketplace listing and ONE push notification on the shared marketplace topic (not a message per peer); spawn_marketplace_exchange
-            // lets CONNECTED peers pull the listing; the receiving marketplace lists offers and gates them. Nothing is downloaded or applied.
-            // Opt-in only (auto_broadcast_sync defaults false).
-            if runtime.read().await.config.network.auto_broadcast_sync {
-                tracing::info!("P2P auto-broadcast sync: ENABLED (auto_broadcast_sync=true)");
+            // P2P MARKETPLACE (operator 2026-11-10: NOTIFY AND GATE; nothing syncs automatically). Two explicit opt-in switches
+            // (`auto_broadcast_sync = true` is a deprecated alias that turns on both):
+            //   marketplace_publish       — spawn_network_hook_bridge turns real creation events of the ALLOWED kinds (methodology, jurisdiction
+            //                               rule set, pipeline — never blueprints, tool-result nodes or user data) into MANIFESTS on this instance's
+            //                               listing and ONE push notification per batch; the exchange SERVES the listing and chunked fetches of items
+            //                               WE published.
+            //   marketplace_accept_offers — the exchange PULLS peers' listings, the review loop gives an ADVISORY recommendation per offer, and the
+            //                               import loop downloads ONLY offers the operator decided `download` on.
+            let (publish_on, accept_on) = {
+                let rt = runtime.read().await;
+                (rt.config.network.publish_enabled(), rt.config.network.accept_offers_enabled())
+            };
+            if publish_on || accept_on {
+                tracing::info!(publish = publish_on, accept_offers = accept_on, "P2P marketplace: ENABLED (nothing is downloaded, applied or synced automatically)");
                 let bridge_store: Arc<dyn crate::orchestrator::StoreAccess> =
                     Arc::new(crate::orchestrator::ZseiStoreAdapter { zsei: runtime.read().await.zsei.clone() });
-                crate::orchestrator::amt_loop::spawn_network_hook_bridge(
-                    crate::graph_events::GraphEventHub::global(),
-                    runtime.read().await.network.clone(),
-                    bridge_store.clone(),
-                );
+                if publish_on {
+                    crate::orchestrator::amt_loop::spawn_network_hook_bridge(
+                        crate::graph_events::GraphEventHub::global(),
+                        runtime.read().await.network.clone(),
+                        bridge_store.clone(),
+                    );
+                }
                 // the data dir the marketplace files live in: the NETWORK's own (`config.general.data_dir`) — the swarm writes the inbox, the listing and
                 // `paired_peers.json` there, and the marketplace HTTP handlers read it from the same config value, so the exchange / review / import
                 // loops must too (an `OZONE_ZSEI_DATA_DIR` override that differed would make them read a different, empty inbox)
                 let exchange_dir = runtime.read().await.config.general.data_dir.clone();
-                // the pull side of the marketplace exchange (connected peers; manifests only, never content)
-                crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir.clone());
-                // the zero-shot half of the gate: an ADVISORY recommendation per offer (download / ignore / review) — the operator's decision acts
-                crate::orchestrator::offer_review::spawn_offer_review_loop(executor_adapter.clone(), bridge_store.clone(), exchange_dir.clone());
-                // the download half: only offers the operator decided `download` on; methodologies imported, jurisdiction files staged, tools approval-only
-                crate::orchestrator::peer_import::spawn_peer_import_loop(runtime.read().await.network.clone(), bridge_store, exchange_dir);
+                // the exchange between CONNECTED peers (manifests and approved fetches only, never anything else): serve = publish side, pull = accept side
+                crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir.clone(), publish_on, accept_on);
+                if accept_on {
+                    // the zero-shot half of the gate: an ADVISORY recommendation per offer (download / ignore / review) — the operator's decision acts
+                    crate::orchestrator::offer_review::spawn_offer_review_loop(executor_adapter.clone(), bridge_store.clone(), exchange_dir.clone());
+                    // the download half: only offers the operator decided `download` on; methodologies imported, jurisdiction files staged, tools approval-only
+                    crate::orchestrator::peer_import::spawn_peer_import_loop(runtime.read().await.network.clone(), bridge_store, exchange_dir);
+                }
                 // (the old periodic batch driver is gone: nothing feeds the Normal-priority per-peer queue any more — announcements are a single
-                // marketplace publish, see network::NetworkManager::publish_to_marketplace)
+                // marketplace publish, see network::NetworkManager::on_items_announced)
             } else {
-                tracing::info!("P2P auto-broadcast sync: disabled (auto_broadcast_sync=false, default) — container creation never reaches connected peers automatically");
+                tracing::info!("P2P marketplace: disabled (marketplace_publish / marketplace_accept_offers / auto_broadcast_sync all false, default) — nothing is published or pulled");
             }
         }
 
