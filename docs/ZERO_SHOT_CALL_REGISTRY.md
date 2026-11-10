@@ -843,3 +843,10 @@ Deterministic (no call): write-time keyword gate (`keyword_program::gate_keyword
 
 ## 21. 2026-11-10 (late) — rule gate relocation (no new call site)
 `rule_gate` (stages.rs `judge_rule_applicability` / `rule_gate_rounds`) now runs AFTER the blueprint draft, before `audit_rule_refs`, and answers two questions in the one batched call per methodology per round: applicability (which rules CLEARLY do not apply) and step fidelity (does each citing step carry out its rule). Both are asymmetric: removal needs EVERY round's "no"; a failed/unanswered call removes nothing. Samples: `rule_applicability`, `rule_step_fidelity` (all judged citations). Call count: unchanged (one per methodology per round).
+
+## 22. 2026-11-10 (late) — refinement action call sites (PARSE-ONLY)
+| # | Site | Shape | Question / use |
+|---|---|---|---|
+| 32 | `meta_loop_refinement_vote` (`meta_loop.rs::act_on_refinement_candidates`) | batched per methodology, strength-N rounds, asymmetric: a rule is split out only if EVERY round says "different concern"; unanswered / failed = no action | "does this rule belong to this methodology's own concern, or to a different focused one?" — sees the whole body, the rule and the request terms it was flagged on; samples `refinement_split` |
+| 33 | `meta_loop_refinement_draft` (`meta_loop.rs::draft_focused_methodology`) | one call per surviving rule | restate the rule as a standalone methodology using ONLY the original's content; a shell is never created |
+Deterministic (no call): the work-order tree (`work_order.rs`, `task/mod.rs` work-order section) — items ticked by real events, completion derived.

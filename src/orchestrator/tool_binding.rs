@@ -325,7 +325,7 @@ pub fn set_gap_status(name: &str, status: &str, reason: &str, by: &str) {
 }
 
 /// Record a LIFECYCLE EVENT on a gap (e.g. "replanned", "verified") WITHOUT changing its `status`: one more entry in `resolutions` (the gap's
-/// history). Idempotent per event name (the first occurrence is the record; a second call changes nothing). The work-order tree
+/// history). Skips only a consecutive repeat of the same event. The work-order tree
 /// (`orchestrator/work_order.rs`) ticks its checklist items from these real entries.
 pub fn note_gap_event(name: &str, event: &str, reason: &str, by: &str) {
     let mut rows = capability_gaps();
@@ -339,7 +339,9 @@ pub fn note_gap_event(name: &str, event: &str, reason: &str, by: &str) {
             r["resolutions"] = json!([]);
         }
         if let Some(a) = r["resolutions"].as_array_mut() {
-            if a.iter().any(|x| x["status"].as_str() == Some(event)) {
+            // only a CONSECUTIVE repeat is skipped: the same event can legitimately happen again later (a rerun of the capability's
+            // work), and each task ticks only from events that happened after it was created
+            if a.last().map(|x| x["status"].as_str() == Some(event)).unwrap_or(false) {
                 continue;
             }
             a.push(json!({ "status": event, "reason": reason, "by": by, "at": now }));

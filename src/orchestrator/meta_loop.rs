@@ -85,6 +85,9 @@ pub async fn run_methodology_meta_loop(
                 audit_methodology_quality_once(&store, &mut stats).await;
                 // 1c) REFINEMENT REPORT (E26, deterministic): aggregates what the rule gate recorded — no model call, nothing changed
                 summarize_refinement_candidates();
+                // 1d) REFINEMENT ACTION (operator 2026-11-10: "yes we want to refine, take action"): a rule that does not belong to its
+                // methodology's own concern is split out into a focused methodology (create-only; nothing is edited or deleted)
+                act_on_refinement_candidates(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
                 let gaps_result = review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
                 // (the keyword program — rollup, continuous training, settlement — runs in its OWN actors: orchestrator/keyword_loops.rs. It used
                 //  to run here and starved this pass for hours: no pass completed after 07:23 UTC on 2026-11-08.)
@@ -199,10 +202,264 @@ pub(crate) fn summarize_refinement_candidates() {
             "methodology_id": id, "methodology": name, "walks_flagged": walks, "rules_not_applicable": rules,
         })).collect::<Vec<_>>(),
         "uncovered_rule_refs": uncovered,
+        "actions": std::fs::read_to_string(format!("{}/methodology_refinement_actions.jsonl", data_dir)).map(|t| t.lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).collect::<Vec<_>>()).unwrap_or_default(),
         "note": "evidence only — no methodology is changed by this report; a sound methodology has no optional rules",
     });
     if let Err(e) = std::fs::write(format!("{}/methodology_refinement_report.json", data_dir), serde_json::to_string_pretty(&report).unwrap_or_default()) {
         tracing::warn!(error = %e, "could not write the methodology refinement report");
+    }
+}
+
+/// REFINEMENT ACTION (operator 2026-11-10). Evidence = `methodology_refinement_candidates.jsonl` (the rule gate's "clearly NOT applicable" records with
+/// the request terms they were flagged on). For every flagged (methodology, rule) with NEW evidence since it was last judged:
+///   1. VOTE (strength N, asymmetric — the action CHANGES content): "does this rule belong to the methodology's own concern, or to a different,
+///      focused one?" The vote sees the methodology's whole body (principles included), the rule and the request terms it was flagged on. The rule
+///      is split out only if EVERY round says "different concern"; one "belongs" or an unanswered / failed round = no action; an empty body = no
+///      evidence = no action. Judgments are recorded as `refinement_split` samples.
+///   2. DRAFT + CREATE: a focused methodology that restates / refines ONLY what the original contained (no new facts) is created through the
+///      existing create path (pipeline 12 `Create`; keywords go through the write gate and are validated like any other).
+///   3. RECORD (`methodology_refinement_actions.jsonl`, append-only): the split (original id, original body path, the rule, evidence count, new
+///      id) or the declined verdict. Nothing is edited or deleted: pipeline 12 has no way to remove a decision rule / heuristic (`Update` can only
+///      add; `Delete` drops a whole methodology), so the ORIGINAL keeps the rule — its retirement is recorded as pending in the report until the
+///      pipeline learns `remove_decision_rules` (an operator decision, not built).
+/// Kill switch: `OZONE_REFINEMENT_ACTION=off`. A failed call never acts.
+async fn act_on_refinement_candidates(
+    executor: &Arc<dyn PipelineExecutor>,
+    store: &Arc<dyn StoreAccess>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
+    stats: &mut PassStats,
+) {
+    use std::collections::BTreeMap;
+    if std::env::var("OZONE_REFINEMENT_ACTION").map(|v| v.eq_ignore_ascii_case("off")).unwrap_or(false) {
+        return;
+    }
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let read_lines = |name: &str| -> Vec<serde_json::Value> {
+        std::fs::read_to_string(format!("{}/{}", data_dir, name)).map(|t| t.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()).unwrap_or_default()
+    };
+    // methodology id -> (name, rule text -> (rule key, request-term sets it was flagged on))
+    let mut flagged: BTreeMap<u64, (String, BTreeMap<String, (String, Vec<Vec<String>>)>)> = BTreeMap::new();
+    for v in read_lines("methodology_refinement_candidates.jsonl") {
+        if v.get("kind").and_then(|k| k.as_str()) == Some("uncovered_rules") {
+            continue;
+        }
+        let Some(id) = v.get("methodology_id").and_then(|x| x.as_u64()) else { continue };
+        let terms: Vec<String> = v.get("request_terms").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+        let e = flagged.entry(id).or_insert_with(|| (v.get("methodology").and_then(|x| x.as_str()).unwrap_or("").to_string(), BTreeMap::new()));
+        for r in v.get("rules_not_applicable").and_then(|a| a.as_array()).into_iter().flatten() {
+            let text = r.get("text").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            if text.is_empty() {
+                continue;
+            }
+            e.1.entry(text).or_insert_with(|| (r.get("rule").and_then(|x| x.as_str()).unwrap_or("").to_string(), Vec::new())).1.push(terms.clone());
+        }
+    }
+    if flagged.is_empty() {
+        return;
+    }
+    // how much evidence each (methodology, rule) had when it was last judged (split OR declined) — only NEW evidence is judged again
+    let mut judged_at: BTreeMap<(u64, String), usize> = BTreeMap::new();
+    for a in read_lines("methodology_refinement_actions.jsonl") {
+        if let (Some(id), Some(text)) = (a.get("methodology_id").and_then(|x| x.as_u64()), a.get("rule_text").and_then(|x| x.as_str())) {
+            let n = a.get("evidence_count").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+            let e = judged_at.entry((id, text.to_string())).or_insert(0);
+            *e = (*e).max(n);
+        }
+    }
+    let strength = crate::shared_contracts::k_validation::configured_strength().max(1);
+    for (mid, (mname, rules)) in flagged {
+        let todo: Vec<(String, String, Vec<Vec<String>>)> = rules
+            .into_iter()
+            .filter(|(text, (_, ev))| ev.len() > judged_at.get(&(mid, text.clone())).copied().unwrap_or(0))
+            .map(|(text, (key, ev))| (key, text, ev))
+            .collect();
+        if todo.is_empty() {
+            continue;
+        }
+        let Some((name, _kws, body)) = methodology_whole(store, mid).await else { continue };
+        if body.trim().is_empty() {
+            continue; // no evidence (the methodology's own content) = no action
+        }
+        let body_path = store
+            .get_container(mid)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|c| c.pointer("/local_state/storage/object_store_path").and_then(|v| v.as_str()).map(String::from))
+            .unwrap_or_default();
+        let (window, window_source) = reader_window(available_models, meta_fallback);
+        // ---- the vote: survivors = unanimously "a different concern"
+        let mut alive: Vec<usize> = (0..todo.len()).collect();
+        for round in 1..=strength {
+            if alive.is_empty() {
+                break;
+            }
+            let rot = ((round - 1) as usize * alive.len()) / strength as usize;
+            alive.rotate_left(rot.min(alive.len() - 1));
+            let list = alive
+                .iter()
+                .enumerate()
+                .map(|(n, i)| {
+                    let (_, text, ev) = &todo[*i];
+                    let seen: Vec<String> = ev.iter().map(|t| t.join(", ")).collect();
+                    format!("{}. RULE: {}\n   it was judged NOT applicable on {} request(s), whose key terms were: {}", n + 1, text, ev.len(), seen.join(" | "))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let want_output = 400usize;
+            let budget = run_spans::input_budget_tokens(window, want_output);
+            let assembled = crate::context_budget::assemble(
+                vec![
+                    crate::context_budget::ContextSection::new("head", 0, format!("{}\n\nMETHODOLOGY {mid}: {name}\n\nITS WHOLE CONTENT (principles, heuristics, rules):\n", run_spans::now_line())),
+                    crate::context_budget::ContextSection::new("body", 3, body.clone()),
+                    crate::context_budget::ContextSection::new(
+                        "tail",
+                        0,
+                        format!(
+                            "\n\nRULES THAT DID NOT APPLY to requests this methodology was gathered for:\n{list}\n\nQUESTION: for EACH numbered rule — does it belong to THIS methodology's own concern (its principles and purpose), so the mismatch was just a request that did not need it? Or is it a DIFFERENT concern that deserves its own focused methodology? When it plausibly belongs here, or you are unsure, it BELONGS.\nReturn ONLY JSON: {{\"belongs\": [numbers], \"different_concern\": [numbers]}} — every number in exactly one list."
+                        ),
+                    ),
+                ],
+                budget,
+            );
+            run_spans::record_view_trims("meta_loop_refinement_vote", "", window, window_source, want_output, &assembled);
+            let prompt = assembled.text;
+            let input = serde_json::json!({"prompt": prompt, "max_tokens": want_output, "temperature": 0.1,
+                "system_prompt": "You decide whether a methodology rule belongs to its methodology's own concern. Return only valid JSON."});
+            stats.calls_made += 1;
+            let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
+            crate::orchestrator::PromptOrchestrator::capture_loop_model_call("meta_loop_refinement_vote", &prompt, &res);
+            let parsed = match &res {
+                Ok(v) => v.get("response").and_then(|r| r.as_str()).filter(|t| !t.trim().is_empty()).and_then(|t| serde_json::from_str::<serde_json::Value>(extract_json_object(t).trim()).ok()),
+                Err(_) => None,
+            };
+            let Some(v) = parsed else {
+                stats.failures += 1;
+                alive.clear(); // a failed call never acts
+                break;
+            };
+            let nums = |key: &str| -> std::collections::BTreeSet<usize> {
+                v.get(key).and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.as_u64().map(|n| n as usize).or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))).collect()).unwrap_or_default()
+            };
+            let (belongs, different) = (nums("belongs"), nums("different_concern"));
+            // 1-based numbers in this round's order; only a clear single "different_concern" survives into the next round
+            let next: Vec<usize> = alive.iter().enumerate().filter(|(n, _)| different.contains(&(n + 1)) && !belongs.contains(&(n + 1))).map(|(_, i)| *i).collect();
+            alive = next;
+        }
+        for (i, (_, text, ev)) in todo.iter().enumerate() {
+            let split = alive.contains(&i);
+            let terms: Vec<String> = ev.iter().map(|t| t.join(", ")).collect();
+            crate::keyword_program::record_judgment("refinement_split", Some(mid), text, &terms.join(" | "), "does this rule belong to a DIFFERENT concern than its methodology's own?", split, strength);
+        }
+        // ---- the action: one focused methodology per surviving rule; every verdict is recorded
+        for (i, (key, text, ev)) in todo.iter().enumerate() {
+            let mut record = serde_json::json!({
+                "ts_ms": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+                "methodology_id": mid, "methodology": mname, "rule": key, "rule_text": text, "evidence_count": ev.len(),
+                "original_body_path": body_path, "strength": strength,
+            });
+            if !alive.contains(&i) {
+                record["kind"] = serde_json::json!("declined");
+                record["reason"] = serde_json::json!("not unanimously a different concern (or a call failed) — the rule stays; judged again only when new evidence arrives");
+                append_jsonl(&data_dir, "methodology_refinement_actions.jsonl", &record);
+                continue;
+            }
+            match draft_focused_methodology(executor, available_models, meta_fallback, stats, mid, &name, &body, text).await {
+                Some(create_input) => match executor.execute(METHODOLOGY_CREATE_PIPELINE_ID, create_input.clone()).await {
+                    Ok(res) => {
+                        let new_id = res.get("methodology_id").and_then(|m| m.as_u64());
+                        tracing::info!(original = mid, new = ?new_id, "refinement: a rule that did not belong was split into a focused methodology");
+                        record["kind"] = serde_json::json!("split");
+                        record["new_methodology_id"] = serde_json::json!(new_id);
+                        record["new_name"] = create_input["name"].clone();
+                        record["original_rule_retirement"] = serde_json::json!("pending — pipeline 12 has no remove_decision_rules; the original is unchanged");
+                        stats.successes += 1;
+                        append_jsonl(&data_dir, "methodology_refinement_actions.jsonl", &record);
+                    }
+                    Err(e) => {
+                        stats.failures += 1;
+                        tracing::warn!(error = %e, original = mid, "refinement: create call failed — judged again next pass (nothing recorded)");
+                    }
+                },
+                None => {
+                    stats.failures += 1; // nothing recorded: the same evidence is judged again next pass
+                }
+            }
+        }
+    }
+}
+
+/// Draft the focused methodology for ONE split-out rule: restates / refines ONLY what the original contained. Returns the pipeline-12 `Create`
+/// input, or `None` when the draft is empty / placeholder / unparsable (nothing is created from a shell).
+#[allow(clippy::too_many_arguments)]
+async fn draft_focused_methodology(
+    executor: &Arc<dyn PipelineExecutor>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
+    stats: &mut PassStats,
+    original_id: u64,
+    original_name: &str,
+    original_body: &str,
+    rule_text: &str,
+) -> Option<serde_json::Value> {
+    let (window, window_source) = reader_window(available_models, meta_fallback);
+    let want_output = 1200usize;
+    let budget = run_spans::input_budget_tokens(window, want_output);
+    let assembled = crate::context_budget::assemble(
+        vec![
+            crate::context_budget::ContextSection::new("head", 0, format!("{}\n\nA rule does not belong to methodology {original_id}: {original_name}. It needs its own FOCUSED methodology.\n\nORIGINAL METHODOLOGY (whole):\n", run_spans::now_line())),
+            crate::context_budget::ContextSection::new("body", 3, original_body.to_string()),
+            crate::context_budget::ContextSection::new(
+                "tail",
+                0,
+                format!(
+                    "\n\nTHE RULE TO SPLIT OUT:\n{rule_text}\n\nKEYWORD RULES (the keywords you give are validated one by one before they are stored): {}\n\nWrite the focused methodology using ONLY what the original contains: restate the rule and carry over just the principles / heuristics of the original that this rule depends on. Add NO new facts. Every rule you write must apply whenever this methodology is gathered (no optional rules).\nReturn ONE JSON object: {{\"name\": \"...\", \"description\": \"...\", \"principles\": [{{\"name\": \"...\", \"description\": \"...\", \"priority\": 5}}], \"heuristics\": [{{\"condition\": \"...\", \"action\": \"...\"}}], \"decision_rules\": [{{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": []}}], \"keywords\": [\"...\"], \"topics\": [\"...\"]}}",
+                    crate::shared_contracts::keyword_model::KEYWORD_RULES
+                ),
+            ),
+        ],
+        budget,
+    );
+    run_spans::record_view_trims("meta_loop_refinement_draft", "", window, window_source, want_output, &assembled);
+    let prompt = assembled.text;
+    let input = serde_json::json!({"prompt": prompt, "max_tokens": want_output, "temperature": 0.2,
+        "system_prompt": "Restate methodology content faithfully; invent nothing. Return only valid JSON."});
+    stats.calls_made += 1;
+    let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
+    crate::orchestrator::PromptOrchestrator::capture_loop_model_call("meta_loop_refinement_draft", &prompt, &res);
+    let text = match res {
+        Ok(v) => v.get("response").and_then(|r| r.as_str()).unwrap_or("").to_string(),
+        Err(_) => return None,
+    };
+    if text.trim().is_empty() || extract_all_json_objects(&text).len() > 1 {
+        return None;
+    }
+    let parsed: serde_json::Value = serde_json::from_str(extract_json_object(&text).trim()).ok()?;
+    let real = |e: &serde_json::Value, fields: &[&str]| fields.iter().all(|f| e.get(f).and_then(|v| v.as_str()).map(|s| { let t = s.trim(); !(t.is_empty() || t == "..." || t == "…") }).unwrap_or(false));
+    // at least one decision rule with a real condition AND outcome — a shell is never created
+    let has_rule = parsed.get("decision_rules").and_then(|d| d.as_array()).map(|a| a.iter().any(|e| real(e, &["condition", "outcome"]))).unwrap_or(false);
+    let name = parsed.get("name").and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty())?.to_string();
+    if !has_rule {
+        return None;
+    }
+    Some(serde_json::json!({
+        "action": "Create", "name": name,
+        "description": parsed.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+        "category_id": 0,
+        "principles": parsed.get("principles").cloned().unwrap_or(serde_json::json!([])),
+        "heuristics": parsed.get("heuristics").cloned().unwrap_or(serde_json::json!([])),
+        "decision_rules": parsed.get("decision_rules").cloned().unwrap_or(serde_json::json!([])),
+        "keywords": parsed.get("keywords").cloned().unwrap_or(serde_json::json!([])),
+        "topics": parsed.get("topics").cloned().unwrap_or(serde_json::json!([])),
+    }))
+}
+
+/// Append one line to a data-dir jsonl (best-effort; an I/O failure never affects a pass).
+fn append_jsonl(data_dir: &str, file: &str, line: &serde_json::Value) {
+    use std::io::Write;
+    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{}/{}", data_dir, file)).and_then(|mut f| writeln!(f, "{}", line)) {
+        tracing::warn!(error = %e, file, "could not append a refinement record");
     }
 }
 

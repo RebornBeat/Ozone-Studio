@@ -2332,7 +2332,7 @@ Ok(task_id)
             let derived = done_items == t.checklist.len() && children_complete && (!t.checklist.is_empty() || !children.is_empty());
             Some(serde_json::json!({
                 "task_id": t.task_id, "kind": t.kind, "key": wo_key(t), "title": t.inputs.as_ref().and_then(|i| i.get("title")).cloned(),
-                "status": t.status, "complete": derived, "completed_at": t.completed_at,
+                "status": t.status, "complete": derived, "created_at": t.created_at, "completed_at": t.completed_at,
                 "rerun_of": t.inputs.as_ref().and_then(|i| i.get("rerun_of")).cloned(),
                 "checklist": t.checklist, "items_done": done_items, "items_total": t.checklist.len(),
                 "children": children,
