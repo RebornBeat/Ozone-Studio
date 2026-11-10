@@ -603,8 +603,9 @@ mod tests {
 
         let c = zsei.get_container(id).await.unwrap().unwrap();
         assert_eq!(c.local_state.metadata.container_type, ContainerType::CoordinationEvent);
-        assert!(c.local_state.context.keywords.contains(&"note".to_string()));
-        assert!(c.local_state.context.keywords.contains(&"zcode".to_string()));
+        // the write chokepoint namespaces the bookkeeping tags (`kind:note`, `agent:zcode`); the legacy plain form still counts
+        assert!(crate::keyword_program::has_tag(&c.local_state.context.keywords, "kind", "note"));
+        assert!(crate::keyword_program::has_tag(&c.local_state.context.keywords, "agent", "zcode"));
 
         let after = zsei
             .get_container(SHARED_CONTEXT_ROOT_ID)

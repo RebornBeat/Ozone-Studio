@@ -431,6 +431,8 @@ impl QueryProcessor {
 
         // KEYWORD VALIDATION GATE (write time): shape rules + pending registration for every writer, host or pipeline
         let gate_type = format!("{:?}", container.local_state.metadata.container_type);
+        // TAG NAMESPACING first (bookkeeping tags become `kind:` / `agent:` / `span:` / `tool:` / `node:` markers), then the shape/validation gate
+        crate::keyword_program::namespace_bookkeeping_tags(&gate_type, &mut container.local_state.context);
         crate::keyword_program::gate_keywords_on_write(&gate_type, &mut container.local_state.context);
 
         // Store the container
@@ -492,6 +494,8 @@ impl QueryProcessor {
         
         // KEYWORD VALIDATION GATE (write time): shape rules + pending registration for every writer, host or pipeline
         let gate_type = format!("{:?}", container.local_state.metadata.container_type);
+        // TAG NAMESPACING first (bookkeeping tags become `kind:` / `agent:` / `span:` / `tool:` / `node:` markers), then the shape/validation gate
+        crate::keyword_program::namespace_bookkeeping_tags(&gate_type, &mut container.local_state.context);
         crate::keyword_program::gate_keywords_on_write(&gate_type, &mut container.local_state.context);
 
         // KEYWORD PROGRAM: the keyword lifecycle — what an update added to / removed from the container's keywords

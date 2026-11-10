@@ -61,6 +61,9 @@ fn spatial_edge_budget(n_nodes: usize, n_edges: usize) -> usize {
 /// carry keywords as scope): `finding` / `tool_call` / `config_change` feed
 /// the ripple actors; `proj:<id>` / `file:<id>` feed the AMT ripple sync.
 /// ':' is stripped from kinds entirely, which also kills the scoped forms.
+/// (Tag namespacing, 2026-11-10: the write chokepoint now stores these as `kind:finding` / `kind:tool_call` / `kind:config_change`; ':' is
+/// stripped from every tool-supplied kind, so the namespaced forms cannot be forged either, and the plain forms stay reserved for the
+/// legacy rows still in a store.)
 const RESERVED_KEYWORDS: [&str; 3] = ["finding", "tool_call", "config_change"];
 
 /// Char-boundary-safe prefix.

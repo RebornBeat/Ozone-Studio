@@ -66,6 +66,104 @@ pub fn gate_keywords_on_write(container_type: &str, ctx: &mut Context) {
     }
 }
 
+/// A bookkeeping tag as a namespaced MARKER value: `ns:` + the tag lower-cased with inner whitespace turned into `-`. `None` when the result
+/// is not a valid marker (`km::is_marker`), so a tag that cannot be expressed as one is left exactly as it was.
+fn tag_marker(ns: &str, raw: &str) -> Option<String> {
+    let v = raw.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join("-");
+    let m = format!("{ns}:{v}");
+    if v.is_empty() || !km::is_marker(&m) {
+        None
+    } else {
+        Some(m)
+    }
+}
+
+/// TAG NAMESPACING (operator 2026-11-10, option A; docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md §17 finding 1 / §18.1). System BOOKKEEPING tags
+/// (event kinds, agent names, run spans, ingest node kinds) were stored as plain words in `keywords`, so a content search for "link" or
+/// "task" matched thousands of system events (`tool_call` alone was 12 % of all EU keyword slots). They are rewritten HERE, once, at the one
+/// write chokepoint (`zsei/query.rs`, before the shape/validation gate), into namespaced markers — `kind:tool_call`, `agent:sensor-tick`,
+/// `span:run`, `tool:uidocument_ingest`, `node:element` — so the existing rule (markers meet only markers; never part of the meaning pool;
+/// never sent through the model gate) keeps them out of content searches.
+/// The rewrite is STRUCTURAL, derived from each emitter's own keyword layout, never from a word list, and only for the container types
+/// whose emitters are known:
+///   * `CoordinationEvent` — `context_mirror::mirror` writes `[kind, agent, file:…, scope…, claim:…]`: position 0 → `kind:`, position 1 → `agent:`;
+///   * `Derived` — the run-span writer's literals `run-span` → `span:run` and `run-root` → `span:root` (every other Derived tag is a content term and is left alone);
+///   * `McpResult` — `mcp_graph::persist` writes `[tool, "mcp_result", …]`: position 0 → `tool:`, the literal `mcp_result` → `kind:mcp_result`;
+///   * `McpEntity` — `mcp_graph::persist` writes `[tool, node kind, call:…, scope…]`: position 0 → `tool:`, position 1 → `node:`.
+/// IDEMPOTENT (a marker is never touched), content terms and existing markers are never touched, and any other container type is returned
+/// unchanged. A rewritten term's PENDING-only registration (`validated: None`, source `created:*`, no hits) is dropped with it — a marker is
+/// never judged; a term with a verdict or hit history keeps its record. Readers accept BOTH forms during the migration: [`has_tag`].
+pub fn namespace_bookkeeping_tags(container_type: &str, ctx: &mut Context) {
+    let plain = |k: &str| !k.trim().is_empty() && !km::is_marker(k);
+    let mut renamed: Vec<(String, String)> = Vec::new();
+    let mut set = |kws: &mut Vec<String>, i: usize, ns: &str| {
+        if let Some(k) = kws.get(i).cloned() {
+            if plain(&k) {
+                if let Some(m) = tag_marker(ns, &k) {
+                    kws[i] = m.clone();
+                    renamed.push((k, m));
+                }
+            }
+        }
+    };
+    match container_type {
+        "CoordinationEvent" => {
+            set(&mut ctx.keywords, 0, "kind");
+            // the agent follows the kind; only read position 1 as the agent when position 0 is the kind (plain or already `kind:`)
+            if ctx.keywords.first().map(|k| k.starts_with("kind:")).unwrap_or(false) {
+                set(&mut ctx.keywords, 1, "agent");
+            }
+        }
+        "Derived" => {
+            // the run-span writer's two literals (`run_spans.rs`: one per pass, one root per loop)
+            for (plain_tag, marker) in [("run-span", "span:run"), ("run-root", "span:root")] {
+                for i in 0..ctx.keywords.len() {
+                    if ctx.keywords[i] == plain_tag {
+                        ctx.keywords[i] = marker.to_string();
+                        renamed.push((plain_tag.to_string(), marker.to_string()));
+                    }
+                }
+            }
+        }
+        "McpResult" => {
+            set(&mut ctx.keywords, 0, "tool");
+            for i in 0..ctx.keywords.len() {
+                if ctx.keywords[i] == "mcp_result" {
+                    ctx.keywords[i] = "kind:mcp_result".to_string();
+                    renamed.push(("mcp_result".to_string(), "kind:mcp_result".to_string()));
+                }
+            }
+        }
+        "McpEntity" => {
+            set(&mut ctx.keywords, 0, "tool");
+            if ctx.keywords.first().map(|k| k.starts_with("tool:")).unwrap_or(false) {
+                set(&mut ctx.keywords, 1, "node");
+            }
+        }
+        _ => return,
+    }
+    if renamed.is_empty() {
+        return;
+    }
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    ctx.keywords.retain(|k| seen.insert(k.to_lowercase()));
+    for (old, _) in &renamed {
+        if ctx.keywords.iter().any(|k| k == old) {
+            continue; // the plain form is still present (a second occurrence): keep its record
+        }
+        let pending_only = ctx.keyword_meta.get(old.as_str()).map(|m| m.validated.is_none() && m.source.starts_with("created:") && m.hits == TermHits::default()).unwrap_or(false);
+        if pending_only {
+            ctx.keyword_meta.remove(old.as_str());
+        }
+    }
+}
+
+/// True when `keywords` carry the bookkeeping tag `tag` in EITHER form — the legacy plain word (`tool_call`) or the namespaced marker
+/// (`kind:tool_call`). Every reader of these tags uses this during the migration, so a store that holds a mix of both keeps working.
+pub fn has_tag(keywords: &[String], ns: &str, tag: &str) -> bool {
+    keywords.iter().any(|k| k == tag || k.strip_prefix(ns).and_then(|r| r.strip_prefix(':')) == Some(tag))
+}
+
 /// VALIDATION GATE (2026-11-10; operator: every stored keyword must be validated). A term is validated when it passed the strength-N
 /// yes/no gate in keyword settlement (`validated == Some(true)`), or it is a deterministic graph fact (`identifier` / `rollup` — read from
 /// the content's own structure, not guessed by a model).
@@ -1118,6 +1216,55 @@ mod tests {
         gate_keywords_on_write("CoordinationEvent", &mut sys);
         assert_eq!(sys.keywords.len(), 2, "bookkeeping types are not gated");
         assert!(sys.keyword_meta.is_empty());
+    }
+
+    #[test]
+    fn bookkeeping_tags_are_namespaced_once_and_only_where_the_emitter_layout_is_known() {
+        let mk = |kws: &[&str]| Context { keywords: kws.iter().map(|s| s.to_string()).collect(), ..Default::default() };
+        // CoordinationEvent: [kind, agent, file:…, scope…]
+        let mut ev = mk(&["tool_call", "sensor-tick", "file:a.rs", "scope:global"]);
+        namespace_bookkeeping_tags("CoordinationEvent", &mut ev);
+        assert_eq!(ev.keywords, vec!["kind:tool_call", "agent:sensor-tick", "file:a.rs", "scope:global"]);
+        let again = ev.keywords.clone();
+        namespace_bookkeeping_tags("CoordinationEvent", &mut ev);
+        assert_eq!(ev.keywords, again, "idempotent");
+        // Derived: only the run-span literal; content terms untouched
+        let mut d = mk(&["run-span", "amt-main", "loop:i_loop"]);
+        namespace_bookkeeping_tags("Derived", &mut d);
+        assert_eq!(d.keywords, vec!["span:run", "amt-main", "loop:i_loop"]);
+        let mut root = mk(&["run-root", "loop:i_loop"]);
+        namespace_bookkeeping_tags("Derived", &mut root);
+        assert_eq!(root.keywords, vec!["span:root", "loop:i_loop"]);
+        // McpResult / McpEntity
+        let mut r = mk(&["uidocument_ingest", "mcp_result", "ws:1"]);
+        namespace_bookkeeping_tags("McpResult", &mut r);
+        assert_eq!(r.keywords, vec!["tool:uidocument_ingest", "kind:mcp_result", "ws:1"]);
+        let mut n = mk(&["uidocument_ingest", "StyleRule", "call:tool:x"]);
+        n.keyword_meta.insert("uidocument_ingest".into(), TermMeta { source: "created:unknown".into(), validated: None, hits: Default::default() });
+        n.keyword_meta.insert("StyleRule".into(), TermMeta { source: "extracted".into(), validated: Some(true), hits: Default::default() });
+        namespace_bookkeeping_tags("McpEntity", &mut n);
+        assert_eq!(n.keywords, vec!["tool:uidocument_ingest", "node:stylerule", "call:tool:x"]);
+        assert!(!n.keyword_meta.contains_key("uidocument_ingest"), "a pending-only registration goes with the renamed tag");
+        assert!(n.keyword_meta.contains_key("StyleRule"), "a verdict is kept");
+        // any other type: untouched, including content words that look like tags
+        let mut m = mk(&["tool_call", "Link", "image"]);
+        namespace_bookkeeping_tags("Methodology", &mut m);
+        namespace_bookkeeping_tags("ModalityGraph", &mut m);
+        assert_eq!(m.keywords, vec!["tool_call", "Link", "image"]);
+        // a tag that cannot be a marker stays as it is
+        let mut odd = mk(&[":bad", "agent"]);
+        namespace_bookkeeping_tags("CoordinationEvent", &mut odd);
+        assert_eq!(odd.keywords, vec![":bad", "agent"]);
+    }
+
+    #[test]
+    fn has_tag_accepts_both_forms_and_nothing_else() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        assert!(has_tag(&k(&["tool_call", "x"]), "kind", "tool_call"), "legacy plain form");
+        assert!(has_tag(&k(&["kind:tool_call"]), "kind", "tool_call"), "namespaced form");
+        assert!(!has_tag(&k(&["agent:tool_call"]), "kind", "tool_call"), "another namespace is not the kind");
+        assert!(!has_tag(&k(&["kind:tool_calls", "tool_call_x"]), "kind", "tool_call"));
+        assert!(!has_tag(&[], "kind", "tool_call"));
     }
 
     #[test]

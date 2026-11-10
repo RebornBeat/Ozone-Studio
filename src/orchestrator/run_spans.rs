@@ -14,10 +14,11 @@
 //! - The AMT ripple sync only converts events whose scope has `proj:<id>` or
 //!   `file:<path>`; these containers never carry either.
 //! - The ripple actors only react to `CoordinationEvent` (keywords `tool_call`
-//!   / `finding`), `Task` and `FileReference` containers; these containers are
+//!   / `finding`, stored as the markers `kind:tool_call` / `kind:finding`), `Task` and `FileReference` containers; these containers are
 //!   `Derived` (same type the consciousness insights use) so no actor is even
 //!   woken, and they carry neither keyword.
-//! - `trace:<id>` / `loop:<name>` / `run-span` / `run-root` are interpreted by
+//! - `trace:<id>` / `loop:<name>` / `run-span` / `run-root` (stored as the markers `span:run` / `span:root` since the 2026-11-10 tag
+//!   namespacing, applied at the write chokepoint) are interpreted by
 //!   nothing in the host; they exist so the graph can be searched by trace id.
 //!
 //! Everything here is best-effort by contract: a failure logs and returns

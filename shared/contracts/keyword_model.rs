@@ -216,7 +216,10 @@ pub fn cmp_v0(a: &RankFacts, b: &RankFacts) -> Ordering {
         .then(a.dropped.cmp(&b.dropped))
         .then_with(|| b.hotness.partial_cmp(&a.hotness).unwrap_or(Ordering::Equal))
         .then(b.packed.cmp(&a.packed))
-        .then(b.returned.cmp(&a.returned))
+        // `returned` is the number of times the container was FOUND; with packed (USED) equal, more finds is more evidence that being found
+        // did NOT lead to use (hotness = packed ÷ returned says the same once anything was packed), so fewer finds rank first. Observed on the
+        // EU 2026-11-10: system events had 10,623 finds and 0 uses — ranked on find count as a positive they beat never-found content.
+        .then(a.returned.cmp(&b.returned))
         .then_with(|| match (a.hops, b.hops) {
             (Some(x), Some(y)) => x.cmp(&y),
             (Some(_), None) => Ordering::Less,
@@ -1412,6 +1415,24 @@ mod tests {
         hot.class = MatchClass::WholeToken;
         assert_eq!(cmp_v0(&cold, &hot), Ordering::Less);
         assert_eq!(rank_v0(&[(1, cold), (2, { let mut h = cold; h.hotness = 0.5; h })]), vec![2, 1]);
+    }
+
+    #[test]
+    fn found_but_never_used_ranks_below_never_found_when_everything_else_ties() {
+        // tag-namespacing option B (operator 2026-11-10): no type rule, no weight — only the observed use key. A bookkeeping row that was
+        // returned 7 times and never packed must not beat a content container that was never returned, on recency alone.
+        let mut event = RankFacts::new(MatchClass::ExactTerm, 1);
+        let mut content = RankFacts::new(MatchClass::ExactTerm, 1);
+        event.returned = 7;
+        event.last_accessed = 2_000; // newer
+        content.last_accessed = 1_000;
+        assert_eq!(cmp_v0(&content, &event), Ordering::Less, "fewer finds first, before recency");
+        // real use still dominates: a container that was packed outranks both
+        let mut used = event;
+        used.packed = 1;
+        used.hotness = 0.14;
+        assert_eq!(cmp_v0(&used, &content), Ordering::Less);
+        assert_eq!(rank_v0(&[(1, event), (2, content), (3, used)]), vec![3, 2, 1]);
     }
 
     #[test]

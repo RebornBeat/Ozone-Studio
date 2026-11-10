@@ -83,7 +83,7 @@ impl RippleActor for SecurityFindingActor {
     }
 
     fn evaluate(&self, _evt: &GraphEvent, container: &serde_json::Value) -> Option<ActorFinding> {
-        if !container_keywords(container).iter().any(|k| k == "tool_call") {
+        if !crate::keyword_program::has_tag(&container_keywords(container), "kind", "tool_call") {
             return None;
         }
         // The content-pointer file is the whole real MirrorRequest body
@@ -133,7 +133,7 @@ impl RippleActor for CoordinationFindingActor {
     }
 
     fn evaluate(&self, _evt: &GraphEvent, container: &serde_json::Value) -> Option<ActorFinding> {
-        if !container_keywords(container).iter().any(|k| k == "finding") {
+        if !crate::keyword_program::has_tag(&container_keywords(container), "kind", "finding") {
             return None;
         }
         let name = container
@@ -346,7 +346,7 @@ impl RippleActor for McpFailureActor {
     }
 
     fn evaluate(&self, _evt: &GraphEvent, container: &serde_json::Value) -> Option<ActorFinding> {
-        if !container_keywords(container).iter().any(|k| k == "tool_call") {
+        if !crate::keyword_program::has_tag(&container_keywords(container), "kind", "tool_call") {
             return None;
         }
         // Same nesting as SecurityFindingActor: the real {tool, success,
@@ -935,6 +935,16 @@ mod tests {
             .expect("must match kind:finding");
         assert_eq!(finding.route, "CoordinationReceived");
         assert!(finding.detail.contains("a real handoff note"));
+    }
+
+    #[test]
+    fn coordination_finding_actor_matches_the_namespaced_kind_too() {
+        // tag namespacing: the chokepoint now stores `kind:finding` / `agent:zcode`; both forms must keep working
+        let container = coordination_container(vec!["kind:finding", "agent:zcode"], "a namespaced handoff note", None);
+        let evt = test_event("CoordinationEvent", 1, vec![]);
+        assert!(CoordinationFindingActor.evaluate(&evt, &container).is_some(), "kind:finding is the same signal as the plain `finding`");
+        let not_kind = coordination_container(vec!["agent:finding"], "an agent called finding", None);
+        assert!(CoordinationFindingActor.evaluate(&evt, &not_kind).is_none(), "another namespace is not the kind");
     }
 
     #[test]
