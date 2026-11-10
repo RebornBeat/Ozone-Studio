@@ -576,12 +576,14 @@ export interface MarketplaceProvider {
 export interface MarketplaceWanted {
   kind: string;
   name: string;
-  /** the gaps file also holds missing / methodology_drafted / not_needed; the overview endpoint currently returns only the `wanted` ones */
+  /** missing | methodology_drafted | not_needed | wanted — the overview returns only the `wanted` ones; GET /capability/gaps returns every status */
   status: string;
   count: number;
   first_seen: number;
   last_seen: number;
   details: { source: string; detail: string; at: number }[];
+  /** the gap's history (what the walk decided / which lifecycle event happened): status or event name, the reason, who, when */
+  resolutions?: { status: string; reason?: string; by?: string; at?: number }[];
 }
 export interface MarketplaceProviderHealth { calls: number; failures: number; degraded: boolean; last_error: string | null }
 export interface MarketplaceBindingProposal { methodology_id: number; provider?: string; tool: string; successes: number; status: string; example_step: string; last_seen: number }
@@ -605,6 +607,8 @@ export interface MarketplacePeerOffer {
   review: null | { recommendation: "download" | "ignore" | "review"; reason?: string; by?: string; rounds?: string[]; strength?: number; at?: number };
   /** true while an approved download has been requested and its chunks have not all arrived */
   downloading: boolean;
+  /** ADVISORY: this tool / pipeline offer matches a wanted capability gap (the gap's name) — it never approves anything */
+  matches_wanted?: string | null;
 }
 
 export interface MarketplaceOverview {
@@ -619,13 +623,27 @@ export interface MarketplaceOverview {
   /** offers published by connected peers (manifests only) — gated here; nothing is downloaded until the operator approves */
   peer_offers?: MarketplacePeerOffer[];
   /** live state of the marketplace exchange — real values only */
-  exchange?: { publishing_enabled: boolean; p2p_enabled: boolean; connected_peers: number; refused_inbound: number };
+  exchange?: {
+    /** kept for older readers: the publish side is on */
+    publishing_enabled: boolean;
+    /** the publish switch (`marketplace_publish`, or the deprecated `auto_broadcast_sync` alias) is effectively on */
+    publish_enabled?: boolean;
+    /** the accept-offers switch (`marketplace_accept_offers`, or the alias) is effectively on */
+    accept_offers_enabled?: boolean;
+    /** what is set in the config for each switch (the effective value above also counts the alias) */
+    marketplace_publish?: boolean;
+    marketplace_accept_offers?: boolean;
+    auto_broadcast_sync_alias?: boolean;
+    p2p_enabled: boolean;
+    connected_peers: number;
+    refused_inbound: number;
+  };
   peer_offers_pending?: number;
   /** what THIS instance publishes to the marketplace (manifests only; blueprints are never published) */
   published?: { item_type: string; name: string; body_hash?: string; keywords?: string[]; announced_at?: number }[];
   methodologies: MarketplaceMethodology[];
   blueprints: MarketplaceBlueprint[];
-  policy: { auto_broadcast_sync: boolean; downloads_require_review: boolean; executables_require_human_approval: boolean; installed_from_peer: unknown[] };
+  policy: { auto_broadcast_sync: boolean; marketplace_publish?: boolean; marketplace_accept_offers?: boolean; downloads_require_review: boolean; executables_require_human_approval: boolean; installed_from_peer: unknown[] };
 }
 
 export function fetchMarketplaceOverview(): Promise<MarketplaceOverview> {
@@ -675,4 +693,63 @@ export interface WorkOrderResponse { success: boolean; work_order?: WorkOrderNod
 
 export function fetchWorkOrder(taskId: number): Promise<WorkOrderResponse> {
   return hostGet<WorkOrderResponse>(`/order/work/${taskId}`);
+}
+
+// ── Capability gaps (GET /capability/gaps) ──────────────────────────────────────────────────
+// EVERY row of capability_gaps.json (the marketplace overview lists only the `wanted` ones).
+export interface CapabilityGapsResponse {
+  success: boolean;
+  count: number;
+  by_status: Record<string, number>;
+  gaps: MarketplaceWanted[];
+}
+
+export function fetchCapabilityGaps(): Promise<CapabilityGapsResponse> {
+  return hostGet<CapabilityGapsResponse>("/capability/gaps");
+}
+
+// ── Methodology refinement (GET /methodology/refinement) ────────────────────────────────────
+// What the rule gate recorded (rules judged clearly NOT applicable, applicable rules no step cites) and what the refinement action did.
+// Evidence and outcomes only — nothing here is scored.
+export interface RefinementReport {
+  methodologies_with_inapplicable_rules?: { methodology_id: number; methodology: string; walks_flagged: number; rules_not_applicable: Record<string, number> }[];
+  uncovered_rule_refs?: Record<string, number>;
+  note?: string;
+}
+
+export interface RefinementRetirement {
+  status: "retired" | "skipped" | "refused" | string;
+  reason?: string;
+  removed?: unknown;
+  previous_body_path?: string | null;
+  new_version?: unknown;
+}
+
+export interface RefinementAction {
+  ts_ms?: number;
+  /** "split" = a focused methodology was created for the rule · "declined" = the vote was not unanimous, the rule stays */
+  kind: "split" | "declined" | string;
+  methodology_id: number;
+  methodology?: string;
+  rule?: string;
+  rule_text?: string;
+  evidence_count?: number;
+  original_body_path?: string | null;
+  strength?: number;
+  reason?: string;
+  new_methodology_id?: number | null;
+  new_name?: string;
+  original_rule_retirement?: RefinementRetirement;
+}
+
+export interface MethodologyRefinementResponse {
+  success: boolean;
+  report: RefinementReport;
+  actions: RefinementAction[];
+  /** number of lines recorded in methodology_refinement_candidates.jsonl */
+  candidates: number;
+}
+
+export function fetchMethodologyRefinement(): Promise<MethodologyRefinementResponse> {
+  return hostGet<MethodologyRefinementResponse>("/methodology/refinement");
 }

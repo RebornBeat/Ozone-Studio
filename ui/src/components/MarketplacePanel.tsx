@@ -18,12 +18,15 @@ import {
   MarketplaceOverview,
   MarketplacePeerOffer,
   MarketplaceProvider,
+  MarketplaceWanted,
   fetchMarketplaceOverview,
+  fetchCapabilityGaps,
   decidePeerOffer,
 } from "../ozoneClient";
 import { KeywordChips } from "./KeywordChips";
+import { MethodologyRefinementPanel } from "./MethodologyRefinementPanel";
 
-type View = "catalog" | "installed" | "relations" | "contribute";
+type View = "catalog" | "installed" | "relations" | "contribute" | "refinement";
 
 const card: React.CSSProperties = { border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "9px 12px", background: "rgba(255,255,255,0.02)" };
 const chip: React.CSSProperties = { display: "inline-block", fontSize: 11, padding: "1px 7px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", color: "#9fb3c8", marginRight: 5, marginBottom: 3 };
@@ -66,6 +69,13 @@ const TONE_STYLE: Record<string, React.CSSProperties> = {
   muted: {},
 };
 const toneChip = (status: string): React.CSSProperties => ({ ...chip, ...(TONE_STYLE[STATUS_TONE[status] ?? "muted"] ?? {}) });
+/** plain wording of a capability gap's status */
+const GAP_LABEL: Record<string, string> = {
+  wanted: "wanted — still needed, not closed",
+  missing: "missing — reported, not decided yet",
+  methodology_drafted: "a methodology was drafted for it",
+  not_needed: "judged not needed",
+};
 const OFFER_LABEL: Record<string, string> = { conflict: "same name, different content", same_name: "a tool with this name is already registered", have: "already here", not_needed: "nothing to do", approval_only: "approval recorded (human install)" };
 
 /** One offer from a peer: what it is, how it compares with what is here, the gate's advisory recommendation, and where an approved download is. */
@@ -76,6 +86,9 @@ const OfferRow: React.FC<{ o: MarketplacePeerOffer; onDecide: (key: string, d: "
       <span className="omono" style={{ color: "#e8eef6" }}>{o.name}</span>{" "}
       <span style={chip}>{o.item_type.replace(/_/g, " ")}</span>
       <span style={toneChip(o.local_status)}>{OFFER_LABEL[o.local_status] ?? o.local_status}</span>
+      {o.matches_wanted && (
+        <span style={toneChip("info")} title="advisory only — it approves and installs nothing; the decision is yours">matches wanted capability: {o.matches_wanted}</span>
+      )}
       {o.review && (
         <span style={toneChip(o.review.recommendation)} title={`${o.review.by === "deterministic" ? "mechanical check" : "zero-shot review of the manifest"}: ${o.review.reason ?? ""}`}>
           gate: {o.review.recommendation}
@@ -109,6 +122,8 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<"all" | "tools" | "methodologies" | "blueprints">("all");
   const [selMeth, setSelMeth] = useState<string | null>(null);
+  // EVERY capability gap (GET /capability/gaps); the overview carries only the `wanted` ones, which stay the fallback if this call fails
+  const [gaps, setGaps] = useState<MarketplaceWanted[] | null>(null);
   const decide = async (offerKey: string, decision: "download" | "ignore") => {
     try {
       await decidePeerOffer(offerKey, decision);
@@ -125,6 +140,8 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
     const load = async () => {
       try { const o = await fetchMarketplaceOverview(); if (!cancelled) { setData(o); setErr(null); } }
       catch (e: any) { if (!cancelled) setErr(String(e?.message ?? e)); }
+      try { const g = await fetchCapabilityGaps(); if (!cancelled && Array.isArray(g.gaps)) setGaps(g.gaps); }
+      catch { /* an older host without /capability/gaps: the overview's wanted list is shown instead */ }
     };
     load();
     const t = setInterval(load, pollMs);
@@ -145,6 +162,14 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
   const totalRules = data.methodologies.reduce((n, m) => n + m.rule_count, 0);
   const offers = data.peer_offers ?? [];
   const pendingOffers = data.peer_offers_pending ?? 0;
+  // every recorded gap when the host serves /capability/gaps, else only the `wanted` ones the overview carries
+  const allGaps: MarketplaceWanted[] = gaps ?? data.wanted;
+  // the two marketplace switches (`marketplace_publish`, `marketplace_accept_offers`; the old `auto_broadcast_sync` = true enables both). An older host
+  // reports only `publishing_enabled`, then `acceptOn` is undefined and the old single-switch wording is used.
+  const ex = data.exchange;
+  // `policy.auto_broadcast_sync` is the deprecated single switch: used only when the host reports no `exchange` block at all
+  const publishOn: boolean = ex ? (ex.publish_enabled ?? ex.publishing_enabled) : Boolean(data.policy?.auto_broadcast_sync);
+  const acceptOn: boolean | undefined = ex?.accept_offers_enabled;
   const connected = data.exchange?.connected_peers ?? 0;
 
   const methForRelations = data.methodologies.find((m) => m.file === selMeth) ?? data.methodologies[0];
@@ -172,9 +197,9 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "10px 0" }}>
-        {(["catalog", "installed", "relations", "contribute"] as View[]).map((v) => (
+        {(["catalog", "installed", "relations", "contribute", "refinement"] as View[]).map((v) => (
           <button key={v} style={tabBtn(view === v)} onClick={() => setView(v)}>
-            {{ catalog: "Catalog", installed: "Installed & Offers", relations: "Relations", contribute: "Publish & Policy" }[v]}
+            {{ catalog: "Catalog", installed: "Installed & Offers", relations: "Relations", contribute: "Publish & Policy", refinement: "Refinement" }[v]}
             {v === "installed" && pendingOffers > 0 && <span className="omkt-badge" aria-label={`${pendingOffers} offers waiting`}>{pendingOffers}</span>}
           </button>
         ))}
@@ -191,17 +216,29 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
           </div>
 
           <div style={card}>
-            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600, marginBottom: 6 }}>Wanted capabilities ({data.wanted.length})</div>
-            {data.wanted.length === 0
-              ? <div className="oempty" style={{ textAlign: "left" }}>No capability is currently marked wanted. A capability that a walk needed but could not close appears here as wanted — to be built or downloaded after review. Gaps still being worked on (missing, methodology drafted) or judged not needed are kept in capability_gaps.json but this view does not list them yet (the overview endpoint returns only the wanted ones).</div>
-              : data.wanted.map((w) => (
-                <div key={w.kind + w.name} style={{ marginBottom: 6 }}>
-                  <span style={warnChip}>{w.kind}</span><span className="omono" style={{ color: "#e8eef6" }}>{w.name}</span>
-                  <span style={toneChip(w.status === "wanted" ? "pending" : w.status)}>{w.status}</span>
-                  <span style={chip}>needed {w.count}×</span>
-                  <div style={{ fontSize: 11.5, color: "#8b98ab", marginLeft: 4 }}>{w.details[w.details.length - 1]?.detail} ({w.details[w.details.length - 1]?.source})</div>
-                </div>
-              ))}
+            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600, marginBottom: 6 }}>
+              Capability gaps ({allGaps.length}){gaps === null ? " — wanted ones only (this host does not serve the full list)" : ""}
+            </div>
+            {allGaps.length === 0
+              ? <div className="oempty" style={{ textAlign: "left" }}>No capability gap is recorded. A capability a walk needed but could not close appears here as wanted — to be built or downloaded after review — and keeps its history as it is worked on (missing, methodology drafted, judged not needed).</div>
+              : allGaps.map((w) => {
+                  const last = w.details?.[w.details.length - 1];
+                  return (
+                    <div key={w.kind + w.name} style={{ marginBottom: 8 }}>
+                      <span style={warnChip}>{w.kind}</span><span className="omono" style={{ color: "#e8eef6" }}>{w.name}</span>
+                      <span style={toneChip(w.status === "wanted" ? "pending" : w.status)} title={GAP_LABEL[w.status] ?? w.status}>{w.status.replace(/_/g, " ")}</span>
+                      <span style={chip}>needed {w.count}×</span>
+                      {last && <div style={{ fontSize: 11.5, color: "#8b98ab", marginLeft: 4 }}>{last.detail} ({last.source})</div>}
+                      {Array.isArray(w.resolutions) && w.resolutions.length > 0 && (
+                        <div style={{ fontSize: 11, color: "#6f7f93", marginLeft: 4 }}>
+                          {w.resolutions.map((r, i) => (
+                            <div key={i}>↳ {r.status.replace(/_/g, " ")}{r.reason ? ` — ${r.reason}` : ""}{r.by ? ` · ${r.by}` : ""}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
           </div>
 
           <div style={card}>
@@ -209,7 +246,9 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
             <div className="oempty" style={{ textAlign: "left" }}>
               <div>
                 <span className={`odot ${connected > 0 ? "ok omkt-live" : "err"}`} /> {connected} peer(s) connected
-                {data.exchange && !data.exchange.publishing_enabled ? " · publishing and browsing are OFF on this instance (auto_broadcast_sync)" : ""}
+                {ex && acceptOn === undefined && !publishOn ? " · publishing and browsing are OFF on this instance (auto_broadcast_sync)" : ""}
+                {ex && acceptOn !== undefined && !publishOn ? " · publishing is OFF (set marketplace_publish = true)" : ""}
+                {ex && acceptOn === false ? " · receiving peers' offers is OFF (set marketplace_accept_offers = true)" : ""}
               </div>
               <div style={{ marginTop: 6 }}>
                 {offers.length === 0
@@ -385,6 +424,8 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
         </div>
       )}
 
+      {view === "refinement" && <MethodologyRefinementPanel />}
+
       {view === "contribute" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={card}>
@@ -407,14 +448,25 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
               </pre>
             )}
             <div style={{ marginTop: 8 }}>
-              <span className={`odot ${data.exchange?.publishing_enabled ? "ok omkt-live" : "err"}`} />{" "}
-              <strong>Publishing is {data.exchange?.publishing_enabled ? "ON" : "OFF"}</strong>
+              <span className={`odot ${publishOn ? "ok omkt-live" : "err"}`} />{" "}
+              <strong>Publishing is {publishOn ? "ON" : "OFF"}</strong>
               <span className="opanel-sub" style={{ marginLeft: 10 }}>
-                {data.exchange?.publishing_enabled
-                  ? "New methodologies, jurisdiction rule sets, pipelines and tools are published as manifests; one notification reaches every connected peer."
-                  : "Turn on auto_broadcast_sync to publish. Nothing leaves this host while it is off."}
+                {publishOn
+                  ? "New methodologies, jurisdiction rule sets and pipelines are published as manifests (blueprints never); one notification reaches every connected peer."
+                  : "Set marketplace_publish = true to publish (the older auto_broadcast_sync = true still enables publishing and accepting offers together). Nothing leaves this host while it is off."}
               </span>
             </div>
+            {acceptOn !== undefined && (
+              <div style={{ marginTop: 6 }}>
+                <span className={`odot ${acceptOn ? "ok omkt-live" : "err"}`} />{" "}
+                <strong>Accepting offers is {acceptOn ? "ON" : "OFF"}</strong>
+                <span className="opanel-sub" style={{ marginLeft: 10 }}>
+                  {acceptOn
+                    ? "Peers' manifests are collected and listed as offers, and downloads you approve are fetched. Nothing is downloaded or applied without your decision."
+                    : "Set marketplace_accept_offers = true to receive peers' offers. Nothing is collected or fetched while it is off."}
+                </span>
+              </div>
+            )}
           </div>
 
           <div style={card}>

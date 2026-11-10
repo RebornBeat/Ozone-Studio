@@ -69,15 +69,20 @@ interface TaskRow {
   description?: string | null;
   blueprint_name?: string;
   error?: string | null;
-  /** NOT returned by /task/list today (TaskInfo has no `kind`; a Rust-side gap) — used when present so work-order tasks (wo_*) are recognised exactly */
+  /** The task's kind (/task/list `TaskInfo.kind`): a work-order task is `wo_*`. Empty / absent for records that predate the field. */
   kind?: string;
+  /** The task this one hangs under (work-order children → their walk / gap) — /task/list `TaskInfo.parent_task_id`. */
+  parent_task_id?: number | null;
+  /** A rerun is a NEW task: the completed task it re-runs — /task/list `TaskInfo.rerun_of`. */
+  rerun_of?: number | null;
 }
 
 /** A work-order task (the universal checklist's AMT branch / step / capability-gap nodes). They are not the user's tasks: they live in the
- * work-order tree of the task detail view and must not flood the recent-task list. Exact when `kind` is returned; until then the only tasks the
- * host creates with the status "open" are work-order tasks (src/task/mod.rs create_work_task). */
+ * work-order tree of the task detail view and must not flood the recent-task list. Exact when the host returns a non-empty `kind`
+ * (`wo_*`); only for records without a kind is the old fallback used — the host creates work-order tasks with the status "open"
+ * (src/task/mod.rs create_work_task) and no ordinary task has it. */
 function isWorkOrderRow(t: TaskRow, norm: (v: string) => string): boolean {
-  if (typeof t.kind === "string") return t.kind.startsWith("wo_");
+  if (typeof t.kind === "string" && t.kind !== "") return t.kind.startsWith("wo_");
   return norm(t.status) === "open";
 }
 
@@ -90,7 +95,8 @@ export function TaskChip() {
   const norm = (v: string) => String(v ?? "").replace(/["']/g, "").toLowerCase();
   const allRows = data.tasks;
   const tasks = allRows.filter((t) => !isWorkOrderRow(t, norm));
-  const workOrderOpen = allRows.length - tasks.length;
+  // work-order rows still not completed (a completed work-order task is done, not "open")
+  const workOrderOpen = allRows.filter((t) => isWorkOrderRow(t, norm) && norm(t.status) !== "completed").length;
   const n = (st: string) => tasks.filter((t) => norm(t.status) === st).length;
   const running = n("running"), queued = n("queued"), failed = n("failed"), interrupted = n("interrupted");
   const awaiting = tasks.filter((t) => norm(t.status).startsWith("awaiting")).length;

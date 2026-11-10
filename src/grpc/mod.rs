@@ -203,6 +203,16 @@ pub struct TaskInfo {
     pub attempt_trail: Vec<String>,
     #[serde(default)]
     pub refusals: Vec<String>,
+    /// What the task IS ("todo", "meeting", a work-order kind `wo_*`, ...) — TaskData.kind, so the UI can tell work orders from ordinary
+    /// tasks without guessing from the status. Defaulted: older clients / stored records without it keep working.
+    #[serde(default)]
+    pub kind: String,
+    /// The task this one hangs under (a work-order child → its parent walk / gap), when it has one.
+    #[serde(default)]
+    pub parent_task_id: Option<u64>,
+    /// A rerun is a NEW task: the id of the completed task it re-runs (stored in `inputs.rerun_of`), when it is one.
+    #[serde(default)]
+    pub rerun_of: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1494,6 +1504,7 @@ async fn get_task(
                 .map(String::from);
             let model_used = task.steps.iter().rev().find_map(|s| s.model_used.clone());
             let (attempt_trail, refusals) = attempt_trail_and_refusals(&task.thinking_log);
+            let task_rerun_of = task.inputs.as_ref().and_then(|i| i.get("rerun_of")).and_then(|v| v.as_u64());
 
             Json(Some(TaskInfo {
                 task_id: task.task_id,
@@ -1536,6 +1547,9 @@ async fn get_task(
                 model_used,
                 attempt_trail,
                 refusals,
+                kind: task.kind,
+                parent_task_id: task.parent_task_id,
+                rerun_of: task_rerun_of,
             }))
         }
         None => Json(None),
@@ -1598,6 +1612,9 @@ async fn list_tasks(
                     model_used: None,
                     attempt_trail: Vec::new(),
                     refusals: Vec::new(),
+                    kind: t.kind,
+                    parent_task_id: t.parent_task_id,
+                    rerun_of: inputs.get("rerun_of").and_then(|v| v.as_u64()),
                 }
             })
             .collect(),
@@ -1693,6 +1710,38 @@ async fn get_work_order(
         Some(tree) => Json(serde_json::json!({ "success": true, "work_order": tree })),
         None => Json(serde_json::json!({ "success": false, "error": "no such task" })),
     }
+}
+
+/// GET /capability/gaps — EVERY recorded capability gap (`capability_gaps.json`), whatever its status: `missing`, `methodology_drafted`,
+/// `not_needed`, `wanted`. The Marketplace overview lists only the `wanted` ones; this is the full ledger (rows are returned as stored,
+/// including `details` and the `resolutions` history; nothing is derived or scored).
+async fn get_capability_gaps() -> Json<serde_json::Value> {
+    let gaps = crate::orchestrator::tool_binding::capability_gaps();
+    let mut by_status = serde_json::Map::new();
+    for g in &gaps {
+        let st = g["status"].as_str().unwrap_or("missing").to_string();
+        let n = by_status.get(&st).and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+        by_status.insert(st, serde_json::json!(n));
+    }
+    Json(serde_json::json!({ "success": true, "count": gaps.len(), "by_status": by_status, "gaps": gaps }))
+}
+
+/// GET /methodology/refinement — what the rule gate recorded and what the refinement action did (read-only). `report` is
+/// `methodology_refinement_report.json` (an empty well-formed object when it has not been written yet); `actions` are the parsed lines of
+/// `methodology_refinement_actions.jsonl` read LIVE (the report embeds a copy that is only refreshed once per meta-loop pass); `candidates`
+/// is the number of recorded candidate lines. Data dir = `OZONE_ZSEI_DATA_DIR` else `zsei_data`, exactly like the writers in meta_loop.rs.
+async fn get_methodology_refinement() -> Json<serde_json::Value> {
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let read = |name: &str| std::fs::read_to_string(format!("{}/{}", data_dir, name)).ok();
+    let report = read("methodology_refinement_report.json")
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .filter(|v| v.is_object())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let actions: Vec<serde_json::Value> = read("methodology_refinement_actions.jsonl")
+        .map(|t| t.lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).collect())
+        .unwrap_or_default();
+    let candidates = read("methodology_refinement_candidates.jsonl").map(|t| t.lines().filter(|l| !l.trim().is_empty()).count()).unwrap_or(0);
+    Json(serde_json::json!({ "success": true, "report": report, "actions": actions, "candidates": candidates }))
 }
 
 /// GET /order/global — the universal native task order (guide §9, Phase
@@ -4886,6 +4935,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/list", post(list_tasks))
         .route("/order/global", get(get_global_order))
         .route("/order/work/:task_id", get(get_work_order))
+        .route("/capability/gaps", get(get_capability_gaps))
+        .route("/methodology/refinement", get(get_methodology_refinement))
         .route("/assistant/feed", get(get_assistant_feed))
         .route("/consciousness/review_pass", post(consciousness_review_pass))
         .route("/task/cancel", post(cancel_task))

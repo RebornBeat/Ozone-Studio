@@ -60,7 +60,10 @@ function when(ts?: number | null): string {
 }
 
 const ItemRow: React.FC<{ item: WorkOrderItem }> = ({ item }) => {
-  const awaitingOperator = item.key === "tool" && !item.done;
+  // `tool` = nothing creates/acquires the tool automatically; `offer:<key>` = a peer's marketplace offer that may satisfy the capability, waiting
+  // for the operator's decision (its text says so). Both are "not yet completed", shown as awaiting the operator.
+  const isOffer = typeof item.key === "string" && item.key.startsWith("offer:");
+  const awaitingOperator = (item.key === "tool" || isOffer) && !item.done;
   const cls = item.done ? "owo-item owo-done" : awaitingOperator ? "owo-item owo-await" : "owo-item owo-open";
   return (
     <li className={cls}>
@@ -74,7 +77,7 @@ const ItemRow: React.FC<{ item: WorkOrderItem }> = ({ item }) => {
           </span>
         )}
         {item.ref ? <span className="owo-evidence"> · ref {item.ref}</span> : null}
-        {awaitingOperator && (
+        {awaitingOperator && !isOffer && (
           <span className="owo-evidence"> — nothing creates or acquires this tool automatically: marketplace download after review, or a custom pipeline</span>
         )}
       </span>
