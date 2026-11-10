@@ -134,6 +134,36 @@ pub(crate) async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> 
     Some((name, kws, body))
 }
 
+/// REFINEMENT NOTIFICATION (operator 2026-11-10). A SOUND methodology is one where ALL of its rules apply to the requests it is gathered for; a
+/// rule that does not apply means the methodology is too broad / unrefined and should be refined (e.g. split into focused ones). The rule gate
+/// (`stages::judge_rule_applicability`) therefore reports every rule it judges "clearly NOT applicable" here: one durable, append-only line per
+/// (request, methodology) with the evidence — never a `new`/`modify` gap (the meta loop would draft a new methodology from those), and nothing
+/// is changed or removed. The refinement meta loop reads `methodology_refinement_candidates.jsonl`. Best-effort: an I/O failure never affects a
+/// walk.
+pub(crate) fn record_refinement_candidate(methodology_id: u64, name: &str, rules: &[(String, String)], not_applicable: &std::collections::BTreeSet<String>, request_terms: &[String]) {
+    use std::io::Write;
+    if not_applicable.is_empty() {
+        return;
+    }
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let path = format!("{}/methodology_refinement_candidates.jsonl", data_dir);
+    let left_out: Vec<serde_json::Value> =
+        rules.iter().filter(|(k, _)| not_applicable.contains(k)).map(|(k, t)| serde_json::json!({"rule": k, "text": t})).collect();
+    let line = serde_json::json!({
+        "ts_ms": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+        "methodology_id": methodology_id,
+        "methodology": name,
+        "rules_total": rules.len(),
+        "rules_not_applicable": left_out,
+        "request_terms": request_terms,
+        "reason": "rule gate: rules clearly NOT applicable to a request this methodology was gathered for — a sound methodology has no optional rules; refine or split it",
+    })
+    .to_string();
+    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| writeln!(f, "{line}")) {
+        tracing::warn!(error = %e, "could not record a methodology refinement candidate");
+    }
+}
+
 /// METHODOLOGY QUALITY AUDIT (E18, 2026-11-07). Deterministic, no model call: a methodology with fewer than 3 usable keywords (after
 /// `request_terms` hygiene) feeds the Stage 3 floor and keyword search badly; one with no decision rule or heuristic carrying real text
 /// cannot steer a plan. Each such methodology raises ONE `modify` gap (target = its id, reason starts "quality audit") — the existing

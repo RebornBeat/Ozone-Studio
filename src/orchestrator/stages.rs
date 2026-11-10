@@ -867,6 +867,9 @@ impl PromptOrchestrator {
             }
             if !not_applicable.is_empty() {
                 tracing::info!(stage = 6, methodology = %name, left_out = not_applicable.len(), of = items.len(), "rule gate: rules judged clearly NOT applicable are left out of the plan");
+                // a sound methodology has no optional rules: tell the refinement meta loop (durable record, evidence attached)
+                let terms: Vec<String> = state.keywords.iter().cloned().collect();
+                super::meta_loop::record_refinement_candidate(id, &name, &items, &not_applicable, &terms);
             }
         }
         tracing::info!(stage = 6, methodologies = state.methodologies.len(), rules_judged = judged, left_out = dropped, "rule applicability gate complete");
