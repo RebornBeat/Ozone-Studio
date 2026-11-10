@@ -30,7 +30,7 @@ use std::sync::Arc;
 const PROMPT_PIPELINE_ID: u64 = 9;
 
 /// Container types in settlement order — the most-searched / routing-critical first.
-const SETTLE_ORDER: &[&str] = &["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "JurisdictionRuleSet", "FileReference", "Category", "McpEntity"];
+const SETTLE_ORDER: &[&str] = crate::keyword_program::GATED_TYPES; // the types the write-time gate covers = the types settlement validates
 
 /// Host-MEMORY guard (not a work cap): at most this many roll-up terms are folded into one Project/Workspace container.
 /// `OZONE_ROLLUP_TERMS_MAX` overrides it.

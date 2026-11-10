@@ -29,6 +29,40 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// Reserved `keyword_meta` key holding the CONTAINER-LEVEL hit totals (not a keyword; ignored as a term).
 pub const CONTAINER_TOTALS_KEY: &str = "*";
 
+/// The container types whose keywords are MEANING (a content search is meant to match them) — the ones the validation gate covers, in the
+/// order settlement validates them (most-searched first). Bookkeeping types (CoordinationEvent, Derived, McpResult, Experience, chat rows)
+/// carry system tags, not meaning; they are not gated.
+pub const GATED_TYPES: &[&str] =
+    &["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "JurisdictionRuleSet", "FileReference", "Category", "McpEntity"];
+
+/// THE WRITE-TIME GATE — called from the ONE place every container is created or updated (`zsei/query.rs`, which host writers and pipelines
+/// both go through), so no writer can bypass it. It cannot call a model, so it does the two things that are deterministic: (1) the SHAPE
+/// gate — empty strings, sentence-like strings (> 4 words) and case-insensitive duplicates never enter the store; markers pass untouched;
+/// (2) every term that has no `keyword_meta` yet is registered as PENDING (`validated: None`, source `created:<call_site>`) so it is
+/// visible as unvalidated and keyword settlement (Pass V) validates it — a settled container is one with no pending term.
+pub fn gate_keywords_on_write(container_type: &str, ctx: &mut Context) {
+    if !GATED_TYPES.contains(&container_type) {
+        return;
+    }
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut kept: Vec<String> = Vec::with_capacity(ctx.keywords.len());
+    for k in ctx.keywords.drain(..) {
+        let t = k.trim().to_string();
+        if t.is_empty() || (!km::is_marker(&t) && km::is_sentence_like(&t)) || !seen.insert(t.to_lowercase()) {
+            continue;
+        }
+        kept.push(t);
+    }
+    ctx.keywords = kept;
+    let site = current_origin().map(|o| o.call_site).unwrap_or_else(|| "unknown".to_string());
+    for k in ctx.keywords.iter() {
+        if km::is_marker(k) || ctx.keyword_meta.contains_key(k.as_str()) || ctx.keyword_meta.contains_key(&k.to_lowercase()) {
+            continue;
+        }
+        ctx.keyword_meta.insert(k.clone(), TermMeta { source: format!("created:{site}"), validated: None, hits: Default::default() });
+    }
+}
+
 /// VALIDATION GATE (2026-11-10; operator: every stored keyword must be validated). A term is validated when it passed the strength-N
 /// yes/no gate in keyword settlement (`validated == Some(true)`), or it is a deterministic graph fact (`identifier` / `rollup` — read from
 /// the content's own structure, not guessed by a model).
@@ -1042,6 +1076,23 @@ mod tests {
         assert!(creation_pair_eligible(&ev("Blueprint", &["x"])));
         assert!(!creation_pair_eligible(&ev("Methodology", &[])), "no request terms (created outside a request) = no pair");
         assert!(!creation_pair_eligible(&ev("CoordinationEvent", &["x"])));
+    }
+
+    #[test]
+    fn the_write_gate_applies_the_shape_rules_and_registers_pending_terms_for_gated_types_only() {
+        let mk = |kws: &[&str]| Context { keywords: kws.iter().map(|s| s.to_string()).collect(), ..Default::default() };
+        let mut ctx = mk(&["Static Analysis", "static analysis", "  ", "this is far too long to be a keyword", "scope:global", "linting"]);
+        gate_keywords_on_write("Methodology", &mut ctx);
+        assert_eq!(ctx.keywords, vec!["Static Analysis", "scope:global", "linting"], "empty / sentence / case-duplicate dropped, marker kept");
+        assert_eq!(ctx.keyword_meta.get("Static Analysis").map(|m| (m.validated, m.source.starts_with("created:"))), Some((None, true)));
+        assert!(!ctx.keyword_meta.contains_key("scope:global"), "markers never go through the gate");
+        ctx.keyword_meta.get_mut("linting").unwrap().validated = Some(true);
+        gate_keywords_on_write("Methodology", &mut ctx);
+        assert_eq!(ctx.keyword_meta.get("linting").unwrap().validated, Some(true), "an existing verdict is never reset by a later write");
+        let mut sys = mk(&["tool_call", "a b c d e f g"]);
+        gate_keywords_on_write("CoordinationEvent", &mut sys);
+        assert_eq!(sys.keywords.len(), 2, "bookkeeping types are not gated");
+        assert!(sys.keyword_meta.is_empty());
     }
 
     #[test]

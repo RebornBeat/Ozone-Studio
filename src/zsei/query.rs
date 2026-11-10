@@ -422,7 +422,11 @@ impl QueryProcessor {
                 }
             }
         }
-        
+
+        // KEYWORD VALIDATION GATE (write time): shape rules + pending registration for every writer, host or pipeline
+        let gate_type = format!("{:?}", container.local_state.metadata.container_type);
+        crate::keyword_program::gate_keywords_on_write(&gate_type, &mut container.local_state.context);
+
         // Store the container
         storage.store(&container)?;
         // KEYWORD PROGRAM: every creation (host writer or pipeline) leaves a `created` event with its origin — the first hit
@@ -480,6 +484,10 @@ impl QueryProcessor {
             container.local_state.hints = hints;
         }
         
+        // KEYWORD VALIDATION GATE (write time): shape rules + pending registration for every writer, host or pipeline
+        let gate_type = format!("{:?}", container.local_state.metadata.container_type);
+        crate::keyword_program::gate_keywords_on_write(&gate_type, &mut container.local_state.context);
+
         // KEYWORD PROGRAM: the keyword lifecycle — what an update added to / removed from the container's keywords
         crate::keyword_program::record_keywords_changed(container_id, &keywords_before, &container.local_state.context.keywords);
 
