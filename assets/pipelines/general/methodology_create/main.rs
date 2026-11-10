@@ -377,7 +377,11 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
             let mut content: serde_json::Value = existing_path
                 .as_ref()
-                .and_then(|rel| std::fs::read_to_string(format!("{}/{}", data_dir, rel)).ok())
+                .and_then(|rel| {
+                    // data dir first, then the path as given (bootstrap-seeded methodologies keep their body under the APP ROOT — read only from the
+                    // data dir this fell back to an EMPTY body and the update then wrote a file holding ONLY the additions, dropping every existing rule)
+                    std::fs::read_to_string(format!("{}/{}", data_dir, rel)).ok().or_else(|| std::fs::read_to_string(rel).ok())
+                })
                 .and_then(|t| serde_json::from_str(&t).ok())
                 .unwrap_or_else(|| serde_json::json!({"principles": [], "heuristics": [], "decision_rules": []}));
             if !content.is_object() {

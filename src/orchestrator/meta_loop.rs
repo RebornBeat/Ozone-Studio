@@ -192,11 +192,6 @@ async fn audit_methodology_quality_once(store: &Arc<dyn StoreAccess>, stats: &mu
                 && g.get("reason").and_then(|r| r.as_str()).map(|r| r.starts_with("quality audit")).unwrap_or(false)
         })
     };
-    let real = |v: Option<&serde_json::Value>, fields: &[&str]| -> bool {
-        v.and_then(|a| a.as_array()).map(|a| {
-            a.iter().any(|e| fields.iter().any(|f| e.get(f).and_then(|x| x.as_str()).map(|s| { let t = s.trim(); !t.is_empty() && t != "..." && t != "…" }).unwrap_or(false)))
-        }).unwrap_or(false)
-    };
     let mut raised = 0usize;
     for id in children {
         if audited(id) {

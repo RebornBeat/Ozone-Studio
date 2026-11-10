@@ -1527,7 +1527,7 @@ impl OzoneRuntime {
             // P2P MARKETPLACE BRIDGE (operator 2026-11-10: NOTIFY AND GATE). spawn_network_hook_bridge turns real creation events of the ALLOWED
             // kinds (methodology, jurisdiction rule set, pipeline, tool — never blueprints, never user data) into MANIFESTS on this instance's
             // marketplace listing and ONE push notification on the shared marketplace topic (not a message per peer); spawn_marketplace_exchange
-            // lets PAIRED peers pull the listing; the receiving marketplace lists offers and gates them. Nothing is downloaded or applied.
+            // lets CONNECTED peers pull the listing; the receiving marketplace lists offers and gates them. Nothing is downloaded or applied.
             // Opt-in only (auto_broadcast_sync defaults false).
             if runtime.read().await.config.network.auto_broadcast_sync {
                 tracing::info!("P2P auto-broadcast sync: ENABLED (auto_broadcast_sync=true)");
@@ -1536,15 +1536,19 @@ impl OzoneRuntime {
                 crate::orchestrator::amt_loop::spawn_network_hook_bridge(
                     crate::graph_events::GraphEventHub::global(),
                     runtime.read().await.network.clone(),
-                    bridge_store,
+                    bridge_store.clone(),
                 );
-                // the pull side of the marketplace exchange (paired peers only; manifests, never content)
-                let exchange_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.read().await.config.general.data_dir.clone());
+                // the data dir the marketplace files live in (an `.await` cannot sit inside `unwrap_or_else`'s closure, hence the match)
+                let exchange_dir = match std::env::var("OZONE_ZSEI_DATA_DIR") {
+                    Ok(d) => d,
+                    Err(_) => runtime.read().await.config.general.data_dir.clone(),
+                };
+                // the pull side of the marketplace exchange (connected peers; manifests only, never content)
                 crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir.clone());
-                // the download half: only offers the operator decided `download` on; methodologies imported, jurisdiction files staged, tools approval-only
                 // the zero-shot half of the gate: an ADVISORY recommendation per offer (download / ignore / review) — the operator's decision acts
                 crate::orchestrator::offer_review::spawn_offer_review_loop(executor_adapter.clone(), bridge_store.clone(), exchange_dir.clone());
-                crate::orchestrator::peer_import::spawn_peer_import_loop(runtime.read().await.network.clone(), bridge_store.clone(), exchange_dir);
+                // the download half: only offers the operator decided `download` on; methodologies imported, jurisdiction files staged, tools approval-only
+                crate::orchestrator::peer_import::spawn_peer_import_loop(runtime.read().await.network.clone(), bridge_store, exchange_dir);
                 // (the old periodic batch driver is gone: nothing feeds the Normal-priority per-peer queue any more — announcements are a single
                 // marketplace publish, see network::NetworkManager::publish_to_marketplace)
             } else {

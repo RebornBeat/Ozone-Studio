@@ -789,17 +789,23 @@ impl PromptOrchestrator {
         super::amt::render_within_window(state, "file_relationships", 8, text)
     }
 
-    /// RULES TEXT FOR A METHODOLOGY, applicability-filtered: the rules the rule gate judged "clearly NOT applicable" to this request are left
-    /// out; everything else (including every rule that was never judged) is rendered. Used by every prompt built AFTER the AMT.
+    /// RULES TEXT FOR A METHODOLOGY, applicability-filtered AND LABELLED: each rule is rendered as `[m<id>:r<n>] IF … THEN …` (a heuristic as
+    /// `[m<id>:h<n>] WHEN …`), so a blueprint step can CITE exactly the rules it carries out (`rule_refs`) — without the label the model has nothing
+    /// to cite for an ordinary rule. Rules the rule gate judged "clearly NOT applicable" are left out; everything else (including every rule never
+    /// judged) is rendered. Used by every prompt built AFTER the AMT; None when the methodology has no renderable rule left.
     pub(crate) fn rules_text_for(state: &OrchestrationState, method_id: u64, container: &serde_json::Value) -> Option<String> {
         let prefix = format!("m{method_id}:");
-        let skip: std::collections::HashSet<String> = state
-            .rule_verdicts
-            .iter()
-            .filter(|(k, applies)| !**applies && k.starts_with(&prefix))
-            .map(|(k, _)| k[prefix.len()..].to_string())
+        let body = super::tool_binding::read_methodology_body_value(container)?;
+        let lines: Vec<String> = Self::rule_items(&body)
+            .into_iter()
+            .filter(|(k, _)| state.rule_verdicts.get(&format!("{prefix}{k}")) != Some(&false))
+            .map(|(k, text)| format!("[{prefix}{k}] {text}"))
             .collect();
-        Self::load_methodology_rules_applicable(container, &skip)
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join(" / "))
+        }
     }
 
     /// RULE APPLICABILITY GATE (operator 2026-11-10; replaces the per-rule E14 vote that ran at the END of blueprint design).
@@ -1372,7 +1378,7 @@ PROVIDER: {{"step_type": "provider", "provider": "<provider id from the list abo
 step text unless you pin "tool"; "args" are structured arguments only when the request fixes them (e.g. {{"time": "10:10"}}).
 Use ONLY provider ids from the list above or REGISTERED CAPABILITIES — an unknown provider is dropped to an ordinary
 model step and recorded as missing.
-rule_refs: the "m<id>:r<n>" refs of the methodology rules this step carries out ([] if none).
+rule_refs: the refs — exactly as written in square brackets in APPLICABLE METHODOLOGIES, e.g. "m12:r0" — of the methodology rules this step carries out ([] if none). A ref that is not listed there is removed.
 Only set model_override when a step genuinely benefits from a different model
 than the default (e.g. a cheap/fast model for a small classification step) —
 omit it entirely otherwise.

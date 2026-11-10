@@ -7,13 +7,19 @@
 //! - Hook-based sync triggers for methodologies, blueprints, and findings
 //! - Network status monitoring
 //!
-//! SYNC BEHAVIOR (operator ruling 2026-11-10: NOTIFY AND GATE, never auto-sync):
-//! - ANNOUNCE, never send content: methodologies, jurisdiction rule sets, tools/MCPs and pipelines are announced to PAIRED peers as a
-//!   small manifest (type, name, body hash, keywords) — the body never travels in an announcement and nothing is applied automatically.
-//! - A receiving instance records the announcement as an OFFER; a review gate (duplicate / conflict / new, then operator or model decision)
-//!   decides whether to download and sync it; the decision is recorded, never assumed. Offers and decisions are listed in the marketplace.
-//! - Blueprints: PRIVATE — never announced, never synced.
-//! - New container findings: queue for batch (unchanged).  Pipeline results: ON-DEMAND only (explicit share request).
+//! SYNC BEHAVIOR (operator rulings 2026-11-10: NOTIFY AND GATE, through the MARKETPLACE, never auto-sync):
+//! - PUBLISH, never send content: a methodology, jurisdiction rule set, pipeline or tool is published as a small manifest (type, name, body hash,
+//!   keywords) to THIS instance's marketplace listing and ONE notification is pushed on the shared marketplace topic to every connected peer —
+//!   never a message per peer. The body never travels in a notification and nothing is applied automatically.
+//! - The marketplace flows among CONNECTED peers (it is a catalog). "Paired" in this module is the operator-approved peer allow-list
+//!   (`paired_peers.json`) — NOT device pairing — and it still gates every OTHER message kind (default-deny unchanged).
+//! - THE DOOR: every inbound marketplace message is validated against an allow-list (`sanitize_marketplace_message`) — only methodology,
+//!   jurisdiction_rule_set, pipeline and tool in strict shapes are accepted; everything else is refused and logged.
+//! - A receiving instance lists what it accepted as OFFERS; an ADVISORY review (mechanical identical-content check, then a zero-shot
+//!   recommendation) suggests download / ignore / review, and the OPERATOR's decision is what acts. Approved methodologies are fetched in chunks,
+//!   hash re-verified and imported through the normal create path; jurisdiction files are only staged; tools and pipelines are approval-only.
+//! - Blueprints: PRIVATE — never published, never synced.
+//! - New container findings: no longer broadcast. Pipeline results: ON-DEMAND only (explicit share request).
 //! - User data: NEVER sync (local only).
 //! - Identity of an item is NAME + BODY HASH (`body_hash`), never a container id (ids are per store and collide).
 
@@ -91,7 +97,7 @@ pub fn body_hash(bytes: &[u8]) -> String {
 }
 
 /// The ONE shared topic every instance subscribes to. A marketplace publication is a SINGLE publish here — never a message per peer. The push
-/// carries NO names or keywords (a shared topic reaches every subscriber, paired or not); details are pulled by PAIRED peers only.
+/// carries NO names or keywords (a shared topic reaches every subscriber); a connected peer that wants the details pulls the listing.
 pub const MARKETPLACE_TOPIC: &str = "ozone/marketplace";
 
 /// The message kinds of the marketplace exchange. They flow among CONNECTED peers (the marketplace is a catalog, not a trust relationship);
@@ -861,12 +867,12 @@ impl NetworkManager {
         )
         .await;
 
-        // Announcement hook - NOTIFY ONLY: a manifest (no body) goes to paired peers, who gate it.
+        // Announcement hook - NOTIFY ONLY: a manifest (no body) is published to the marketplace and ONE push reaches the connected peers, who gate it.
         self.register_hook(
             "on_item_announced",
             Arc::new(|item: SyncItem| {
                 tracing::info!(
-                    "P2P: announcing {} {} to paired peers (manifest only, no content)",
+                    "P2P: publishing {} {} to the marketplace (manifest only, no content)",
                     item.item_type.as_str(),
                     item.container_id
                 );
@@ -972,7 +978,7 @@ impl NetworkManager {
     }
 
     /// PUBLISH one allowed item (methodology, jurisdiction rule set, pipeline, tool) to MY marketplace listing and push ONE notification to
-    /// every connected instance (a single publish on the shared marketplace topic). Nothing is applied anywhere: a paired peer pulls the
+    /// every connected instance (a single publish on the shared marketplace topic). Nothing is applied anywhere: a connected peer pulls the
     /// listing and gates what it sees.
     pub async fn on_item_announced(
         &self,

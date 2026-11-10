@@ -16,6 +16,20 @@ fn compute_blake3_hash(data: &[u8]) -> Blake3Hash {
     *hash.as_bytes()
 }
 
+/// Where a container's content file is read from: an absolute path as given; a relative one under the DATA dir, and — only when nothing is there
+/// — as given relative to the app root. Bootstrap-seeded methodologies keep their body under the app root (live EU 2026-11-10: 48 of 98), so a
+/// data-dir-only read made their content unreadable through the store. (READ path only; a write never falls back to the app root.)
+fn resolve_body_path(data_dir: &str, object_store_path: &str) -> String {
+    if std::path::Path::new(object_store_path).is_absolute() {
+        return object_store_path.to_string();
+    }
+    let in_data = format!("{}/{}", data_dir, object_store_path);
+    if !std::path::Path::new(&in_data).exists() && std::path::Path::new(object_store_path).exists() {
+        return object_store_path.to_string();
+    }
+    in_data
+}
+
 /// Query processor
 pub struct QueryProcessor {
     /// Version history cache (container_id -> versions)
@@ -89,11 +103,7 @@ impl QueryProcessor {
                 // jurisdiction.rs, amt.rs) — a bare format! would garbage-join an
                 // absolute object_store_path against the data dir.
                 let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-                let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
-                    object_store_path.clone()
-                } else {
-                    format!("{}/{}", data_dir, object_store_path)
-                };
+                let full_path = resolve_body_path(&data_dir, &object_store_path);
                 let raw = std::fs::read_to_string(&full_path).map_err(|e| {
                     crate::types::OzoneError::StorageError(format!(
                         "GetContainerContent: failed to read {} (object_store_path={}): {}",
@@ -239,11 +249,7 @@ impl QueryProcessor {
         // convention already established this session (amt_loop.rs,
         // jurisdiction.rs, amt.rs).
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-        let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
-            object_store_path.clone()
-        } else {
-            format!("{}/{}", data_dir, object_store_path)
-        };
+        let full_path = resolve_body_path(&data_dir, &object_store_path);
         Ok(Some((full_path, object_store_path)))
     }
 

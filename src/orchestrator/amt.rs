@@ -2567,22 +2567,18 @@ Return ONLY valid JSON with a single one-word answer:
         Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, &Default::default())
     }
 
-    /// Like `_full`, leaving out the rules whose key (`r<index>` for a decision rule, `h<index>` for a heuristic — the index is the position in
-    /// the body's own array, the same index `m<id>:r<n>` refs use) is in `skip`: the rules the rule gate judged clearly NOT applicable.
-    pub(crate) fn load_methodology_rules_applicable(container: &serde_json::Value, skip: &std::collections::HashSet<String>) -> Option<String> {
-        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, skip)
-    }
-
     /// The JUDGEABLE rules of a methodology body as (key, text): `r<i>` = decision rule i ("IF cond THEN action", the action being `action` or
     /// `outcome`), `h<j>` = heuristic j ("WHEN when_to_apply: description"). Entries without real text are not rules and are skipped (their
     /// index is still counted, so keys always match the body's own positions).
     pub(crate) fn rule_items(body: &serde_json::Value) -> Vec<(String, String)> {
+        // real text only: empty or a drafting-prompt PLACEHOLDER ("...", "…") is not a rule (the quality audit has always treated it so)
+        let real = |t: &str| !t.is_empty() && t != "..." && t != "…";
         let mut out = Vec::new();
         if let Some(rules) = body.get("decision_rules").and_then(|r| r.as_array()) {
             for (i, rule) in rules.iter().enumerate() {
                 let condition = rule.get("condition").and_then(|c| c.as_str()).unwrap_or("").trim();
                 let action = rule.get("action").or_else(|| rule.get("outcome")).and_then(|a| a.as_str()).unwrap_or("").trim();
-                if !condition.is_empty() && !action.is_empty() {
+                if real(condition) && real(action) {
                     out.push((format!("r{i}"), format!("IF {condition} THEN {action}")));
                 }
             }
@@ -2591,7 +2587,7 @@ Return ONLY valid JSON with a single one-word answer:
             for (j, h) in heuristics.iter().enumerate() {
                 let when = h.get("when_to_apply").and_then(|w| w.as_str()).unwrap_or("").trim();
                 let desc = h.get("description").and_then(|d| d.as_str()).unwrap_or("").trim();
-                if !when.is_empty() && !desc.is_empty() {
+                if real(when) && real(desc) {
                     out.push((format!("h{j}"), format!("WHEN {when}: {desc}")));
                 }
             }
@@ -4065,6 +4061,24 @@ pub(crate) mod test_env {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rule_items_are_the_one_definition_of_a_real_rule() {
+        let body = serde_json::json!({
+            "decision_rules": [
+                {"condition": "a", "action": "do x"},
+                {"condition": "b", "outcome": "do y"},
+                {"condition": "...", "action": "z"},
+                {"condition": "c", "action": ""}
+            ],
+            "heuristics": [{"when_to_apply": "w", "description": "d"}, {"when_to_apply": "…", "description": "d"}]
+        });
+        let items = PromptOrchestrator::rule_items(&body);
+        let keys: Vec<&str> = items.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, vec!["r0", "r1", "h0"], "the body's own positions are the keys; `outcome` counts as an action; placeholders and empty text are not rules");
+        assert_eq!(items[0].1, "IF a THEN do x");
+        assert_eq!(items[2].1, "WHEN w: d");
+    }
+
     use super::*;
     use crate::task::{RefinementConfig, TaskManager, TaskQueueConfig};
 

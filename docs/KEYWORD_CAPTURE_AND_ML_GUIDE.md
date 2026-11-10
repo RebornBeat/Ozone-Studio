@@ -299,3 +299,5 @@ Operator: stop spending model calls on testing removals; review what the loop di
 | `Log` jurisdiction rules inert | every matched rule acts (cited warning) | stale doc comments fixed; test updated |
 | My scratch | — | local `target/testlow` low-memory test target and the EU probe scripts / logs / the broken gate binary removed (backups of real binaries kept) |
 **Not cleaned (decisions, not leftovers):** the 9 stale agent worktrees under `.claude/worktrees` and the old `amt.rs` stash from earlier sessions (not this session's); the EU's accumulated `ozone-studio.bak-*` backups (operator housekeeping).
+
+**§23 addendum (finalization review, 2026-11-10):** removed as superseded — `load_methodology_rules_applicable`, the quality audit's `real()` helper, the `lib.rs` P2P batch driver; replaced — the three data-dir-only methodology readers (now `tool_binding::read_object_file`), the `methodology_create` Update read, the `GetContainerContent` read (`zsei/query.rs::resolve_body_path`); corrected — the network module header and hook texts, `JURISDICTION_SETUP.md` (`Log` = cited warning). Full list: STATUS_2026-11-10 §E.
