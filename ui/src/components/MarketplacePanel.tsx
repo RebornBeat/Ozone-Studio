@@ -6,15 +6,17 @@
  * user has installed/downloaded, the relation per methodology (methodology → rules → tools → blueprints), and the
  * contribute → review → download flow. docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6.
  *
- * REAL DATA ONLY (AGENTS.md: no fabricated metrics). Everything comes from GET /marketplace/overview. Peer catalogs are
- * not exchanged yet, so the peer sections say exactly that instead of listing invented offers; keyword-INFERRED tools
- * are drawn dashed and labelled "inferred" — only DECLARED `requires[]` bindings are drawn solid.
+ * REAL DATA ONLY (AGENTS.md: no fabricated metrics). Everything comes from GET /marketplace/overview. Peers publish MANIFESTS to the
+ * marketplace (one push, never one message per peer); offers from connected peers are listed here and GATED — an allow-list at the network door,
+ * an advisory zero-shot recommendation, and YOUR decision — before anything is downloaded. Blueprints are private and never appear.
+ * Keyword-INFERRED tools are drawn dashed and labelled "inferred" — only DECLARED `requires[]` bindings are drawn solid.
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
   MarketplaceBlueprint,
   MarketplaceMethodology,
   MarketplaceOverview,
+  MarketplacePeerOffer,
   MarketplaceProvider,
   fetchMarketplaceOverview,
   decidePeerOffer,
@@ -49,6 +51,52 @@ function usageIndex(ms: MarketplaceMethodology[], providers: MarketplaceProvider
   }
   return idx;
 }
+
+// status → tone. Colours are fixed per meaning so a state reads the same everywhere (and is never the only cue: the label is always shown).
+const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
+  imported: "ok", have: "ok", staged: "warn", approval_only: "info", failed: "bad", rejected: "bad", downloading: "info",
+  download: "info", ignore: "muted", not_needed: "muted", pending: "warn", new: "info", conflict: "warn", not_checked: "muted", review: "warn",
+};
+const TONE_STYLE: Record<string, React.CSSProperties> = {
+  ok: { borderColor: "rgba(63,185,80,0.55)", color: "#56d364" },
+  warn: { borderColor: "rgba(210,153,34,0.6)", color: "#e3b341" },
+  bad: { borderColor: "rgba(248,81,73,0.6)", color: "#ff7b72" },
+  info: { borderColor: "rgba(88,166,255,0.55)", color: "#79c0ff" },
+  muted: {},
+};
+const toneChip = (status: string): React.CSSProperties => ({ ...chip, ...(TONE_STYLE[STATUS_TONE[status] ?? "muted"] ?? {}) });
+const OFFER_LABEL: Record<string, string> = { conflict: "same name, different content", have: "already here", not_needed: "nothing to do", approval_only: "approval recorded (human install)" };
+
+/** One offer from a peer: what it is, how it compares with what is here, the gate's advisory recommendation, and where an approved download is. */
+const OfferRow: React.FC<{ o: MarketplacePeerOffer; onDecide: (key: string, d: "download" | "ignore") => void }> = ({ o, onDecide }) => {
+  const state = o.downloading ? "downloading" : o.import?.status ?? o.decision;
+  return (
+    <div className="omkt-offer" style={{ marginTop: 8, paddingBottom: 6, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+      <span className="omono" style={{ color: "#e8eef6" }}>{o.name}</span>{" "}
+      <span style={chip}>{o.item_type.replace(/_/g, " ")}</span>
+      <span style={toneChip(o.local_status)}>{OFFER_LABEL[o.local_status] ?? o.local_status}</span>
+      {o.review && (
+        <span style={toneChip(o.review.recommendation)} title={`${o.review.by === "deterministic" ? "mechanical check" : "zero-shot review of the manifest"}: ${o.review.reason ?? ""}`}>
+          gate: {o.review.recommendation}
+        </span>
+      )}
+      <span style={toneChip(state)}>
+        {o.downloading && <span className="omkt-spin" aria-hidden="true" />}{o.downloading ? " downloading" : OFFER_LABEL[state] ?? state}
+      </span>
+      {o.decision === "pending" && !o.downloading && (
+        <>
+          {" "}
+          <button style={{ ...chip, cursor: "pointer" }} onClick={() => onDecide(o.offer_key, "download")}>Approve download</button>{" "}
+          <button style={{ ...chip, cursor: "pointer" }} onClick={() => onDecide(o.offer_key, "ignore")}>Ignore</button>
+        </>
+      )}
+      {o.downloading && <div className="omkt-progress" role="progressbar" aria-label={`downloading ${o.name}`} style={{ marginTop: 5 }} />}
+      {(o.import?.detail || o.review?.reason || o.note) && (
+        <div style={{ fontSize: 10.5, color: "#6f7f93", marginTop: 2 }}>{o.import?.detail ?? (o.review?.reason ? `gate: ${o.review.reason}` : o.note)}</div>
+      )}
+    </div>
+  );
+};
 
 export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000 }) => {
   const [data, setData] = useState<MarketplaceOverview | null>(null);
@@ -91,7 +139,9 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
 
   const declaredRules = data.methodologies.reduce((n, m) => n + m.rules_with_declared_tools, 0);
   const totalRules = data.methodologies.reduce((n, m) => n + m.rule_count, 0);
-  const peersLive = data.peers.catalog_exchange === "active";
+  const offers = data.peer_offers ?? [];
+  const pendingOffers = data.peer_offers_pending ?? 0;
+  const connected = data.exchange?.connected_peers ?? 0;
 
   const methForRelations = data.methodologies.find((m) => m.file === selMeth) ?? data.methodologies[0];
   const bpsFor = (m?: MarketplaceMethodology): MarketplaceBlueprint[] => m && m.id != null ? data.blueprints.filter((b) => b.methodology_ids.includes(m.id as number)) : [];
@@ -99,18 +149,19 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
   return (
     <div className="opanel">
       <div className="opanel-head">
-        <span className={`odot ${err ? "err" : "ok"}`} />
+        <span className={`odot ${err ? "err" : "ok"}${connected > 0 && !err ? " omkt-live" : ""}`} title={connected > 0 ? `${connected} peer(s) connected` : "no peer connected"} />
         <span className="opanel-title">Marketplace</span>
       </div>
       <p className="opanel-sub">
         Tools and MCPs belong <strong>per rule</strong> inside methodologies; blueprint creation aggregates them into steps. This is
-        what is registered on this host, what paired peers could offer, and how each methodology relates to the tools it needs.
+        what is registered on this host, what connected peers publish to the marketplace (gated here before anything is downloaded), and how each methodology relates to the tools it needs.
       </p>
 
       <div className="ostats">
         <div className="ostat"><div className="ostat-num">{data.tools.count}</div><div className="ostat-label">Tools (this host)</div></div>
         <div className="ostat"><div className="ostat-num">{data.tools.providers.length}</div><div className="ostat-label">Providers</div></div>
-        <div className="ostat"><div className="ostat-num">{data.peers.paired.length}</div><div className="ostat-label">Paired peers</div></div>
+        <div className="ostat" title="peers connected right now (live)"><div className="ostat-num">{connected}</div><div className="ostat-label">Connected peers</div></div>
+        <div className={`ostat${pendingOffers > 0 ? " omkt-attn" : ""}`} title="offers from peers waiting for your decision / all offers received"><div className="ostat-num">{pendingOffers}/{offers.length}</div><div className="ostat-label">Peer offers</div></div>
         <div className="ostat"><div className="ostat-num">{data.methodologies.length}</div><div className="ostat-label">Methodologies</div></div>
         <div className="ostat" title="rules whose methodology DECLARES the tools it needs / all rules"><div className="ostat-num">{declaredRules}/{totalRules}</div><div className="ostat-label">Rules with declared tools</div></div>
         <div className="ostat"><div className="ostat-num">{data.blueprints.length}</div><div className="ostat-label">Blueprints</div></div>
@@ -119,7 +170,8 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "10px 0" }}>
         {(["catalog", "installed", "relations", "contribute"] as View[]).map((v) => (
           <button key={v} style={tabBtn(view === v)} onClick={() => setView(v)}>
-            {{ catalog: "Catalog", installed: "Installed", relations: "Relations", contribute: "Contribute & Review" }[v]}
+            {{ catalog: "Catalog", installed: "Installed & Offers", relations: "Relations", contribute: "Publish & Policy" }[v]}
+            {v === "installed" && pendingOffers > 0 && <span className="omkt-badge" aria-label={`${pendingOffers} offers waiting`}>{pendingOffers}</span>}
           </button>
         ))}
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="search tools, capabilities, methodologies…"
@@ -148,14 +200,22 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
           </div>
 
           <div style={card}>
-            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600, marginBottom: 6 }}>From paired peers</div>
-            {peersLive ? <div className="oempty">Peer catalogs would be listed here.</div> : (
-              <div className="oempty" style={{ textAlign: "left" }}>
-                <div>{data.peers.paired.length} paired peer(s){data.peers.paired.length ? ": " : "."}{data.peers.paired.map((p) => <span key={p} style={chip} title={p}>{p.slice(0, 10)}…</span>)}</div>
-                <div style={{ marginTop: 6 }}>{data.peers.note}</div>
-                <div style={{ marginTop: 6 }}>Next build step: signed manifest-only <code>Catalog</code> exchange between paired peers → offers appear here with review state.</div>
+            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600, marginBottom: 6 }}>From connected peers</div>
+            <div className="oempty" style={{ textAlign: "left" }}>
+              <div>
+                <span className={`odot ${connected > 0 ? "ok omkt-live" : "err"}`} /> {connected} peer(s) connected
+                {data.exchange && !data.exchange.publishing_enabled ? " · publishing and browsing are OFF on this instance (auto_broadcast_sync)" : ""}
               </div>
-            )}
+              <div style={{ marginTop: 6 }}>
+                {offers.length === 0
+                  ? "No offers received. Peers publish manifests (name, hash, keywords — never content); you decide what to download."
+                  : `${offers.length} offer(s) received, ${pendingOffers} waiting for your decision.`}{" "}
+                {offers.length > 0 && <button style={{ ...chip, cursor: "pointer" }} onClick={() => setView("installed")}>Review offers</button>}
+              </div>
+              {data.exchange && data.exchange.refused_inbound > 0 && (
+                <div style={{ marginTop: 6, color: "#e3b341" }}>{data.exchange.refused_inbound} inbound message(s) were refused at the door (not an allowed type or shape).</div>
+              )}
+            </div>
           </div>
 
           {(kind === "all" || kind === "tools") && (
@@ -231,26 +291,11 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
           <div style={card}>
             <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Offers and downloads from peers</div>
             <div className="oempty" style={{ textAlign: "left" }}>
-              {(data.peer_offers ?? []).length === 0
+              {offers.length === 0
                 ? "No offers from peers yet. Items other instances publish arrive here as manifests; nothing is downloaded until you approve it. Blueprints are private and never appear."
-                : `${(data.peer_offers ?? []).length} offer(s) from connected peers — ${data.peer_offers_pending ?? 0} waiting for your decision.`}
+                : `${offers.length} offer(s) from connected peers — ${pendingOffers} waiting for your decision. The gate's recommendation is advisory: only your decision acts.`}
             </div>
-            {(data.peer_offers ?? []).map((o) => (
-              <div key={o.offer_key} style={{ marginTop: 8 }}>
-                <span className="omono" style={{ color: "#e8eef6" }}>{o.name}</span>{" "}
-                <span style={chip}>{o.item_type.replace(/_/g, " ")}</span>
-                <span style={chip}>{o.local_status === "conflict" ? "same name, different content" : o.local_status}</span>
-                <span style={chip}>{o.import?.status ?? o.decision}</span>
-                {o.decision === "pending" && (
-                  <>
-                    {" "}
-                    <button style={chip} onClick={() => decide(o.offer_key, "download")}>Approve download</button>{" "}
-                    <button style={chip} onClick={() => decide(o.offer_key, "ignore")}>Ignore</button>
-                  </>
-                )}
-                {(o.import?.detail || o.note) && <div style={{ fontSize: 10.5, color: "#6f7f93" }}>{o.import?.detail ?? o.note}</div>}
-              </div>
-            ))}
+            {offers.map((o) => <OfferRow key={o.offer_key} o={o} onDecide={decide} />)}
           </div>
           <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Registered on this host ({providers.length} providers)</div>
           <table className="otable">
@@ -356,21 +401,34 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
 }, null, 2)}
               </pre>
             )}
-            <button disabled style={{ ...tabBtn(false), marginTop: 8, opacity: 0.5, cursor: "not-allowed" }}
-              title="Publishing needs the peer catalog exchange and the Propose flow (currently a stub returning 'not implemented')">
-              Publish to paired peers — not available yet
-            </button>
-            <span className="opanel-sub" style={{ marginLeft: 10 }}>Needs: peer catalog exchange + signed offers + Propose implementation.</span>
+            <div style={{ marginTop: 8 }}>
+              <span className={`odot ${data.exchange?.publishing_enabled ? "ok omkt-live" : "err"}`} />{" "}
+              <strong>Publishing is {data.exchange?.publishing_enabled ? "ON" : "OFF"}</strong>
+              <span className="opanel-sub" style={{ marginLeft: 10 }}>
+                {data.exchange?.publishing_enabled
+                  ? "New methodologies, jurisdiction rule sets, pipelines and tools are published as manifests; one notification reaches every connected peer."
+                  : "Turn on auto_broadcast_sync to publish. Nothing leaves this host while it is off."}
+              </span>
+            </div>
           </div>
 
           <div style={card}>
-            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Review &amp; download policy (what will apply to every offer)</div>
+            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Published by this instance ({(data.published ?? []).length})</div>
+            {(data.published ?? []).length === 0
+              ? <div className="oempty" style={{ textAlign: "left" }}>Nothing published yet.</div>
+              : (data.published ?? []).map((p) => <span key={`${p.item_type}|${p.name}`} style={chip} title={p.body_hash ? `content hash ${p.body_hash}` : "no readable body"}>{p.name} · {p.item_type.replace(/_/g, " ")}</span>)}
+          </div>
+
+          <div style={card}>
+            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Review &amp; download policy (what applies to every offer)</div>
             <ul style={{ margin: "6px 0 0 18px", color: "#9fb3c8", fontSize: 12.5, lineHeight: 1.7 }}>
-              <li>Only <strong>paired</strong> peers are sources ({data.peers.paired.length} paired now). Pairing is default-deny and bidirectional.</li>
-              <li>Offers arrive as <strong>manifests</strong>; artifacts are fetched into quarantine only on your request.</li>
-              <li>Automatic review first: hash/signature, loopback-only endpoints, jurisdiction gate, security posture scan.</li>
-              <li>Any <strong>executable</strong> tool/MCP needs your explicit approval ({String(data.policy.executables_require_human_approval)}); installs register with auto-start OFF.</li>
-              <li>Sharing of your own methodologies/blueprints: <code>auto_broadcast_sync</code> = <strong>{data.policy.auto_broadcast_sync ? "ON" : "OFF"}</strong>.</li>
+              <li>The marketplace is a catalog among <strong>connected</strong> peers; everything else on the network still needs an approved peer ({data.peers.paired.length} approved now).</li>
+              <li><strong>The door:</strong> only methodologies, jurisdiction rule sets, pipelines and tools are accepted, in a strict shape — anything else is refused ({data.exchange?.refused_inbound ?? 0} refused so far). Blueprints never travel.</li>
+              <li>Offers arrive as <strong>manifests</strong> (name, content hash, keywords); the content is fetched only after YOU approve it, and its hash is re-verified.</li>
+              <li><strong>The gate:</strong> identical content is recognised without a model; otherwise a zero-shot review recommends download / ignore / review (advisory — unanimity for either extreme). Only your decision acts.</li>
+              <li>A methodology is imported through the normal create path (its keywords start pending validation); the same name with different content is kept as a separate item, never overwritten.</li>
+              <li>A jurisdiction rule set is only <strong>staged</strong> — never activated automatically. Any <strong>executable</strong> tool/MCP/pipeline needs your explicit, reviewed install ({String(data.policy.executables_require_human_approval)}); nothing is auto-run.</li>
+              <li>Signatures are not implemented yet: integrity is the content hash only.</li>
             </ul>
           </div>
 

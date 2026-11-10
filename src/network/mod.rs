@@ -106,14 +106,148 @@ pub fn marketplace_kind(data: &[u8]) -> Option<String> {
     MARKETPLACE_KINDS.contains(&k).then(|| k.to_string())
 }
 
-/// Append one inbound marketplace message to `peer_marketplace_inbox.jsonl` (bookkeeping; nothing is applied). Best-effort.
-fn append_marketplace_inbox(path: &std::path::Path, from: &PeerId, data: &[u8]) {
+/// THE DOOR (operator 2026-11-10: "we don't accept anything not allowed"). The ONLY item kinds that may be offered, fetched or imported;
+/// everything else — blueprints, user data, events, chat, any unknown kind — is refused at the door and never reaches the inbox.
+pub const ALLOWED_ITEM_TYPES: [&str; 4] = ["methodology", "jurisdiction_rule_set", "pipeline", "tool"];
+
+/// Abuse guards (explicit, not work caps): a name longer than this, more keywords than this, or a chunk larger than twice the chunk size is
+/// refused — a well-formed peer never sends them, and an unbounded one could exhaust memory.
+const MAX_NAME_CHARS: usize = 512;
+const MAX_KEYWORDS: usize = 500;
+
+fn is_hex16(h: &str) -> bool {
+    h.len() == 16 && h.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn clean_name(v: &serde_json::Value) -> Result<String, String> {
+    let n = v.as_str().map(str::trim).unwrap_or("");
+    if n.is_empty() {
+        return Err("the item has no name".to_string());
+    }
+    if n.chars().count() > MAX_NAME_CHARS || n.chars().any(|c| c.is_control()) {
+        return Err("the item name is not acceptable (too long or contains control characters)".to_string());
+    }
+    Ok(n.to_string())
+}
+
+fn clean_item_type(v: &serde_json::Value) -> Result<String, String> {
+    let t = v.as_str().unwrap_or("");
+    if ALLOWED_ITEM_TYPES.contains(&t) {
+        Ok(t.to_string())
+    } else {
+        Err(format!("item type '{t}' is not allowed"))
+    }
+}
+
+/// Keywords from a peer: strings only, trimmed, scope MARKERS dropped (they can carry another instance's project / workspace ids), no empties.
+fn clean_keywords(v: &serde_json::Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|k| k.as_str().map(str::trim))
+                .filter(|k| !k.is_empty() && !k.chars().any(|c| c.is_control()) && !crate::shared_contracts::keyword_model::is_marker(k))
+                .take(MAX_KEYWORDS)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Validate + SANITIZE one manifest from a peer: allowed item type, a clean name, a 16-hex body hash (or none), clean keywords. Unknown fields
+/// are dropped. Returns the cleaned manifest or the reason it is refused.
+pub fn sanitize_manifest(m: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let item_type = clean_item_type(&m["item_type"])?;
+    let name = clean_name(&m["name"])?;
+    let hash = m["body_hash"].as_str().unwrap_or("");
+    if !hash.is_empty() && !is_hex16(hash) {
+        return Err("the body hash is not a 16-digit hex value".to_string());
+    }
+    Ok(serde_json::json!({
+        "kind": "announce",
+        "item_type": item_type,
+        "name": name,
+        "body_hash": hash,
+        "keywords": clean_keywords(&m["keywords"]),
+        "source_container_id": m["source_container_id"].as_u64(),
+        "announced_at": m["announced_at"].as_u64(),
+    }))
+}
+
+/// Validate + sanitize ONE inbound marketplace message. Only the kinds in `MARKETPLACE_KINDS` with well-formed, allowed content pass; the result
+/// is a freshly built message (unknown fields dropped), never the peer's bytes. Err = the reason it is refused.
+pub fn sanitize_marketplace_message(data: &[u8]) -> Result<serde_json::Value, String> {
+    use serde_json::json;
+    let v: serde_json::Value = serde_json::from_slice(data).map_err(|_| "not JSON".to_string())?;
+    let kind = v["kind"].as_str().unwrap_or("");
+    if !MARKETPLACE_KINDS.contains(&kind) {
+        return Err(format!("message kind '{kind}' is not a marketplace kind"));
+    }
+    let version = |x: &serde_json::Value| x.as_str().filter(|s| s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric())).map(String::from);
+    match kind {
+        "marketplace_notify" => {
+            let listing_version = version(&v["listing_version"]).ok_or("the listing version is not acceptable")?;
+            let item_type = v["item_type"].as_str().filter(|t| ALLOWED_ITEM_TYPES.contains(t)).map(String::from);
+            Ok(json!({"kind": kind, "listing_version": listing_version, "count": v["count"].as_u64().unwrap_or(0), "item_type": item_type}))
+        }
+        "catalog_request" => Ok(json!({"kind": kind, "listing_version": version(&v["listing_version"])})),
+        "catalog" => {
+            let raw = v["items"].as_array().ok_or("a catalog has no items list")?;
+            let items: Vec<serde_json::Value> = raw.iter().filter_map(|m| sanitize_manifest(m).ok()).collect();
+            if items.is_empty() && !raw.is_empty() {
+                return Err("a catalog with no acceptable item".to_string());
+            }
+            Ok(json!({"kind": kind, "items": items}))
+        }
+        "fetch_request" => {
+            let hash = v["body_hash"].as_str().unwrap_or("");
+            if !is_hex16(hash) {
+                return Err("a fetch request needs a 16-digit hex body hash".to_string());
+            }
+            Ok(json!({"kind": kind, "item_type": clean_item_type(&v["item_type"])?, "name": clean_name(&v["name"])?, "body_hash": hash}))
+        }
+        "fetch_chunk" => {
+            let hash = v["body_hash"].as_str().unwrap_or("");
+            let (seq, total) = (v["seq"].as_u64(), v["total"].as_u64());
+            let (Some(seq), Some(total)) = (seq, total) else { return Err("a chunk needs seq and total".to_string()) };
+            if !is_hex16(hash) || total == 0 || seq >= total {
+                return Err("a chunk has an invalid hash, total or sequence".to_string());
+            }
+            let data = v["data"].as_str().ok_or("a chunk has no data")?;
+            if data.len() > FETCH_CHUNK_BYTES * 2 {
+                return Err("a chunk is larger than allowed".to_string());
+            }
+            Ok(json!({
+                "kind": kind, "item_type": clean_item_type(&v["item_type"])?, "name": clean_name(&v["name"])?, "body_hash": hash,
+                "seq": seq, "total": total, "data": data,
+                "keywords": if seq == 0 { json!(clean_keywords(&v["keywords"])) } else { serde_json::Value::Null },
+            }))
+        }
+        _ => {
+            // fetch_error
+            let hash = v["body_hash"].as_str().unwrap_or("");
+            if !is_hex16(hash) {
+                return Err("an error reply needs a 16-digit hex body hash".to_string());
+            }
+            let reason: String = v["reason"].as_str().unwrap_or("the peer could not serve it").chars().filter(|c| !c.is_control()).take(300).collect();
+            Ok(json!({"kind": kind, "item_type": clean_item_type(&v["item_type"])?, "name": clean_name(&v["name"])?, "body_hash": hash, "reason": reason}))
+        }
+    }
+}
+
+/// Append one VALIDATED inbound marketplace message to `peer_marketplace_inbox.jsonl` (bookkeeping; nothing is applied). Best-effort.
+fn append_marketplace_inbox(path: &std::path::Path, from: &PeerId, clean: &serde_json::Value) {
     use std::io::Write;
-    let Ok(envelope) = serde_json::from_slice::<serde_json::Value>(data) else { return };
-    let line = serde_json::json!({"received_at": now(), "from_peer": from.to_string(), "envelope": envelope}).to_string();
+    let line = serde_json::json!({"received_at": now(), "from_peer": from.to_string(), "envelope": clean}).to_string();
     if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}")) {
         tracing::warn!("P2P: failed to append the marketplace inbox at {:?}: {}", path, e);
     }
+}
+
+/// Record a REFUSED inbound marketplace message (who, why — never the content) in `peer_marketplace_rejected.jsonl`, so refusals are visible.
+fn append_marketplace_rejected(path: &std::path::Path, from: &PeerId, reason: &str) {
+    use std::io::Write;
+    let line = serde_json::json!({"at": now(), "from_peer": from.to_string(), "reason": reason}).to_string();
+    let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}"));
 }
 
 /// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
@@ -539,6 +673,7 @@ impl NetworkManager {
                 .map(|d| d.join("peer_sync_candidates.jsonl"))
                 .unwrap_or_else(|| std::path::PathBuf::from("peer_sync_candidates.jsonl"));
             let inbox_path = self.paired_peers_path.parent().map(|d| d.join("peer_marketplace_inbox.jsonl")).unwrap_or_else(|| std::path::PathBuf::from("peer_marketplace_inbox.jsonl"));
+            let rejected_path = self.paired_peers_path.parent().map(|d| d.join("peer_marketplace_rejected.jsonl")).unwrap_or_else(|| std::path::PathBuf::from("peer_marketplace_rejected.jsonl"));
             tokio::spawn(async move {
                 use futures::StreamExt;
                 loop {
@@ -653,7 +788,14 @@ impl NetworkManager {
                             // MARKETPLACE messages (notify / catalog / fetch) are accepted from any CONNECTED peer and kept apart from the
                             // paired-only channel, so a stranger's catalog can never surface as a finding or be mistaken for a trusted message
                             if marketplace_kind(&message.data).is_some() {
-                                append_marketplace_inbox(&inbox_path, &propagation_source, &message.data);
+                                // THE DOOR: validated + sanitized against the allow-list, or refused and logged — never the peer's raw bytes
+                                match sanitize_marketplace_message(&message.data) {
+                                    Ok(clean) => append_marketplace_inbox(&inbox_path, &propagation_source, &clean),
+                                    Err(reason) => {
+                                        tracing::debug!("P2P: refused a marketplace message from {}: {}", propagation_source, reason);
+                                        append_marketplace_rejected(&rejected_path, &propagation_source, &reason);
+                                    }
+                                }
                             } else if paired_peers.read().await.contains_key(&propagation_source) {
                                 tracing::info!(
                                     "P2P: received sync message from paired peer {}: {}",
@@ -1593,5 +1735,30 @@ mod marketplace_tests {
         assert!(super::marketplace_kind(b"not json").is_none());
         assert_eq!(super::body_hash(b"abc"), super::body_hash(b"abc"));
         assert_ne!(super::body_hash(b"abc"), super::body_hash(b"abd"));
+    }
+
+    #[test]
+    fn the_door_refuses_everything_not_allowed_and_sanitizes_what_it_lets_in() {
+        let ok = |v: serde_json::Value| super::sanitize_marketplace_message(v.to_string().as_bytes());
+        // a good catalog: markers stripped from keywords, unknown fields dropped, a blueprint / unknown type item dropped
+        let c = ok(serde_json::json!({"kind":"catalog","items":[
+            {"item_type":"methodology","name":"API Design","body_hash":"00ff00ff00ff00ff","keywords":["api","ws:3","scope:global","design"],"evil":"x"},
+            {"item_type":"blueprint","name":"Private plan","body_hash":"00ff00ff00ff00ff"},
+            {"item_type":"tool","name":"bad hash","body_hash":"nothex"}]}))
+        .unwrap();
+        let items = c["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1, "blueprint and the bad-hash item are refused");
+        assert_eq!(items[0]["keywords"], serde_json::json!(["api", "design"]), "scope markers never come in");
+        assert!(items[0].get("evil").is_none(), "unknown fields are dropped");
+        assert!(ok(serde_json::json!({"kind":"catalog","items":[{"item_type":"blueprint","name":"x"}]})).is_err(), "a catalog with only unacceptable items is refused");
+        // kinds and shapes
+        assert!(ok(serde_json::json!({"kind":"announce"})).is_err(), "not a marketplace kind");
+        assert!(super::sanitize_marketplace_message(b"nope").is_err());
+        assert!(ok(serde_json::json!({"kind":"fetch_request","item_type":"methodology","name":"X","body_hash":"zz"})).is_err());
+        assert!(ok(serde_json::json!({"kind":"fetch_request","item_type":"blueprint","name":"X","body_hash":"00ff00ff00ff00ff"})).is_err());
+        assert!(ok(serde_json::json!({"kind":"fetch_chunk","item_type":"methodology","name":"X","body_hash":"00ff00ff00ff00ff","seq":3,"total":3,"data":"a"})).is_err(), "seq must be < total");
+        assert!(ok(serde_json::json!({"kind":"fetch_chunk","item_type":"methodology","name":"X","body_hash":"00ff00ff00ff00ff","seq":0,"total":2,"data":"a","keywords":["k","ws:1"]})).unwrap()["keywords"] == serde_json::json!(["k"]));
+        assert!(ok(serde_json::json!({"kind":"marketplace_notify","listing_version":"not ok!"})).is_err());
+        assert!(ok(serde_json::json!({"kind":"fetch_request","item_type":"methodology","name":"bad\u{0007}name","body_hash":"00ff00ff00ff00ff"})).is_err(), "control characters in a name");
     }
 }

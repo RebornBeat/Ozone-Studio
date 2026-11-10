@@ -110,6 +110,57 @@ pub fn assemble_parts(parts: &Map<String, Value>, total: usize) -> Option<String
     Some(out)
 }
 
+/// One offer as received from a peer (already sanitized by the network door).
+#[derive(Debug, Clone)]
+pub struct RawOffer {
+    /// `from|item_type|name|hash` — the offer's identity and the key of every decision / review / import record
+    pub key: String,
+    pub from: String,
+    pub item_type: String,
+    pub name: String,
+    pub hash: String,
+    pub keywords: Vec<String>,
+    pub announced_at: Option<u64>,
+    pub received_at: Option<u64>,
+}
+
+/// Every distinct offer in the marketplace inbox (`announce` rows and the items of `catalog` rows), latest wins. Blueprints and unknown types can
+/// never be here (the door refuses them) but are skipped again defensively.
+pub fn collect_offers(dir: &Path) -> Vec<RawOffer> {
+    let Ok(text) = std::fs::read_to_string(dir.join("peer_marketplace_inbox.jsonl")) else { return Vec::new() };
+    let mut offers: std::collections::BTreeMap<String, RawOffer> = Default::default();
+    for line in text.lines() {
+        let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
+        let from = row["from_peer"].as_str().unwrap_or("unknown-peer");
+        let manifests: Vec<Value> = match row["envelope"]["kind"].as_str() {
+            Some("announce") => vec![row["envelope"].clone()],
+            Some("catalog") => row["envelope"]["items"].as_array().cloned().unwrap_or_default(),
+            _ => continue,
+        };
+        for m in manifests {
+            let (item_type, name, hash) = (m["item_type"].as_str().unwrap_or(""), m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or(""));
+            if name.is_empty() || !crate::network::ALLOWED_ITEM_TYPES.contains(&item_type) {
+                continue;
+            }
+            let key = format!("{from}|{item_type}|{name}|{hash}");
+            offers.insert(
+                key.clone(),
+                RawOffer {
+                    key,
+                    from: from.to_string(),
+                    item_type: item_type.to_string(),
+                    name: name.to_string(),
+                    hash: hash.to_string(),
+                    keywords: m["keywords"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default(),
+                    announced_at: m["announced_at"].as_u64(),
+                    received_at: row["received_at"].as_u64(),
+                },
+            );
+        }
+    }
+    offers.into_values().collect()
+}
+
 fn mark_imported(dir: &Path, name: &str, hash: &str) {
     let path = dir.join("peer_imported_items.json");
     let mut m = read_map(&path);
@@ -376,5 +427,22 @@ mod tests {
     fn slugs_are_filesystem_safe() {
         assert_eq!(slug("VPS Secure Deployment — hardened (EU)"), "vps-secure-deployment-hardened-eu");
         assert_eq!(slug("///"), "item");
+    }
+
+    #[test]
+    fn collected_offers_come_from_announce_and_catalog_rows_latest_wins_and_never_a_blueprint() {
+        let dir = std::env::temp_dir().join(format!("ozone-offers-{}", now_secs()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows = [
+            json!({"received_at": 1, "from_peer": "P1", "envelope": {"kind":"announce","item_type":"methodology","name":"A","body_hash":"00ff00ff00ff00ff","keywords":["x"]}}),
+            json!({"received_at": 2, "from_peer": "P1", "envelope": {"kind":"catalog","items":[
+                {"item_type":"methodology","name":"A","body_hash":"00ff00ff00ff00ff","keywords":["x","y"]},
+                {"item_type":"blueprint","name":"B","body_hash":"00ff00ff00ff00ff"}]}}),
+        ];
+        std::fs::write(dir.join("peer_marketplace_inbox.jsonl"), rows.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n") + "\n").unwrap();
+        let offers = collect_offers(&dir);
+        assert_eq!(offers.len(), 1, "the blueprint is never an offer; the duplicate collapses");
+        assert_eq!(offers[0].keywords, vec!["x", "y"], "the latest row wins");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

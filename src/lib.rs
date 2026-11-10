@@ -1542,6 +1542,8 @@ impl OzoneRuntime {
                 let exchange_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.read().await.config.general.data_dir.clone());
                 crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir.clone());
                 // the download half: only offers the operator decided `download` on; methodologies imported, jurisdiction files staged, tools approval-only
+                // the zero-shot half of the gate: an ADVISORY recommendation per offer (download / ignore / review) — the operator's decision acts
+                crate::orchestrator::offer_review::spawn_offer_review_loop(executor_adapter.clone(), bridge_store.clone(), exchange_dir.clone());
                 crate::orchestrator::peer_import::spawn_peer_import_loop(runtime.read().await.network.clone(), bridge_store.clone(), exchange_dir);
                 // (the old periodic batch driver is gone: nothing feeds the Normal-priority per-peer queue any more — announcements are a single
                 // marketplace publish, see network::NetworkManager::publish_to_marketplace)

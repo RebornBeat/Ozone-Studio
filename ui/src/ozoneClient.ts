@@ -600,6 +600,10 @@ export interface MarketplacePeerOffer {
   note: string;
   /** outcome of an approved download: imported / have / staged / approval_only / failed / rejected (null = not started or in flight) */
   import: null | { status: string; detail?: string; local_name?: string; local_id?: number; path?: string; at?: number };
+  /** the gate's ADVISORY recommendation (zero-shot, judged from the manifest alone) — the operator's decision is what acts; null = not reviewed yet */
+  review: null | { recommendation: "download" | "ignore" | "review"; reason?: string; by?: string; rounds?: string[]; strength?: number; at?: number };
+  /** true while an approved download has been requested and its chunks have not all arrived */
+  downloading: boolean;
 }
 
 export interface MarketplaceOverview {
@@ -613,9 +617,11 @@ export interface MarketplaceOverview {
   peers: { paired: string[]; catalog_exchange: string; note: string };
   /** offers published by connected peers (manifests only) — gated here; nothing is downloaded until the operator approves */
   peer_offers?: MarketplacePeerOffer[];
+  /** live state of the marketplace exchange — real values only */
+  exchange?: { publishing_enabled: boolean; p2p_enabled: boolean; connected_peers: number; refused_inbound: number };
   peer_offers_pending?: number;
   /** what THIS instance publishes to the marketplace (manifests only; blueprints are never published) */
-  published?: unknown[];
+  published?: { item_type: string; name: string; body_hash?: string; keywords?: string[]; announced_at?: number }[];
   methodologies: MarketplaceMethodology[];
   blueprints: MarketplaceBlueprint[];
   policy: { auto_broadcast_sync: boolean; downloads_require_review: boolean; executables_require_human_approval: boolean; installed_from_peer: unknown[] };

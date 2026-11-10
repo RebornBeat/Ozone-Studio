@@ -987,51 +987,40 @@ async fn context_span_out(
 /// operator's and is recorded in `peer_offer_decisions.json`; `download` records approval only — the fetch step is not built yet.
 fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<String, String>) -> Vec<serde_json::Value> {
     use serde_json::{json, Value};
-    let decisions: Value = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_offer_decisions.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_else(|| json!({}));
-    let Ok(text) = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_marketplace_inbox.jsonl")) else { return Vec::new() };
-    let import_done: Value = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_import_done.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
-    let mut offers: std::collections::BTreeMap<String, Value> = Default::default();
-    for line in text.lines() {
-        let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
-        let from = row["from_peer"].as_str().unwrap_or("unknown-peer");
-        let manifests: Vec<Value> = match row["envelope"]["kind"].as_str() {
-            Some("announce") => vec![row["envelope"].clone()],
-            Some("catalog") => row["envelope"]["items"].as_array().cloned().unwrap_or_default(),
-            _ => continue,
-        };
-        for env in manifests {
-        let (item_type, name, hash) = (env["item_type"].as_str().unwrap_or(""), env["name"].as_str().unwrap_or(""), env["body_hash"].as_str().unwrap_or(""));
-        if name.is_empty() || item_type.is_empty() || item_type == "blueprint" {
-            continue; // blueprints are private: even a peer's announcement of one is ignored
-        }
-        let key = format!("{from}|{item_type}|{name}|{hash}");
-        let local_status = if item_type == "methodology" {
-            match local_methods.get(name) {
-                Some(h) if !hash.is_empty() && h == hash => "have",
-                Some(_) => "conflict",
-                None => "new",
-            }
-        } else {
-            "not_checked"
-        };
-        let decision = decisions.get(&key).and_then(|d| d["decision"].as_str()).map(String::from).unwrap_or_else(|| if local_status == "have" { "not_needed".to_string() } else { "pending".to_string() });
-        offers.insert(
-            key.clone(),
+    let dir = std::path::Path::new(data_dir);
+    let read = |name: &str| -> Value { std::fs::read_to_string(dir.join(name)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({})) };
+    let (decisions, import_done, pending, reviews) = (read("peer_offer_decisions.json"), read("peer_import_done.json"), read("peer_fetch_pending.json"), read("peer_offer_reviews.json"));
+    crate::orchestrator::peer_import::collect_offers(dir)
+        .into_iter()
+        .map(|o| {
+            let local_status = if o.item_type == "methodology" {
+                match local_methods.get(&o.name) {
+                    Some(h) if !o.hash.is_empty() && *h == o.hash => "have",
+                    Some(_) => "conflict",
+                    None => "new",
+                }
+            } else {
+                "not_checked"
+            };
+            let decision = decisions
+                .get(&o.key)
+                .and_then(|d| d["decision"].as_str())
+                .map(String::from)
+                .unwrap_or_else(|| if local_status == "have" { "not_needed".to_string() } else { "pending".to_string() });
             json!({
-                "offer_key": key, "from_peer": from, "item_type": item_type, "name": name, "body_hash": hash,
-                "keywords": env["keywords"], "announced_at": env["announced_at"], "received_at": row["received_at"],
+                "offer_key": o.key, "from_peer": o.from, "item_type": o.item_type, "name": o.name, "body_hash": o.hash,
+                "keywords": o.keywords, "announced_at": o.announced_at, "received_at": o.received_at,
                 "local_status": local_status, "decision": decision,
-                // the outcome of an approved download: imported / have / staged / approval_only / failed / rejected (absent = not started or in flight)
-                "import": import_done.get(&key).cloned().unwrap_or(Value::Null),
+                // the gate's ADVISORY recommendation (download / ignore / review) with its reason — the operator's decision is what acts
+                "review": reviews.get(&o.key).cloned().unwrap_or(Value::Null),
+                // true while an approved download has been requested and the chunks have not all arrived
+                "downloading": pending.get(&o.key).is_some(),
+                // the outcome of an approved download: imported / have / staged / approval_only / failed / rejected (null = not started)
+                "import": import_done.get(&o.key).cloned().unwrap_or(Value::Null),
                 "note": if local_status == "conflict" { "same name, different content — review; it is never overwritten" } else { "" },
-            }),
-        );
-        }
-    }
-    offers.into_values().collect()
+            })
+        })
+        .collect()
 }
 
 /// Record the operator's decision on a peer offer. `download` records APPROVAL only (no fetch is built yet); `ignore` dismisses it.
@@ -1064,11 +1053,12 @@ async fn marketplace_offer_decide(Json(body): Json<serde_json::Value>) -> Json<s
 async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     use serde_json::{json, Value};
     let tools_v: Vec<Value> = mcp_list_tools(State(state.clone())).await.0["tools"].as_array().cloned().unwrap_or_default();
-    let (data_dir, auto_sync, paired) = {
+    let (data_dir, auto_sync, paired, net_status) = {
         let runtime = state.runtime.read().await;
         let dd = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.config.general.data_dir.clone());
         let paired = runtime.network.read().await.paired_peer_ids().await;
-        (dd, runtime.config.network.auto_broadcast_sync, paired)
+        let net_status = runtime.network.read().await.get_status().await;
+        (dd, runtime.config.network.auto_broadcast_sync, paired, net_status)
     };
     // PROVIDERS (operator doctrine 2026-11-04): a provider is the MCP SERVER process behind one or more tool names — the unit that
     // is installed, trusted, started/stopped and shared. Grouped by provider id (the supervisor port table's tool dir).
@@ -1200,6 +1190,13 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
         "generated_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
         "peer_offers": peer_offers,
         "peer_offers_pending": peer_offers_pending,
+        // live state of the exchange (real values only): connected peers, whether publishing is on, and how many inbound messages the door refused
+        "exchange": {
+            "publishing_enabled": auto_sync,
+            "p2p_enabled": net_status.enabled,
+            "connected_peers": net_status.connected_peers,
+            "refused_inbound": std::fs::read_to_string(std::path::Path::new(&data_dir).join("peer_marketplace_rejected.jsonl")).map(|t| t.lines().count()).unwrap_or(0),
+        },
         // what THIS instance publishes to the marketplace (manifests only; blueprints never)
         "published": std::fs::read_to_string(std::path::Path::new(&data_dir).join("marketplace_published.json"))
             .ok()

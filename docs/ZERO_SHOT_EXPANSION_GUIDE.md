@@ -483,3 +483,27 @@ remain, in the order a review should consider them (each only after the mechanic
 | E23 | request side, once per request | zero-shot (generalises E16) | the request's keywords pass the same A→B→C; cached with the request graph | design |
 | E24 | Stage 2 extraction (`extract_keywords_attempt`) | deterministic shape check + E22 | the extraction output is currently UNVALIDATED (temp 0.2, single sample) | design |
 Rule restated: adds need no unanimity; drops need strength-N unanimity; scores are counts/ranks of observed events, never model confidence.
+
+
+## 2026-11-10 addendum — CALL-SITE REVIEW (operator: "review the zero-shot expansion guide call sites")
+Reviewed against the code and the live EU runs of this session. **E1–E12 were not re-reviewed** (their status is as written above). Doctrine check applied to every row: mechanical first (review-before-judge), a DROP needs strength-N unanimity, an ADD/reorder does not, no model-reported confidence.
+| # | Call site | Status 2026-11-10 | Note |
+|---|---|---|---|
+| E13 | Stage 3 methodology relevance filter | BUILT · TESTED · DEPLOYED | independent votes now run concurrently (`confirm_yes_no_batch`); each keeps its own strength-N chain; granularity stays WHOLE methodology (no AMT exists at Stage 3) |
+| E14 | per-rule applicability vote at the END of Stage 6 | **SUPERSEDED by E25** | function and call sites removed |
+| E15 | Stage 7 feasibility re-plan | built earlier · unchanged | not re-reviewed |
+| E16 | Stage 2 keyword re-ask | BUILT · DEPLOYED | its prompt now carries the shared `KEYWORD_RULES` |
+| E17 | Stage 10 provider tool choice | built earlier · unchanged | not re-reviewed |
+| E18 | methodology quality audit | BUILT · **extended (PARSE-ONLY)** | now audits EVERY methodology (the root's children were exactly the 55 that already had rules; 43 were invisible) with the structured rule reader the blueprint uses |
+| E19 | call-site key table | built earlier · unchanged | new sites are registered in ZERO_SHOT_CALL_REGISTRY §20 |
+| E20 | keyword Pass A (verbatim / identifiers / roll-up) | BUILT · DEPLOYED | identifier + roll-up terms are facts, validated by construction |
+| E21 | keyword Pass B expansion | BUILT · DEPLOYED · **REWORKED** | runs AFTER validation of the stored terms, seeded with VALIDATED terms only, only where keyword hits have been observed (Methodology / Blueprint / Pipeline / McpEntity), asks for DISTINCT phrasings; candidates are not stored until Pass V2 |
+| E22 | keyword validation | BUILT · TESTED · DEPLOYED · **REDEFINED** | asymmetric batched rounds (Pass V1 / V2): a stored term is removed only if EVERY round says NO, a new one stored only if EVERY round says YES; no readable content = no removal. Live-checked on 70 containers; settlement is PAUSED on the EU |
+| E23 | request-side keyword pass | OPEN | the request's keywords get `KEYWORD_RULES` + the shape check but no validation pass (they are ephemeral, not stored on a container) |
+| E24 | Stage 2 extraction validation | BUILT · DEPLOYED | shape check + `KEYWORD_RULES`; an extraction with no usable shape fails so the retry / fallback chain asks again |
+| **E25** | **rule applicability gate** — right after the AMT, before the blueprint is drafted | **BUILT · PARSE-ONLY** | per methodology, batched asymmetric rounds ("which of these rules clearly do NOT apply to the request and its AMT?"); a rule is left out only if EVERY round says so, a failed call drops nothing; concurrent per methodology. Mechanical companion (no model): the blueprint CITATION gate (`audit_rule_refs`). Placement reasoning: at Stage 3 the AMT does not exist yet |
+| **E26** | **methodology refinement review** — the consumer of `methodology_refinement_candidates.jsonl` | **OPEN (notification built)** | principle (operator): a sound methodology has all rules apply; an inapplicable rule means it is too broad. The gate already writes the evidence; the review (split / refine / keep, human in the loop) is not built and must NEVER be raised as a `new` / `modify` gap |
+| **E27** | **marketplace offer review** (`offer_review.rs`) | **BUILT · PARSE-ONLY** | ADVISORY. Mechanical first: the network door refuses every type / shape not on the allow-list; identical content (same name + hash) is recommended `ignore` with no model call. Then ONE question over strength-N rounds — "is this offer useful to add here?" — judged from the manifest alone (it has not seen the content): `download` only if every round says useful, `ignore` only if every round says not useful, otherwise `review`. It never downloads; the operator's decision acts. Kill switch `OZONE_OFFER_REVIEW=off` |
+| E28 | principles-only methodologies | OPEN DECISION (not a call site) | 38 auto-synthesized methodologies carry only principles, which the blueprint loader does not render |
+**Registries touched:** ZERO_SHOT_CALL_REGISTRY §20 (rows 28–31), CALL_ROUTE_REGISTRY (R30–R33), STATIC_LOGIC_REGISTRY (door constants, allow-list), MASTER_TEST_GUIDE (§27h, §27i).
+**Rule restated:** zero-shot may RECOMMEND; only an ADD with unanimity, a DROP with unanimity, or a human DECISION changes state. The marketplace gate is the clearest case — the model's recommendation is stored beside the offer and never acts.

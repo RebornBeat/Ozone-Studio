@@ -7555,3 +7555,38 @@ button.gnw-ind-chip:hover, .gnw-ind-chip.on { background: rgba(79,195,247,.1); b
         animation: spin 2.5s linear infinite !important;
     }
 }
+
+
+/* ── Marketplace (2026-11-10): offers, live indicators, download progress ─────────────────────────────────────────────── */
+@keyframes omkt-pop {
+    from { opacity: 0; transform: translateY(4px) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes omkt-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(227, 179, 65, 0.55); }
+    100% { box-shadow: 0 0 0 8px rgba(227, 179, 65, 0); }
+}
+@keyframes omkt-sweep {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.omkt-offer { animation: omkt-pop 0.28s ease both; }
+.omkt-live { animation: pulse 2s ease-in-out infinite; }
+.omkt-attn { border-radius: 8px; animation: omkt-ring 1.8s ease-out infinite; }
+.omkt-badge {
+    display: inline-block; min-width: 16px; margin-left: 6px; padding: 0 5px; border-radius: 9px;
+    font-size: 10.5px; line-height: 16px; text-align: center; font-weight: 600;
+    background: #e3b341; color: #1b1500; animation: omkt-ring 1.8s ease-out infinite;
+}
+.omkt-spin {
+    display: inline-block; width: 9px; height: 9px; vertical-align: -1px; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2); border-top-color: #79c0ff; animation: spin 0.8s linear infinite;
+}
+.omkt-progress {
+    height: 3px; border-radius: 2px; background: linear-gradient(90deg, transparent 0%, rgba(121, 192, 255, 0.9) 50%, transparent 100%);
+    background-size: 200% 100%; animation: omkt-sweep 1.3s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .omkt-offer, .omkt-live, .omkt-attn, .omkt-badge, .omkt-progress { animation: none !important; }
+    .omkt-progress { background: rgba(121, 192, 255, 0.5); }
+}
