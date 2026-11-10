@@ -1,0 +1,313 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 40160,
+  "parent_id": 0,
+  "version": 8
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 12,
+      "returned_traced": 3
+     },
+     "source": "",
+     "validated": null
+    },
+    "connected": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "data": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 6,
+      "returned_traced": 3
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "databases": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "explain": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "graph": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "graph database explanation": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "graph databases": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "highly": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "highly connected data": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "sentences": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "suit": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "suitable graph databases": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "two": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "two sentence overview": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "why": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "extracted",
+     "validated": false
+    }
+   },
+   "keywords": [
+    "graph databases",
+    "highly connected data",
+    "two",
+    "sentences",
+    "graph database explanation"
+   ],
+   "learned_associations": [],
+   "methodologies": [
+    30041,
+    30027,
+    30013,
+    30009
+   ],
+   "relationships": [],
+   "topics": [
+    "graph databases",
+    "suitability",
+    "highly connected data"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 12,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794274845,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Blueprint",
+   "created_at": 1794231281,
+   "materialized_path": "/Blueprints/GraphDatabaseExplanationBlueprint",
+   "modality": "Unknown",
+   "name": "GraphDatabaseExplanationBlueprint",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "orchestrator",
+   "updated_at": 1794338986
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "blueprints/walk_1794231281550496816.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}
