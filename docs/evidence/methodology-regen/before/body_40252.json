@@ -1,0 +1,23 @@
+{
+  "description": "Auto-synthesized methodology for: Configuration Management",
+  "storage": {
+    "category": "IT Service Management",
+    "description": "A methodology focused on establishing and maintaining consistency across all components of an information system through the systematic control of changes to hardware, software, firmware, documentation, and interfaces.",
+    "keywords": [
+      "version control",
+      "change management",
+      "baselines",
+      "release management",
+      "audit",
+      "compliance"
+    ],
+    "name": "Configuration Management",
+    "principles": [
+      "Version Control",
+      "Change Control",
+      "Traceability",
+      "Baseline Establishment",
+      "Automation"
+    ]
+  }
+}

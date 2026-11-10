@@ -1,0 +1,25 @@
+{
+  "description": "Auto-synthesized methodology for: Input Validation",
+  "storage": {
+    "category": "Application Security",
+    "description": "A methodology focused on verifying, sanitizing, and filtering user-supplied data to ensure it conforms to expected formats, lengths, types, and ranges before processing or storage, thereby preventing injection attacks and data corruption.",
+    "keywords": [
+      "allowlisting",
+      "sanitization",
+      "fail fast",
+      "injection prevention",
+      "data integrity",
+      "format checking",
+      "length limits",
+      "type checking"
+    ],
+    "name": "Input Validation",
+    "principles": [
+      "Validate at the boundary of trust",
+      "Fail fast on invalid input",
+      "Use allowlisting over blocklisting",
+      "Apply context-specific rules",
+      "Sanitize and encode output"
+    ]
+  }
+}

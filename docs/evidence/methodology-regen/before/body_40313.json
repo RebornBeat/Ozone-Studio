@@ -1,0 +1,23 @@
+{
+  "description": "Auto-synthesized methodology for: Deduplication",
+  "storage": {
+    "category": "Data Management",
+    "description": "A systematic approach to identifying and removing duplicate records or items within a dataset to ensure data quality, integrity, and efficiency.",
+    "keywords": [
+      "deduplication",
+      "data deduplication",
+      "record matching",
+      "unique identification",
+      "fuzzy matching",
+      "hash-based deduplication",
+      "data quality"
+    ],
+    "name": "Deduplication",
+    "principles": [
+      "Accuracy in identifying true duplicates",
+      "Preservation of original unique records",
+      "Consistency in matching criteria",
+      "Transparency in the deduplication process"
+    ]
+  }
+}

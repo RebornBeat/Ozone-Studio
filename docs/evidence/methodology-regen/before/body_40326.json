@@ -1,0 +1,16 @@
+{
+  "description": "Auto-synthesized methodology for: Verification",
+  "storage": {
+    "category": "Information Quality Assurance",
+    "description": "A systematic process to confirm the accuracy, truthfulness, and integrity of data, claims, or processes through independent review, source analysis, and cross-checking.",
+    "keywords": [
+      "verify",
+      "validate"
+    ],
+    "name": "Verification",
+    "principles": [
+      "Accuracy",
+      "Traceability"
+    ]
+  }
+}

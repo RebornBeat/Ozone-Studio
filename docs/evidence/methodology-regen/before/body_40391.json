@@ -1,0 +1,24 @@
+{
+  "description": "Auto-synthesized methodology for: Registry Access & Provider Management",
+  "storage": {
+    "category": "Identity & Access Management",
+    "description": "Governance framework for secure registry authentication, provider onboarding, credential lifecycle, and access control across distributed systems",
+    "keywords": [
+      "registry authentication",
+      "provider onboarding",
+      "credential management",
+      "access control policies",
+      "multi-cloud identity",
+      "OIDC federation",
+      "secret rotation",
+      "audit compliance"
+    ],
+    "name": "Registry Access & Provider Management",
+    "principles": [
+      "Least privilege access with just-in-time provisioning",
+      "Automated credential rotation and audit trails",
+      "Provider-agnostic abstraction for multi-cloud portability",
+      "Continuous verification of registry trust anchors"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "description": "Auto-synthesized methodology for: Input Validation & Data Integrity",
+  "storage": {
+    "category": "Application Security",
+    "description": "A methodology covering techniques and best practices to ensure user inputs are properly checked, sanitized, and conform to expected formats, preventing injection attacks, corruption, and unauthorized modifications of data throughout its lifecycle.",
+    "keywords": [
+      "Input validation",
+      "Sanitization",
+      "Injection prevention",
+      "Whitelisting",
+      "Data integrity",
+      "Boundary validation"
+    ],
+    "name": "Input Validation & Data Integrity",
+    "principles": [
+      "Validate on the edge (input validation at the system boundary)",
+      "Whitelist over blacklist (allow only known-good values, reject everything else)",
+      "Fail securely (reject invalid input rather than processing it unsafely)",
+      "Defense in depth (implement multiple layers of validation)",
+      "Preserve data integrity (ensure data remains unaltered from input to storage)"
+    ]
+  }
+}

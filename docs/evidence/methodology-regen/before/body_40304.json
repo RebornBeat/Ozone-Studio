@@ -1,0 +1,24 @@
+{
+  "description": "Auto-synthesized methodology for: Boot Sequence",
+  "storage": {
+    "category": "Systems / Software Engineering",
+    "description": "A structured approach to designing, documenting, and troubleshooting the ordered initialization of hardware, firmware, bootloader, and operating system components.",
+    "keywords": [
+      "boot",
+      "firmware",
+      "BIOS",
+      "UEFI",
+      "bootloader",
+      "kernel",
+      "initialization"
+    ],
+    "name": "Boot Sequence",
+    "principles": [
+      "Ordered initialization with clear dependencies",
+      "Fail-safe and recoverable startup stages",
+      "Minimal, explicit hardware and firmware handoffs",
+      "Deterministic behavior and repeatable boot paths",
+      "Observability through logging and diagnostics"
+    ]
+  }
+}

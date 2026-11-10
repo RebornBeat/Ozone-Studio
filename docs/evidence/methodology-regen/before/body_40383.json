@@ -1,0 +1,22 @@
+{
+  "description": "Auto-synthesized methodology for: MCP Capability Management",
+  "storage": {
+    "category": "AI Infrastructure & Agent Orchestration",
+    "description": "A methodology for managing the lifecycle, exposure, security, and governance of Model Context Protocol (MCP) tools, resources, and prompts, ensuring standardized capability registration, access control, and dynamic scaling for AI agents.",
+    "keywords": [
+      "Model Context Protocol",
+      "MCP servers",
+      "tool management",
+      "resource orchestration",
+      "agent capability",
+      "access control"
+    ],
+    "name": "MCP Capability Management",
+    "principles": [
+      "Standardized Declaration",
+      "Least Privilege Access",
+      "Lifecycle Automation",
+      "Observability & Auditing"
+    ]
+  }
+}

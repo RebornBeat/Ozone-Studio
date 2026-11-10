@@ -1,0 +1,26 @@
+{
+  "description": "Auto-synthesized methodology for: Container Management",
+  "storage": {
+    "category": "Cloud Native / DevOps",
+    "description": "Covers the end-to-end lifecycle of containerized workloads, including image building, registry storage, orchestration, deployment, scaling, networking, security, and observability across development and production environments.",
+    "keywords": [
+      "Docker",
+      "Kubernetes",
+      "container orchestration",
+      "image registry",
+      "CI/CD",
+      "namespace",
+      "pod",
+      "scaling",
+      "container security"
+    ],
+    "name": "Container Management",
+    "principles": [
+      "Immutable infrastructure",
+      "Declarative configuration",
+      "Isolation and resource governance",
+      "Automated orchestration and self-healing",
+      "Observability and security by design"
+    ]
+  }
+}

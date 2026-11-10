@@ -1,0 +1,24 @@
+{
+  "description": "Auto-synthesized methodology for: Consistency Checking",
+  "storage": {
+    "category": "Data Quality & Validation",
+    "description": "A systematic approach to verify that data, systems, or processes adhere to defined rules, constraints, and logical relationships, ensuring absence of contradictions and maintaining integrity across states and over time.",
+    "keywords": [
+      "data integrity",
+      "constraint validation",
+      "reconciliation",
+      "drift detection",
+      "audit trail",
+      "referential integrity",
+      "schema compliance"
+    ],
+    "name": "Consistency Checking",
+    "principles": [
+      "Define explicit consistency rules and constraints",
+      "Automate validation at ingestion, transformation, and access points",
+      "Enable continuous monitoring and drift detection",
+      "Support reconciliation and conflict resolution workflows",
+      "Maintain audit trails for traceability and compliance"
+    ]
+  }
+}

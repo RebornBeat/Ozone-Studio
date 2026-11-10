@@ -164,6 +164,28 @@ pub(crate) fn record_refinement_candidate(methodology_id: u64, name: &str, rules
     }
 }
 
+/// COVERAGE RECORD: rules the gate judged applicable that no blueprint step cites (`stages::audit_rule_refs`). Append-only, one line per walk,
+/// into the same refinement file (`reason` distinguishes it); nothing is changed. Best-effort.
+pub(crate) fn record_uncovered_rules(rule_refs: &[String], request_terms: &[String]) {
+    use std::io::Write;
+    if rule_refs.is_empty() {
+        return;
+    }
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let path = format!("{}/methodology_refinement_candidates.jsonl", data_dir);
+    let line = serde_json::json!({
+        "ts_ms": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+        "kind": "uncovered_rules",
+        "rule_refs": rule_refs,
+        "request_terms": request_terms,
+        "reason": "blueprint gate: rules judged applicable that no step cites — the plan missed them or the rule is not actionable as a step",
+    })
+    .to_string();
+    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| writeln!(f, "{line}")) {
+        tracing::warn!(error = %e, "could not record uncovered rules");
+    }
+}
+
 /// METHODOLOGY QUALITY AUDIT (E18, 2026-11-07). Deterministic, no model call: a methodology with fewer than 3 usable keywords (after
 /// `request_terms` hygiene) feeds the Stage 3 floor and keyword search badly; one with no decision rule or heuristic carrying real text
 /// cannot steer a plan. Each such methodology raises ONE `modify` gap (target = its id, reason starts "quality audit") — the existing

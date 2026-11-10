@@ -1,0 +1,18 @@
+{
+  "description": "Auto-synthesized methodology for: Workflow Automation",
+  "storage": {
+    "category": "Business Process Management",
+    "description": "A structured approach to designing, executing, and optimizing automated sequences of business activities.",
+    "keywords": [
+      "workflow",
+      "automation",
+      "process",
+      "pipeline"
+    ],
+    "name": "Workflow Automation",
+    "principles": [
+      "Identify repetitive tasks and map them into logical workflows",
+      "Use modular design and automation tools to ensure consistent execution"
+    ]
+  }
+}

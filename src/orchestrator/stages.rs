@@ -808,14 +808,17 @@ impl PromptOrchestrator {
         }
     }
 
-    /// RULE APPLICABILITY GATE (operator 2026-11-10; replaces the per-rule E14 vote that ran at the END of blueprint design).
-    /// WHERE: right after the AMT is built and BEFORE the blueprint is drafted — at methodology aggregation (Stage 3) there is no AMT yet, so
-    /// a judgment there would see only the raw request; here the AMT branches are the structured breakdown of what the request needs. WHAT:
-    /// for every gathered methodology, ONE batched question per round lists its rules and asks which CLEARLY do not apply to the request and
-    /// its AMT. A rule is left out only if EVERY round (strength N) says "clearly not" — one "applies / might apply" keeps it, an unanswered
-    /// rule is kept (a failed call can never drop a rule). Methodologies are judged concurrently (independent). The verdicts go to
-    /// `state.rule_verdicts` (read by every later prompt via `rules_text_for`) and to the tool manifest rows (provider rules), so a provider
-    /// step is never drafted for a rule that does not apply.
+    /// THE RULE GATE (operator 2026-11-10) — ONE call site, ONE batched question per methodology per round, answering TWO things about its rules.
+    /// WHERE: after the blueprint steps are drafted (or a stored plan is reloaded) and BEFORE `audit_rule_refs` / `reconcile_tool_bindings`. It
+    /// used to run before the draft (right after the AMT); it moved here so the SAME call can also check the plan itself: both the AMT (what the
+    /// request needs) and the steps (what the plan does) exist now, and provider steps / tool rows are only fixed after this gate.
+    /// 1. APPLICABILITY — which rules CLEARLY do not apply to the request and its AMT. Left out only if EVERY round (strength N) says "clearly
+    ///    not"; an unanswered rule is kept.
+    /// 2. FIDELITY — for every (step, rule) citation the draft made: does the step actually carry out that rule? The citation is removed only if
+    ///    EVERY round says it does not; an unanswered citation is kept. (A removed citation leaves the rule UNCOVERED, which `audit_rule_refs`
+    ///    records for the refinement loop.)
+    /// Methodologies run concurrently. Verdicts go to `state.rule_verdicts` (read by later prompts via `rules_text_for`), the tool manifest rows
+    /// and the steps' `rule_refs`. A failed call can never drop a rule or a citation.
     pub(crate) async fn judge_rule_applicability(&self, state: &mut OrchestrationState) {
         if state.methodologies.is_empty() {
             return;
@@ -832,26 +835,39 @@ impl PromptOrchestrator {
         }
         let branches = super::amt::render_within_window(state, "rule_gate_branches", 4, branches);
         let strength = crate::shared_contracts::k_validation::configured_strength();
-        // (methodology id, name, rules not judged yet)
-        let mut work: Vec<(u64, String, Vec<(String, String)>)> = Vec::new();
+        let steps_all: Vec<(usize, String, Vec<String>)> =
+            state.blueprint_steps.iter().map(|s| (s.step_index as usize, s.description.clone(), s.rule_refs.clone())).collect();
+        // (methodology id, name, all its rules, the keys not judged yet, the (step, rule key) citations)
+        let mut work: Vec<(u64, String, Vec<(String, String)>, std::collections::BTreeSet<String>, Vec<(usize, String)>)> = Vec::new();
         for id in state.methodologies.clone() {
             let Ok(Some(container)) = self.store.get_container(id).await else { continue };
             let name = container.pointer("/local_state/metadata/name").and_then(|n| n.as_str()).unwrap_or("").to_string();
             let Some(body) = super::tool_binding::read_methodology_body_value(&container) else { continue };
-            let items: Vec<(String, String)> =
-                Self::rule_items(&body).into_iter().filter(|(k, _)| !state.rule_verdicts.contains_key(&format!("m{id}:{k}"))).collect();
-            if !items.is_empty() {
-                work.push((id, name, items));
+            let items = Self::rule_items(&body);
+            let unjudged: std::collections::BTreeSet<String> =
+                items.iter().filter(|(k, _)| !state.rule_verdicts.contains_key(&format!("m{id}:{k}"))).map(|(k, _)| k.clone()).collect();
+            let prefix = format!("m{id}:");
+            let cites: Vec<(usize, String)> = steps_all
+                .iter()
+                .flat_map(|(i, _, refs)| refs.iter().filter_map(|r| r.strip_prefix(&prefix).map(|k| (*i, k.to_string()))).collect::<Vec<_>>())
+                .filter(|(_, k)| items.iter().any(|(ik, _)| ik == k))
+                .collect();
+            if !unjudged.is_empty() || !cites.is_empty() {
+                work.push((id, name, items, unjudged, cites));
             }
         }
         if work.is_empty() {
             return;
         }
-        let results = futures::future::join_all(work.iter().map(|(_, name, items)| self.rule_gate_rounds(&request, &branches, name, items, strength))).await;
-        let (mut judged, mut dropped) = (0usize, 0usize);
-        for ((id, name, items), (not_applicable, tokens)) in work.into_iter().zip(results) {
+        let steps_ref = &steps_all;
+        let results = futures::future::join_all(
+            work.iter().map(|(_, name, items, unjudged, cites)| self.rule_gate_rounds(&request, &branches, name, items, unjudged, steps_ref, cites, strength)),
+        )
+        .await;
+        let (mut judged, mut dropped, mut cites_dropped) = (0usize, 0usize, 0usize);
+        for ((id, name, items, unjudged, _), (not_applicable, not_carried, tokens)) in work.into_iter().zip(results) {
             state.tokens_used_so_far += tokens as u32;
-            for (key, text) in &items {
+            for (key, text) in items.iter().filter(|(k, _)| unjudged.contains(k)) {
                 let na = not_applicable.contains(key);
                 let rule_ref = format!("m{id}:{key}");
                 state.rule_verdicts.insert(rule_ref.clone(), !na);
@@ -871,36 +887,82 @@ impl PromptOrchestrator {
                     }
                 }
             }
+            for (step_index, key) in &not_carried {
+                let rule_ref = format!("m{id}:{key}");
+                if let Some(st) = state.blueprint_steps.iter_mut().find(|s| s.step_index as usize == *step_index) {
+                    let before = st.rule_refs.len();
+                    st.rule_refs.retain(|r| *r != rule_ref);
+                    if st.rule_refs.len() < before {
+                        cites_dropped += 1;
+                        let rule_text = items.iter().find(|(k, _)| k == key).map(|(_, t)| t.as_str()).unwrap_or("");
+                        crate::keyword_program::record_judgment("rule_step_fidelity", Some(id), rule_text, &st.description, "does this step NOT carry out the rule it cites?", true, strength);
+                    }
+                }
+            }
             if !not_applicable.is_empty() {
                 tracing::info!(stage = 6, methodology = %name, left_out = not_applicable.len(), of = items.len(), "rule gate: rules judged clearly NOT applicable are left out of the plan");
                 // a sound methodology has no optional rules: tell the refinement meta loop (durable record, evidence attached)
                 let terms: Vec<String> = state.keywords.iter().cloned().collect();
-                super::meta_loop::record_refinement_candidate(id, &name, &items, &not_applicable, &terms);
+                let judged_items: Vec<(String, String)> = items.iter().filter(|(k, _)| unjudged.contains(k)).cloned().collect();
+                super::meta_loop::record_refinement_candidate(id, &name, &judged_items, &not_applicable, &terms);
             }
         }
-        tracing::info!(stage = 6, methodologies = state.methodologies.len(), rules_judged = judged, left_out = dropped, "rule applicability gate complete");
+        tracing::info!(stage = 6, methodologies = state.methodologies.len(), rules_judged = judged, left_out = dropped, citations_removed = cites_dropped, "rule gate complete (applicability + step fidelity)");
     }
 
-    /// The rounds for ONE methodology (no state borrowed, so methodologies run concurrently). Returns (rule keys left out, tokens used).
-    async fn rule_gate_rounds(&self, request: &str, branches: &str, methodology: &str, items: &[(String, String)], strength: u32) -> (std::collections::BTreeSet<String>, u64) {
-        use crate::orchestrator::keyword_settle::{parse_round, step_round};
+    /// The rounds for ONE methodology (no state borrowed, so methodologies run concurrently). Returns (rule keys left out, (step, rule key)
+    /// citations the steps do not carry out, tokens used). Both lists follow the same asymmetric rule: removed only on EVERY round's "no".
+    #[allow(clippy::too_many_arguments)]
+    async fn rule_gate_rounds(
+        &self,
+        request: &str,
+        branches: &str,
+        methodology: &str,
+        items: &[(String, String)],
+        unjudged: &std::collections::BTreeSet<String>,
+        steps: &[(usize, String, Vec<String>)],
+        cites: &[(usize, String)],
+        strength: u32,
+    ) -> (std::collections::BTreeSet<String>, std::collections::BTreeSet<(usize, String)>, u64) {
         let mut tokens = 0u64;
-        let mut alive: Vec<(String, String)> = items.to_vec();
+        let mut alive: Vec<String> = unjudged.iter().cloned().collect(); // rule keys still "clearly not" in every round so far
+        let mut doubtful: std::collections::BTreeSet<(usize, String)> = cites.iter().cloned().collect(); // citations "not carried" in every round so far
+        let none = || (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
         for round in 1..=strength.max(1) {
-            if alive.is_empty() {
+            if alive.is_empty() && doubtful.is_empty() {
                 break;
             }
             // a different presentation order each round, so the votes are not the same prompt repeated
-            let rot = ((round - 1) as usize * alive.len()) / strength.max(1) as usize;
-            let rot = rot.min(alive.len().saturating_sub(1));
-            alive.rotate_left(rot);
-            let list = alive.iter().enumerate().map(|(i, (_, t))| format!("{}. {}", i + 1, t)).collect::<Vec<_>>().join("\n");
+            let mut order: Vec<&(String, String)> = items.iter().collect();
+            if !order.is_empty() {
+                let rot = (((round - 1) as usize * order.len()) / strength.max(1) as usize).min(order.len() - 1);
+                order.rotate_left(rot);
+            }
+            // rules are labelled by their KEY ([r0], [h1]) so one reply can name them; applicability is asked only for the not-yet-judged ones
+            let rule_list = order.iter().map(|(k, t)| format!("[{k}] {t}")).collect::<Vec<_>>().join("\n");
+            let ask_applicability = !alive.is_empty();
+            let cited: Vec<&(usize, String)> = doubtful.iter().collect();
+            let plan = steps
+                .iter()
+                .filter(|(i, _, _)| cited.iter().any(|(s, _)| s == i))
+                .map(|(i, d, _)| format!("S{i}: {d}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let mut questions = String::new();
+            if ask_applicability {
+                let keys = alive.iter().map(|k| format!("[{k}]")).collect::<Vec<_>>().join(" ");
+                questions.push_str(&format!("A. Among the rules {keys}: which CLEARLY do not apply to this request — its subject or condition has nothing to do with what the request and its branches ask for? When a rule might apply, or you are unsure, it APPLIES. Put every one of those rules in exactly one of \"applies\" / \"clearly_not\".\n"));
+            }
+            if !cited.is_empty() {
+                let pairs = cited.iter().map(|(s, k)| format!("S{s}|{k}")).collect::<Vec<_>>().join(" ");
+                questions.push_str(&format!("B. The plan's steps cite rules. For each pair (step|rule) in {pairs}: does the step, as written, actually carry out that rule — do what its THEN/action says? When it plausibly does, or you are unsure, it CARRIES. Put every pair in exactly one of \"carries\" / \"does_not_carry\".\n"));
+            }
             let prompt = format!(
-                "REQUEST (the user's request, whole):\n{request}\n\nWHAT THE REQUEST BREAKS DOWN INTO (the plan's branches):\n{branches}\n\nMETHODOLOGY: {methodology}\nITS RULES (numbered):\n{list}\n\nQUESTION: For EACH numbered rule, does it clearly NOT apply to this request — its subject or condition has nothing to do with what the request and its branches ask for? When a rule might apply, or you are unsure, it APPLIES.\nReturn ONLY JSON: {{\"applies\": [numbers], \"clearly_not\": [numbers]}} — every number in exactly one list."
+                "REQUEST (the user's request, whole):\n{request}\n\nWHAT THE REQUEST BREAKS DOWN INTO (the plan's branches):\n{branches}\n\nMETHODOLOGY: {methodology}\nITS RULES:\n{rule_list}\n\nTHE PLAN'S STEPS THAT CITE ITS RULES:\n{plan}\n\nQUESTIONS:\n{questions}\nReturn ONLY JSON: {{\"applies\": [rule keys], \"clearly_not\": [rule keys], \"carries\": [\"S<n>|<key>\"], \"does_not_carry\": [\"S<n>|<key>\"]}} — omit a list whose question was not asked."
             );
             let input = serde_json::json!({
-                "prompt": prompt, "max_tokens": 600, "temperature": 0.1,
-                "system_prompt": "You decide which methodology rules apply to a request. Return only valid JSON."
+                "prompt": prompt, "max_tokens": 800, "temperature": 0.1,
+                "system_prompt": "You decide which methodology rules apply to a request and whether plan steps carry them out. Return only valid JSON."
             });
             let res = self.executor.execute(9, input).await;
             let parsed = match &res {
@@ -918,18 +980,27 @@ impl PromptOrchestrator {
                 Err(_) => None,
             };
             let Some(v) = parsed else {
-                return (std::collections::BTreeSet::new(), tokens); // a failed call can never drop a rule
+                let (a, b) = none();
+                return (a, b, tokens); // a failed call can never drop a rule or a citation
             };
-            // map the reply onto the shared round bookkeeping: "applies" = keep (the stored-term side), "clearly_not" = go on to the next round
-            let mapped = serde_json::json!({"yes": v.get("applies").cloned().unwrap_or_default(), "no": v.get("clearly_not").cloned().unwrap_or_default()});
-            let (yes, no) = parse_round(&mapped, alive.len());
-            let texts: Vec<String> = alive.iter().map(|(k, _)| k.clone()).collect();
-            let step = step_round(true, &texts, &yes, &no);
-            let keep: std::collections::BTreeSet<&String> = step.next.iter().collect();
-            alive.retain(|(k, _)| keep.contains(k));
+            let strs = |key: &str| -> std::collections::BTreeSet<String> {
+                v.get(key).and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().trim_matches(|c| c == '[' || c == ']').to_string())).collect()).unwrap_or_default()
+            };
+            if ask_applicability {
+                let (applies, clearly_not) = (strs("applies"), strs("clearly_not"));
+                // kept = said "applies", said both, or was not answered; only a clear single "clearly_not" goes on to the next round
+                alive.retain(|k| clearly_not.contains(k) && !applies.contains(k));
+            }
+            if !cited.is_empty() {
+                let (carries, not_carry) = (strs("carries"), strs("does_not_carry"));
+                doubtful.retain(|(s, k)| {
+                    let label = format!("S{s}|{k}");
+                    not_carry.contains(&label) && !carries.contains(&label)
+                });
+            }
         }
-        // what is left said "clearly not" in EVERY round
-        (alive.into_iter().map(|(k, _)| k).collect(), tokens)
+        // what is left said "clearly not" / "does not carry" in EVERY round
+        (alive.into_iter().collect(), doubtful, tokens)
     }
 
     /// THE BLUEPRINT GATE (deterministic, no model): after the steps are final, every cited `rule_ref` must exist and must not be a rule the
@@ -965,6 +1036,14 @@ impl PromptOrchestrator {
             if let Some(mid) = r.strip_prefix('m').and_then(|x| x.split(':').next()).and_then(|x| x.parse::<u64>().ok()) {
                 crate::keyword_program::record_event("rule_cited", mid, &state.keywords, serde_json::json!({"kind": "rule", "rule_ref": r})); // its own kind: never inflates the methodology-level `applied` counter
             }
+        }
+        // COVERAGE (operator 2026-11-10: "a sound methodology is one where all rules apply"): every rule judged applicable should be carried by
+        // at least one step. Deterministic; a rule no step cites is RECORDED (never added, never removed) for the refinement loop — either the
+        // plan missed an applicable rule or the rule is not really actionable as a step.
+        let uncovered: Vec<String> = state.rule_verdicts.iter().filter(|(r, ok)| **ok && !applied.contains(*r)).map(|(r, _)| r.clone()).collect();
+        if !uncovered.is_empty() && !state.blueprint_steps.is_empty() {
+            tracing::warn!(uncovered = uncovered.len(), of = state.rule_verdicts.len(), "blueprint gate: applicable rules no step cites");
+            crate::orchestrator::meta_loop::record_uncovered_rules(&uncovered, &state.keywords);
         }
         tracing::info!(cited, distinct_rules_applied = applied.len(), "blueprint gate: rule citations audited");
     }
@@ -1102,8 +1181,7 @@ impl PromptOrchestrator {
         let tools_note = format!("{} applicable tool(s)/MCP(s) carried into the blueprint", state.applicable_tools.len());
         self.emit_marker(state, "[6.tools]", &tools_note);
 
-        // RULE GATE: which of the gathered methodologies' rules apply to THIS request — judged against the finished AMT, before anything is drafted
-        self.judge_rule_applicability(state).await;
+        // (the RULE GATE no longer runs here: it runs after the steps exist, right before `audit_rule_refs` — see `judge_rule_applicability`)
 
         // Search for blueprint with 100% match — skipped when the capability-closure step is RE-PLANNING with newly created methodologies
         // (a stored blueprint that matches the keywords is exactly the plan that reported the gaps).
@@ -1188,6 +1266,7 @@ impl PromptOrchestrator {
                     state.blueprint_steps = loaded_steps;
                     // a reused plan is held to the SAME binding rules as a new one: this run's declared per-rule tools are
                     // attached, stale/unknown tool calls dropped, missing capabilities captured (tool_binding.rs)
+                    self.judge_rule_applicability(state).await;
                     Self::audit_rule_refs(state);
                     let _ = Self::reconcile_tool_bindings(state, &format!("blueprint {}", bp_id), &[]).await;
                     self.record_stage_timed(
@@ -1904,6 +1983,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // create_container always failed and the failure was swallowed.
         // PROVIDER STEPS (tool_binding.rs): validate model provider steps, insert the methodologies' declared per-rule providers as
         // provider steps before their carriers (authoritative), and CAPTURE every missing capability durably — not just log it.
+        self.judge_rule_applicability(state).await;
         Self::audit_rule_refs(state);
         let all_missing = Self::reconcile_tool_bindings(state, &name, &missing_capabilities).await;
         let blueprint_body = serde_json::json!({

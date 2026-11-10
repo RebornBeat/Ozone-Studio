@@ -1,0 +1,19 @@
+{
+  "description": "Auto-synthesized methodology for: Error Handling",
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A systematic approach to detecting, reporting, recovering from, and preventing errors in software systems to ensure robustness and reliability.",
+    "keywords": [
+      "exception handling",
+      "error logging",
+      "fault tolerance",
+      "retry logic",
+      "validation"
+    ],
+    "name": "Error Handling",
+    "principles": [
+      "Proactive error prevention",
+      "Consistent and meaningful error reporting"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "description": "Auto-synthesized methodology for: Configuration Management",
+  "storage": {
+    "category": "IT Service Management",
+    "description": "A methodology focused on tracking, controlling, and maintaining the state of an organization's assets (hardware, software, documentation) to ensure consistency, reliability, and compliance throughout their lifecycle.",
+    "keywords": [
+      "Configuration Item (CI)",
+      "Change Management",
+      "Release Management",
+      "Baseline",
+      "CMDB",
+      "Version Control",
+      "Compliance",
+      "Automation"
+    ],
+    "name": "Configuration Management",
+    "principles": [
+      "Version Control",
+      "Change Control",
+      "Asset Tracking",
+      "Standardization",
+      "Auditability",
+      "Continuous Improvement"
+    ]
+  }
+}

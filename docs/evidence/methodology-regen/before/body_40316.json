@@ -1,0 +1,22 @@
+{
+  "description": "Auto-synthesized methodology for: HTTP Parsing",
+  "storage": {
+    "category": "Protocol & API Engineering",
+    "description": "A methodology for systematically extracting and interpreting structured data from raw HTTP messages, covering request headers, response headers, status codes, and payload boundaries while ensuring RFC compliance.",
+    "keywords": [
+      "HTTP headers",
+      "Status codes",
+      "Request/Response body",
+      "Chunked transfer encoding",
+      "Content-Type",
+      "RFC 7230 compliance"
+    ],
+    "name": "HTTP Parsing",
+    "principles": [
+      "Defensive parsing against malformed inputs",
+      "State-aware interpretation of HTTP methods and status codes",
+      "Strict adherence to RFC 7230-7235 standards",
+      "Accurate payload boundary detection (chunked, compressed)"
+    ]
+  }
+}

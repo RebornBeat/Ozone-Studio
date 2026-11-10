@@ -1,0 +1,21 @@
+{
+  "description": "Auto-synthesized methodology for: Hierarchy Construction & Re-expansion Workflow",
+  "storage": {
+    "category": "Hierarchical Modeling",
+    "description": "A structured method for building hierarchical models and iteratively expanding them to incorporate new details or levels.",
+    "keywords": [
+      "hierarchy",
+      "re-expansion",
+      "tree",
+      "graph",
+      "iterative"
+    ],
+    "name": "Hierarchy Construction & Re-expansion Workflow",
+    "principles": [
+      "Define root and level semantics",
+      "Establish parent-child relationships",
+      "Apply iterative expansion with validation",
+      "Maintain consistency across expansions"
+    ]
+  }
+}

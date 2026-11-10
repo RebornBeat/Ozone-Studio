@@ -1,0 +1,21 @@
+{
+  "description": "Auto-synthesized methodology for: Storage Reconciliation",
+  "storage": {
+    "category": "Data Management",
+    "description": "A systematic approach to verifying that stored data matches expected configurations, ensuring data integrity and consistency across storage systems.",
+    "keywords": [
+      "data integrity",
+      "validation",
+      "consistency",
+      "audit trail",
+      "storage verification"
+    ],
+    "name": "Storage Reconciliation",
+    "principles": [
+      "Accuracy - ensuring stored data matches the source of truth",
+      "Completeness - all required data is present and accounted for",
+      "Consistency - data remains consistent across all storage systems",
+      "Auditability - all reconciliation steps are documented and traceable"
+    ]
+  }
+}

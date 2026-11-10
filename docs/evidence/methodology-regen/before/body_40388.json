@@ -1,0 +1,16 @@
+{
+  "description": "Auto-synthesized methodology for: Testing & Verification",
+  "storage": {
+    "category": "Quality Assurance",
+    "description": "A comprehensive methodology for validating system behavior, ensuring quality, reliability, and compliance through systematic testing approaches and verification processes.",
+    "keywords": [
+      "testing",
+      "verification"
+    ],
+    "name": "Testing & Verification",
+    "principles": [
+      "Thoroughness and coverage across all test levels",
+      "Continuous integration and automated validation"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Auto-synthesized methodology for: Dependency Management",
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A systematic approach to declaring, resolving, versioning, and auditing software dependencies to ensure build reproducibility, runtime stability, and security compliance.",
+    "keywords": [
+      "versioning",
+      "reproducibility"
+    ],
+    "name": "Dependency Management",
+    "principles": [
+      "Explicit version pinning",
+      "Regular security scanning"
+    ]
+  }
+}

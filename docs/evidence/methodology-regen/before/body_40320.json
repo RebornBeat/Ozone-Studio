@@ -1,0 +1,22 @@
+{
+  "description": "Auto-synthesized methodology for: Mapping",
+  "storage": {
+    "category": "Geospatial",
+    "description": "A methodology for creating visual representations of spatial or conceptual data to analyze, communicate, or navigate relationships.",
+    "keywords": [
+      "cartography",
+      "GIS",
+      "spatial data",
+      "topology",
+      "visualization"
+    ],
+    "name": "Mapping",
+    "principles": [
+      "Accuracy",
+      "Clarity",
+      "Scale",
+      "Legend",
+      "Projection"
+    ]
+  }
+}

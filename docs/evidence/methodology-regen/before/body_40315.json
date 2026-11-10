@@ -1,0 +1,21 @@
+{
+  "description": "Auto-synthesized methodology for: Hierarchy Construction",
+  "storage": {
+    "category": "Software Architecture",
+    "description": "Methodology for designing and organizing hierarchical structures such as taxonomies, file systems, organizational charts, and knowledge trees.",
+    "keywords": [
+      "hierarchy",
+      "tree",
+      "nesting",
+      "taxonomy",
+      "organization"
+    ],
+    "name": "Hierarchy Construction",
+    "principles": [
+      "Establish clear parent-child relationships",
+      "Use top-down or bottom-up structuring as appropriate",
+      "Maintain consistent depth and breadth",
+      "Ensure scalability and discoverability"
+    ]
+  }
+}

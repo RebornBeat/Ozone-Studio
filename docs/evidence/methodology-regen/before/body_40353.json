@@ -1,0 +1,25 @@
+{
+  "description": "Auto-synthesized methodology for: Rollback Strategies",
+  "storage": {
+    "category": "Software Reliability & Deployment",
+    "description": "A methodology covering frameworks and best practices for reverting system changes, recovering from deployment failures, and ensuring data integrity during software releases.",
+    "keywords": [
+      "Blue-Green deployment",
+      "Canary release",
+      "Feature flag",
+      "Circuit breaker",
+      "Database rollback",
+      "Deployment pipeline",
+      "Version control",
+      "Rollback trigger"
+    ],
+    "name": "Rollback Strategies",
+    "principles": [
+      "Pre-deployment safety nets",
+      "Automated rollback triggers",
+      "Data consistency preservation",
+      "Minimal blast radius",
+      "Fast recovery time objectives"
+    ]
+  }
+}

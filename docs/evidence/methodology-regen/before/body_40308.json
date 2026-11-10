@@ -1,0 +1,22 @@
+{
+  "description": "Auto-synthesized methodology for: Concurrency Control",
+  "storage": {
+    "category": "Database Systems",
+    "description": "Methods and strategies for managing simultaneous access to shared resources, ensuring data consistency, isolation, and correctness in concurrent and distributed systems.",
+    "keywords": [
+      "locking",
+      "transactions",
+      "isolation",
+      "deadlock",
+      "timestamp ordering",
+      "optimistic concurrency",
+      "serializability"
+    ],
+    "name": "Concurrency Control",
+    "principles": [
+      "Mutual Exclusion and Locking",
+      "Atomicity and Isolation of Transactions",
+      "Serializability and Isolation Levels"
+    ]
+  }
+}

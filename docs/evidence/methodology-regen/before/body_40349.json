@@ -1,0 +1,23 @@
+{
+  "description": "Auto-synthesized methodology for: Capability Declarations",
+  "storage": {
+    "category": "Systems Engineering",
+    "description": "A structured approach to defining, documenting, and maintaining clear, consistent capability statements for systems, services, and organizations to ensure understanding, traceability, and alignment across stakeholders.",
+    "keywords": [
+      "capability",
+      "declaration",
+      "functionality",
+      "service",
+      "documentation",
+      "standard",
+      "traceability",
+      "alignment"
+    ],
+    "name": "Capability Declarations",
+    "principles": [
+      "Clarity and Precision: Capability statements must be unambiguous and specific, avoiding vague or overly broad language.",
+      "Consistency and Standardization: Use uniform terminology, formatting, and classification schemes across all declarations.",
+      "Traceability and Maintainability: Ensure each capability can be traced to its source, versioned, and easily updated as requirements evolve."
+    ]
+  }
+}

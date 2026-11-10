@@ -1,0 +1,19 @@
+{
+  "description": "Auto-synthesized methodology for: Error Handling & Resilience Engineering",
+  "storage": {
+    "category": "Software Engineering",
+    "description": "This methodology focuses on designing systems to anticipate, handle, and recover from failures, ensuring stability and reliability through proactive error management and fault-tolerant patterns.",
+    "keywords": [
+      "Error handling",
+      "Resilience",
+      "Fault tolerance",
+      "Retry mechanisms"
+    ],
+    "name": "Error Handling & Resilience Engineering",
+    "principles": [
+      "Anticipate and handle errors explicitly",
+      "Design for failure and recovery",
+      "Implement resilience patterns"
+    ]
+  }
+}

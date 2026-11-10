@@ -1,0 +1,22 @@
+{
+  "description": "Auto-synthesized methodology for: Component Restoration",
+  "storage": {
+    "category": "Systems Maintenance & Repair",
+    "description": "A systematic approach to diagnosing, repairing, and rebuilding damaged or degraded components to their original functional state across hardware and software domains.",
+    "keywords": [
+      "component repair",
+      "fault isolation",
+      "baseline restoration",
+      "damage assessment",
+      "modular repair",
+      "system recovery"
+    ],
+    "name": "Component Restoration",
+    "principles": [
+      "Diagnostic Precision: Accurately identify root causes of component failure before applying interventions.",
+      "Modular Isolation: Treat and restore components independently to isolate faults and streamline the process.",
+      "State Preservation: Restore components to their baseline condition without introducing unnecessary modifications.",
+      "Reversibility: Design restoration steps to be easily reversible in case of unintended damage."
+    ]
+  }
+}

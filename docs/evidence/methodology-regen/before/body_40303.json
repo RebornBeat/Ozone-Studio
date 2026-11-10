@@ -1,0 +1,20 @@
+{
+  "description": "Auto-synthesized methodology for: Authorization",
+  "storage": {
+    "category": "Access Control",
+    "description": "A methodology for defining, enforcing, and managing access rights to resources based on policies, roles, and attributes.",
+    "keywords": [
+      "RBAC",
+      "ABAC",
+      "Policy",
+      "Permissions",
+      "Access Management"
+    ],
+    "name": "Authorization",
+    "principles": [
+      "Least Privilege",
+      "Need-to-Know",
+      "Separation of Duties"
+    ]
+  }
+}

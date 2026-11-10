@@ -1,0 +1,26 @@
+{
+  "description": "Auto-synthesized methodology for: HTTP Protocol Error Handling",
+  "storage": {
+    "category": "Network Protocol Management",
+    "description": "A systematic approach to detecting, classifying, logging, and recovering from HTTP protocol errors to maintain reliable communication between clients and servers.",
+    "keywords": [
+      "HTTP",
+      "status codes",
+      "error handling",
+      "client error",
+      "server error",
+      "idempotent requests",
+      "logging",
+      "retry",
+      "RFC 7231"
+    ],
+    "name": "HTTP Protocol Error Handling",
+    "principles": [
+      "Detect errors early using status code inspection",
+      "Classify errors by client vs server and idempotency",
+      "Log detailed error context for diagnostics",
+      "Implement graceful degradation and retry strategies",
+      "Standardize error responses per RFC specifications"
+    ]
+  }
+}

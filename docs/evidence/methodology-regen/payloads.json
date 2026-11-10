@@ -1,0 +1,1410 @@
+{
+ "40252": {
+  "add_decision_rules": [
+   {
+    "name": "Version every configuration item",
+    "condition": "a configuration item (file, setting, or parameter set) is created or changed",
+    "outcome": "store it under version control so every change has an author, timestamp, and diff",
+    "requires": []
+   },
+   {
+    "name": "Establish a baseline before changing",
+    "condition": "a change to configuration is about to be made",
+    "outcome": "record the current approved configuration as a baseline first so the change can be compared with it and undone",
+    "requires": []
+   },
+   {
+    "name": "Route changes through change control",
+    "condition": "a configuration change is proposed",
+    "outcome": "record what changes, why, and who approved it before applying it",
+    "requires": []
+   },
+   {
+    "name": "Keep configuration traceable",
+    "condition": "a configuration state is deployed or reported",
+    "outcome": "link that state to the exact version and the change that produced it",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "the same configuration step is repeated by hand more than once",
+    "action": "automate that step so it is applied identically every time"
+   },
+   {
+    "condition": "deployed configuration differs from the recorded baseline",
+    "action": "treat the difference as drift and either reconcile it to the baseline or record it as a controlled change"
+   }
+  ]
+ },
+ "40302": {
+  "add_decision_rules": [
+   {
+    "name": "Use resource-oriented endpoints",
+    "condition": "an API endpoint is being designed",
+    "outcome": "model it around a resource noun and use the HTTP method to express the action",
+    "requires": []
+   },
+   {
+    "name": "Preserve backward compatibility",
+    "condition": "an existing API contract needs to change",
+    "outcome": "version the change or make it additive so existing clients keep working",
+    "requires": []
+   },
+   {
+    "name": "Return consistent errors",
+    "condition": "an API operation can fail",
+    "outcome": "return a status code that matches the failure class and an error body with the same shape across all endpoints",
+    "requires": []
+   },
+   {
+    "name": "Document every endpoint",
+    "condition": "an endpoint is added or changed",
+    "outcome": "document its path, method, inputs, outputs, and error cases in the same change",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a change would rename or remove a field or endpoint",
+    "action": "prefer adding a new field or version and deprecating the old one instead"
+   },
+   {
+    "condition": "two endpoints behave differently for the same kind of input",
+    "action": "align them to one convention rather than documenting the difference"
+   }
+  ]
+ },
+ "40303": {
+  "add_decision_rules": [
+   {
+    "name": "Grant least privilege",
+    "condition": "access is being granted to a subject (user, service, or role)",
+    "outcome": "grant only the permissions the subject's task requires and nothing broader",
+    "requires": []
+   },
+   {
+    "name": "Limit access to need-to-know",
+    "condition": "a resource holds sensitive data",
+    "outcome": "allow access only to subjects with a stated need for that data",
+    "requires": []
+   },
+   {
+    "name": "Separate duties",
+    "condition": "one action chain would let a single subject both initiate and approve a sensitive operation",
+    "outcome": "split the steps between different subjects",
+    "requires": []
+   },
+   {
+    "name": "Deny by default",
+    "condition": "no rule explicitly allows the requested access",
+    "outcome": "deny the request",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a permission was granted for a temporary task",
+    "action": "review it when the task ends and remove it if no longer required"
+   },
+   {
+    "condition": "a role keeps accumulating permissions",
+    "action": "split it into narrower roles"
+   }
+  ]
+ },
+ "40304": {
+  "add_decision_rules": [
+   {
+    "name": "Order startup by dependency",
+    "condition": "a boot or startup sequence is defined",
+    "outcome": "start each stage only after the stages it depends on have completed and declare those dependencies explicitly",
+    "requires": []
+   },
+   {
+    "name": "Make each stage's failure explicit",
+    "condition": "a boot stage fails",
+    "outcome": "stop or fall back to a defined recovery path instead of continuing in an unknown state",
+    "requires": []
+   },
+   {
+    "name": "Keep handoffs explicit",
+    "condition": "control passes between firmware, loader, or software stages",
+    "outcome": "define what state and parameters are handed over and verify them on receipt",
+    "requires": []
+   },
+   {
+    "name": "Log boot progress",
+    "condition": "a boot stage starts or ends",
+    "outcome": "record the stage and its outcome so a failed boot can be diagnosed",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "two boot runs with the same inputs behave differently",
+    "action": "look for hidden dependencies or timing assumptions and make them explicit"
+   },
+   {
+    "condition": "a stage can be skipped without any later stage noticing",
+    "action": "add a check that proves it ran"
+   }
+  ]
+ },
+ "40305": {
+  "add_decision_rules": [
+   {
+    "name": "Version every configuration item",
+    "condition": "a configuration item is created or changed",
+    "outcome": "keep it under version control with a recorded history",
+    "requires": []
+   },
+   {
+    "name": "Control changes",
+    "condition": "a configuration change is requested",
+    "outcome": "record and approve the change before it is applied",
+    "requires": []
+   },
+   {
+    "name": "Track configuration assets",
+    "condition": "a system component is added, moved, or retired",
+    "outcome": "update the register of configuration items to match",
+    "requires": []
+   },
+   {
+    "name": "Standardize configuration",
+    "condition": "a new system of an existing type is configured",
+    "outcome": "start from the established standard configuration and record any deviation",
+    "requires": []
+   },
+   {
+    "name": "Keep an audit trail",
+    "condition": "a configuration changes",
+    "outcome": "retain who changed it, when, and what the previous value was",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "configuration is found that is not in the register",
+    "action": "investigate its origin and either register it or remove it"
+   },
+   {
+    "condition": "the same deviation is recorded repeatedly",
+    "action": "consider updating the standard to include it"
+   }
+  ]
+ },
+ "40307": {
+  "add_decision_rules": [
+   {
+    "name": "Define consistency rules first",
+    "condition": "a dataset is to be checked for consistency",
+    "outcome": "write down the explicit rules or constraints being checked before running the check",
+    "requires": []
+   },
+   {
+    "name": "Validate at data entry points",
+    "condition": "data enters, is transformed, or is read from a store",
+    "outcome": "run the defined checks at that point",
+    "requires": []
+   },
+   {
+    "name": "Report violations with context",
+    "condition": "a consistency check fails",
+    "outcome": "report which rule failed, on which record, with the conflicting values",
+    "requires": []
+   },
+   {
+    "name": "Keep an audit trail",
+    "condition": "a violation is resolved or reconciled",
+    "outcome": "record what was changed and why",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "the same rule keeps failing on new data",
+    "action": "look for a defect upstream instead of repairing records one by one"
+   },
+   {
+    "condition": "two sources disagree and neither is designated authoritative",
+    "action": "flag it for resolution rather than choosing silently"
+   }
+  ]
+ },
+ "40308": {
+  "add_decision_rules": [
+   {
+    "name": "Protect shared data with locking or isolation",
+    "condition": "two or more operations may access the same data at the same time",
+    "outcome": "use a locking or isolation mechanism so they do not interfere",
+    "requires": []
+   },
+   {
+    "name": "Keep transactions atomic",
+    "condition": "a change spans several data operations",
+    "outcome": "make them succeed or fail together",
+    "requires": []
+   },
+   {
+    "name": "Choose the isolation level deliberately",
+    "condition": "a transaction is defined",
+    "outcome": "state the isolation level and which anomalies it permits",
+    "requires": []
+   },
+   {
+    "name": "Prevent deadlock",
+    "condition": "multiple locks are taken",
+    "outcome": "acquire them in a consistent order or use timeouts",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "contention on a lock is high",
+    "action": "shorten the critical section or narrow the lock scope before weakening isolation"
+   },
+   {
+    "condition": "a result depends on interleaving of operations",
+    "action": "treat it as a serializability problem and verify with concurrent tests"
+   }
+  ]
+ },
+ "40309": {
+  "add_decision_rules": [
+   {
+    "name": "Diagnose before restoring",
+    "condition": "a component is to be restored",
+    "outcome": "identify the root cause of its failure before applying any intervention",
+    "requires": []
+   },
+   {
+    "name": "Restore components independently",
+    "condition": "several components appear faulty",
+    "outcome": "isolate and restore them one at a time so faults are not conflated",
+    "requires": []
+   },
+   {
+    "name": "Preserve baseline state",
+    "condition": "a component is restored",
+    "outcome": "return it to its baseline condition without unnecessary modifications",
+    "requires": []
+   },
+   {
+    "name": "Make steps reversible",
+    "condition": "a restoration step is planned",
+    "outcome": "choose or prepare it so it can be undone if it causes damage",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "the cause of failure is unclear",
+    "action": "do not proceed to restoration until the cause is established or the uncertainty is recorded"
+   },
+   {
+    "condition": "a restoration step cannot be undone",
+    "action": "record the state beforehand so it can at least be reproduced"
+   }
+  ]
+ },
+ "40311": {
+  "add_decision_rules": [
+   {
+    "name": "Pin dependency versions",
+    "condition": "a dependency is added or updated",
+    "outcome": "specify an explicit version rather than an open-ended range",
+    "requires": []
+   },
+   {
+    "name": "Scan dependencies for known vulnerabilities",
+    "condition": "dependencies are added, updated, or periodically reviewed",
+    "outcome": "run a security scan and record findings before accepting the change",
+    "requires": []
+   },
+   {
+    "name": "Update deliberately",
+    "condition": "a dependency version changes",
+    "outcome": "change it in a separate, reviewable step and verify the project still builds and passes its checks",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a dependency has had no maintenance for a long time",
+    "action": "consider whether to replace it"
+   },
+   {
+    "condition": "the same dependency appears at several versions",
+    "action": "align them to one version where possible"
+   }
+  ]
+ },
+ "40312": {
+  "add_decision_rules": [
+   {
+    "name": "Check accuracy",
+    "condition": "data is accepted into a system",
+    "outcome": "verify values against the source or a known reference where one exists",
+    "requires": []
+   },
+   {
+    "name": "Check validity",
+    "condition": "a field has a defined type, range, or format",
+    "outcome": "reject or flag values that do not conform",
+    "requires": []
+   },
+   {
+    "name": "Check consistency",
+    "condition": "related fields or records exist",
+    "outcome": "verify they do not contradict each other",
+    "requires": []
+   },
+   {
+    "name": "Report rejected data",
+    "condition": "data fails validation",
+    "outcome": "report which value failed which check instead of dropping it silently",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "validation rules are undocumented",
+    "action": "write them down before relying on the results"
+   },
+   {
+    "condition": "many records fail the same check",
+    "action": "examine the data source before loosening the check"
+   }
+  ]
+ },
+ "40313": {
+  "add_decision_rules": [
+   {
+    "name": "Define matching criteria explicitly",
+    "condition": "records are to be compared for duplication",
+    "outcome": "state the fields and comparison method used before matching",
+    "requires": []
+   },
+   {
+    "name": "Apply the same criteria consistently",
+    "condition": "a dataset is deduplicated",
+    "outcome": "use the same criteria for every record",
+    "requires": []
+   },
+   {
+    "name": "Preserve unique records",
+    "condition": "two records are only partially similar",
+    "outcome": "keep both unless the criteria confirm they are the same entity",
+    "requires": []
+   },
+   {
+    "name": "Log deduplication actions",
+    "condition": "a duplicate is merged or removed",
+    "outcome": "record which records were merged or removed and why",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "uncertain matches are found",
+    "action": "hold them for review instead of merging automatically"
+   },
+   {
+    "condition": "deduplication removes a large share of the data",
+    "action": "check the criteria for false matches before accepting the result"
+   }
+  ]
+ },
+ "40314": {
+  "add_decision_rules": [
+   {
+    "name": "Prevent errors at their source",
+    "condition": "a function or process receives input or depends on a resource",
+    "outcome": "check preconditions before acting",
+    "requires": []
+   },
+   {
+    "name": "Report errors meaningfully",
+    "condition": "an error occurs",
+    "outcome": "report what failed, where, and with what input, in a consistent format",
+    "requires": []
+   },
+   {
+    "name": "Do not swallow errors",
+    "condition": "an error is caught",
+    "outcome": "handle it, propagate it, or log it - never discard it silently",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "an error message would not help a reader fix the problem",
+    "action": "add the context they would need"
+   },
+   {
+    "condition": "the same error is handled in many places",
+    "action": "centralize its handling"
+   }
+  ]
+ },
+ "40315": {
+  "add_decision_rules": [
+   {
+    "name": "Define parent-child relationships",
+    "condition": "a hierarchy is built",
+    "outcome": "give every node exactly one defined parent (except the root) and a stated relationship to it",
+    "requires": []
+   },
+   {
+    "name": "Choose structuring direction deliberately",
+    "condition": "a hierarchy is built from a set of items",
+    "outcome": "decide whether to structure top-down or bottom-up and record which",
+    "requires": []
+   },
+   {
+    "name": "Keep levels consistent",
+    "condition": "nodes are added to a level",
+    "outcome": "make them the same kind of thing as their siblings",
+    "requires": []
+   },
+   {
+    "name": "Keep it navigable",
+    "condition": "the hierarchy grows",
+    "outcome": "ensure every node can be reached from the root by following the structure",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a node has too many children to scan",
+    "action": "introduce an intermediate grouping level"
+   },
+   {
+    "condition": "a node has only one child",
+    "action": "check whether the level is needed"
+   }
+  ]
+ },
+ "40316": {
+  "add_decision_rules": [
+   {
+    "name": "Parse defensively",
+    "condition": "HTTP input is received",
+    "outcome": "treat it as untrusted and reject malformed requests or responses instead of guessing",
+    "requires": []
+   },
+   {
+    "name": "Determine the payload boundary correctly",
+    "condition": "an HTTP message has a body",
+    "outcome": "use the declared length or chunked framing to find where it ends, and handle compressed bodies as declared",
+    "requires": []
+   },
+   {
+    "name": "Interpret methods and status codes by their meaning",
+    "condition": "a request or response is handled",
+    "outcome": "act on the method and status code according to their standard semantics",
+    "requires": []
+   },
+   {
+    "name": "Follow the HTTP/1.1 message specification",
+    "condition": "parsing behavior is ambiguous",
+    "outcome": "follow the relevant RFC (7230-7235) rather than local convention",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a header or length value is conflicting or duplicated",
+    "action": "reject the message rather than choosing one"
+   },
+   {
+    "condition": "a parser accepts input the specification forbids",
+    "action": "tighten it"
+   }
+  ]
+ },
+ "40317": {
+  "add_decision_rules": [
+   {
+    "name": "Validate at the trust boundary",
+    "condition": "input crosses from an untrusted source into the system",
+    "outcome": "validate it there before any use",
+    "requires": []
+   },
+   {
+    "name": "Fail fast",
+    "condition": "input is invalid",
+    "outcome": "reject it immediately with an error instead of continuing",
+    "requires": []
+   },
+   {
+    "name": "Allowlist, not blocklist",
+    "condition": "a rule defines acceptable input",
+    "outcome": "define what is allowed and reject everything else",
+    "requires": []
+   },
+   {
+    "name": "Apply context-specific rules",
+    "condition": "input is used in a particular context (SQL, HTML, path, command)",
+    "outcome": "validate and encode it for that context",
+    "requires": []
+   },
+   {
+    "name": "Encode output",
+    "condition": "stored input is later displayed or passed on",
+    "outcome": "encode it for the destination",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "validation is done only in the client",
+    "action": "repeat it on the receiving side"
+   },
+   {
+    "condition": "a blocklist is growing",
+    "action": "replace it with an allowlist"
+   }
+  ]
+ },
+ "40320": {
+  "add_decision_rules": [
+   {
+    "name": "State scale",
+    "condition": "a map is produced",
+    "outcome": "state its scale so distances can be interpreted",
+    "requires": []
+   },
+   {
+    "name": "State projection",
+    "condition": "map data is plotted",
+    "outcome": "record the coordinate projection used and keep it consistent across layers",
+    "requires": []
+   },
+   {
+    "name": "Provide a legend",
+    "condition": "symbols or colors carry meaning",
+    "outcome": "include a legend that explains each one",
+    "requires": []
+   },
+   {
+    "name": "Keep the map accurate",
+    "condition": "features are drawn",
+    "outcome": "place them according to their source data and cite the source",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a map is crowded",
+    "action": "simplify or split it by theme rather than shrinking symbols"
+   },
+   {
+    "condition": "layers come from different sources",
+    "action": "confirm they share a projection before overlaying"
+   }
+  ]
+ },
+ "40321": {
+  "add_decision_rules": [
+   {
+    "name": "Treat reliability as a system property",
+    "condition": "reliability is assessed",
+    "outcome": "assess interactions between components, not only components alone",
+    "requires": []
+   },
+   {
+    "name": "Plan for variability",
+    "condition": "a system or process is designed",
+    "outcome": "state what variation and disturbances are expected and how the system adjusts to them",
+    "requires": []
+   },
+   {
+    "name": "Learn from failures and near-misses",
+    "condition": "a failure or near-miss occurs",
+    "outcome": "record it and analyze contributing factors across the system",
+    "requires": []
+   },
+   {
+    "name": "Preserve adaptive capacity",
+    "condition": "a safeguard is added",
+    "outcome": "check that it does not remove the ability of people or systems to adapt to unexpected conditions",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "an incident is blamed on a single component",
+    "action": "also look for the interactions that allowed it"
+   },
+   {
+    "condition": "a near-miss is dismissed as harmless",
+    "action": "review it as an early warning"
+   }
+  ]
+ },
+ "40322": {
+  "add_decision_rules": [
+   {
+    "name": "Test with a defined purpose",
+    "condition": "a test is designed",
+    "outcome": "state what defect or behavior it is meant to expose",
+    "requires": []
+   },
+   {
+    "name": "Do not claim absence of defects",
+    "condition": "tests pass",
+    "outcome": "report only that no defects were found by these tests, not that none exist",
+    "requires": []
+   },
+   {
+    "name": "Test early",
+    "condition": "a feature or change is being developed",
+    "outcome": "write or run tests as soon as the behavior exists",
+    "requires": []
+   },
+   {
+    "name": "Match testing to context",
+    "condition": "a test approach is chosen",
+    "outcome": "choose it for the kind of system and risk involved",
+    "requires": []
+   },
+   {
+    "name": "Refresh tests",
+    "condition": "a test suite has not changed while the code has",
+    "outcome": "review and add cases so it does not miss new defects",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "defects concentrate in one module",
+    "action": "increase testing there"
+   },
+   {
+    "condition": "exhaustive testing is not possible",
+    "action": "prioritize by risk"
+   }
+  ]
+ },
+ "40323": {
+  "add_decision_rules": [
+   {
+    "name": "Keep state consistent",
+    "condition": "state changes in one component that others depend on",
+    "outcome": "propagate it so dependent components do not hold contradictory state",
+    "requires": []
+   },
+   {
+    "name": "Use deterministic transitions",
+    "condition": "a state transition is defined",
+    "outcome": "define the same input and state as always producing the same next state",
+    "requires": []
+   },
+   {
+    "name": "Propagate by event",
+    "condition": "a state changes",
+    "outcome": "emit an update to the dependents instead of requiring them to poll",
+    "requires": []
+   },
+   {
+    "name": "Order updates by dependency",
+    "condition": "several dependent states must be updated",
+    "outcome": "update them in topological order so each is computed after its inputs",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a cycle appears in the dependencies",
+    "action": "resolve it explicitly instead of looping"
+   },
+   {
+    "condition": "an update is seen twice",
+    "action": "make applying it idempotent"
+   }
+  ]
+ },
+ "40324": {
+  "add_decision_rules": [
+   {
+    "name": "Compare against the source of truth",
+    "condition": "storage is reconciled",
+    "outcome": "compare stored records with the designated source of truth",
+    "requires": []
+   },
+   {
+    "name": "Check completeness",
+    "condition": "a reconciliation is run",
+    "outcome": "identify records missing from either side",
+    "requires": []
+   },
+   {
+    "name": "Check consistency across stores",
+    "condition": "data lives in more than one store",
+    "outcome": "verify the stores agree and list the differences",
+    "requires": []
+   },
+   {
+    "name": "Document each step",
+    "condition": "a discrepancy is resolved",
+    "outcome": "record the discrepancy, the decision, and the change made",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "the source of truth is disputed",
+    "action": "settle which is authoritative before correcting data"
+   },
+   {
+    "condition": "the same discrepancy recurs",
+    "action": "find the writer that causes it"
+   }
+  ]
+ },
+ "40325": {
+  "add_decision_rules": [
+   {
+    "name": "Divide the system into modules",
+    "condition": "a system architecture is designed",
+    "outcome": "define modules with clear responsibilities and interfaces",
+    "requires": []
+   },
+   {
+    "name": "Reduce coupling",
+    "condition": "a module depends on another",
+    "outcome": "depend only on its interface, not its internals",
+    "requires": []
+   },
+   {
+    "name": "State scalability expectations",
+    "condition": "an architecture is proposed",
+    "outcome": "state the load or growth it is meant to handle and where it would first strain",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a module has several unrelated responsibilities",
+    "action": "split it"
+   },
+   {
+    "condition": "a change requires edits in many modules",
+    "action": "review the boundaries"
+   }
+  ]
+ },
+ "40326": {
+  "add_decision_rules": [
+   {
+    "name": "Verify accuracy",
+    "condition": "a claim, value, or output is to be verified",
+    "outcome": "compare it with an authoritative source or independent check",
+    "requires": []
+   },
+   {
+    "name": "Keep verification traceable",
+    "condition": "a verification is done",
+    "outcome": "record what was checked, against what, and the result",
+    "requires": []
+   },
+   {
+    "name": "Report unverified items",
+    "condition": "something could not be verified",
+    "outcome": "mark it unverified instead of treating it as correct",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "only one source supports a claim",
+    "action": "seek a second independent one"
+   },
+   {
+    "condition": "a check is not repeatable",
+    "action": "document how to repeat it"
+   }
+  ]
+ },
+ "40327": {
+  "add_decision_rules": [
+   {
+    "name": "Map the workflow first",
+    "condition": "a repetitive task is to be automated",
+    "outcome": "map its steps, inputs, and outputs before automating",
+    "requires": []
+   },
+   {
+    "name": "Build in modular steps",
+    "condition": "a workflow is automated",
+    "outcome": "implement each step as a separate unit that can be tested and reused",
+    "requires": []
+   },
+   {
+    "name": "Execute consistently",
+    "condition": "an automated workflow runs",
+    "outcome": "run it the same way each time and record the result",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a step needs a human judgment",
+    "action": "keep it manual and automate around it"
+   },
+   {
+    "condition": "a task is rare or changes often",
+    "action": "check that automating it is worthwhile"
+   }
+  ]
+ },
+ "40348": {
+  "add_decision_rules": [
+   {
+    "name": "Automate container deployment",
+    "condition": "containers are deployed or scaled",
+    "outcome": "use orchestration or scripts rather than manual commands",
+    "requires": []
+   },
+   {
+    "name": "Isolate containers",
+    "condition": "a container is run",
+    "outcome": "limit its privileges, resources, and network access to what it needs",
+    "requires": []
+   },
+   {
+    "name": "Plan for scale and failure",
+    "condition": "a containerized service is designed",
+    "outcome": "define how it scales and how it recovers when a container stops",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a container runs as a privileged user",
+    "action": "reduce its privileges"
+   },
+   {
+    "condition": "a container has no resource limits",
+    "action": "set them"
+   }
+  ]
+ },
+ "40349": {
+  "add_decision_rules": [
+   {
+    "name": "State capabilities precisely",
+    "condition": "a capability is declared",
+    "outcome": "use specific, unambiguous language stating what it does and under what conditions",
+    "requires": []
+   },
+   {
+    "name": "Use standard terms",
+    "condition": "several capabilities are declared",
+    "outcome": "use the same terminology, format, and classification for all of them",
+    "requires": []
+   },
+   {
+    "name": "Keep declarations traceable",
+    "condition": "a capability is declared",
+    "outcome": "record its source and a version, and update it when requirements change",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a declaration uses a vague word",
+    "action": "replace it with a measurable statement"
+   },
+   {
+    "condition": "a declared capability is no longer provided",
+    "action": "remove or update the declaration"
+   }
+  ]
+ },
+ "40350": {
+  "add_decision_rules": [
+   {
+    "name": "Treat infrastructure as immutable",
+    "condition": "a running container needs a change",
+    "outcome": "build and deploy a new image instead of changing the running container",
+    "requires": []
+   },
+   {
+    "name": "Configure declaratively",
+    "condition": "a container deployment is defined",
+    "outcome": "describe the desired state in a configuration file kept in version control",
+    "requires": []
+   },
+   {
+    "name": "Govern resources and isolation",
+    "condition": "a container is run",
+    "outcome": "set resource limits and isolation boundaries",
+    "requires": []
+   },
+   {
+    "name": "Make it observable",
+    "condition": "a container is deployed",
+    "outcome": "expose logs and health information so failures can be seen",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a container is changed by hand",
+    "action": "rebuild from the declared configuration"
+   },
+   {
+    "condition": "a container cannot be restarted safely",
+    "action": "fix that before scaling it"
+   }
+  ]
+ },
+ "40351": {
+  "add_decision_rules": [
+   {
+    "name": "Keep registry entries consistent",
+    "condition": "an entry is added to a registry",
+    "outcome": "use the same schema and naming as existing entries",
+    "requires": []
+   },
+   {
+    "name": "Control access",
+    "condition": "a registry is read or written",
+    "outcome": "restrict writes to authorized parties and record who made each change",
+    "requires": []
+   },
+   {
+    "name": "Keep the registry able to grow",
+    "condition": "entries are added",
+    "outcome": "check that lookup remains fast and unambiguous",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "two entries describe the same thing",
+    "action": "merge or cross-reference them"
+   },
+   {
+    "condition": "an entry is stale",
+    "action": "mark or remove it"
+   }
+  ]
+ },
+ "40352": {
+  "add_decision_rules": [
+   {
+    "name": "Align capabilities with strategy",
+    "condition": "a capability is considered for development or investment",
+    "outcome": "tie it to a stated strategic objective",
+    "requires": []
+   },
+   {
+    "name": "Identify core competencies",
+    "condition": "capabilities are assessed",
+    "outcome": "distinguish the ones that differentiate the organization from the supporting ones",
+    "requires": []
+   },
+   {
+    "name": "Review capabilities regularly",
+    "condition": "a period passes or conditions change",
+    "outcome": "reassess which capabilities remain needed",
+    "requires": []
+   },
+   {
+    "name": "Allocate resources by value",
+    "condition": "resources are assigned",
+    "outcome": "favor capabilities that deliver the most value to the stated objective",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a capability supports no objective",
+    "action": "question whether it should be maintained"
+   },
+   {
+    "condition": "a capability is a gap",
+    "action": "identify what is needed to build or acquire it"
+   }
+  ]
+ },
+ "40353": {
+  "add_decision_rules": [
+   {
+    "name": "Prepare a rollback before deploying",
+    "condition": "a deployment is about to start",
+    "outcome": "have a tested rollback path ready before it begins",
+    "requires": []
+   },
+   {
+    "name": "Define rollback triggers",
+    "condition": "a deployment is monitored",
+    "outcome": "define in advance the conditions that trigger rollback",
+    "requires": []
+   },
+   {
+    "name": "Preserve data consistency",
+    "condition": "a rollback is done",
+    "outcome": "ensure data written during the deployment is handled so it stays consistent",
+    "requires": []
+   },
+   {
+    "name": "Limit exposure",
+    "condition": "a change is released",
+    "outcome": "release it to a small portion first so failures affect little",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "rollback has never been tested",
+    "action": "test it before relying on it"
+   },
+   {
+    "condition": "a change alters data format",
+    "action": "plan how to restore data compatible with the old version"
+   }
+  ]
+ },
+ "40381": {
+  "add_decision_rules": [
+   {
+    "name": "Handle errors explicitly",
+    "condition": "an operation can fail",
+    "outcome": "check for and handle the failure at that point",
+    "requires": []
+   },
+   {
+    "name": "Design recovery",
+    "condition": "a component can fail",
+    "outcome": "define what it does on failure and how it returns to normal",
+    "requires": []
+   },
+   {
+    "name": "Use resilience patterns where they fit",
+    "condition": "a call depends on another service",
+    "outcome": "apply timeouts and bounded retries so one failure does not spread",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a retry could repeat a side effect",
+    "action": "make the operation idempotent first"
+   },
+   {
+    "condition": "failure paths are never exercised",
+    "action": "test them deliberately"
+   }
+  ]
+ },
+ "40382": {
+  "add_decision_rules": [
+   {
+    "name": "Validate at the system boundary",
+    "condition": "input enters the system",
+    "outcome": "validate it at the boundary before use",
+    "requires": []
+   },
+   {
+    "name": "Use allowlists",
+    "condition": "validation rules are defined",
+    "outcome": "accept only known-good values and reject everything else",
+    "requires": []
+   },
+   {
+    "name": "Fail securely",
+    "condition": "input is invalid",
+    "outcome": "reject it instead of processing it",
+    "requires": []
+   },
+   {
+    "name": "Layer validation",
+    "condition": "data passes through several components",
+    "outcome": "validate at more than one layer",
+    "requires": []
+   },
+   {
+    "name": "Preserve integrity",
+    "condition": "data is stored",
+    "outcome": "make sure it is stored as received after validation, without silent alteration",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a check exists in only one layer",
+    "action": "consider whether a second layer is needed"
+   },
+   {
+    "condition": "data is altered during validation",
+    "action": "record the alteration"
+   }
+  ]
+ },
+ "40383": {
+  "add_decision_rules": [
+   {
+    "name": "Declare capabilities in a standard form",
+    "condition": "an MCP capability is registered",
+    "outcome": "declare it using the standard declaration format",
+    "requires": []
+   },
+   {
+    "name": "Grant least privilege",
+    "condition": "an MCP capability is given access",
+    "outcome": "give it only the access it needs",
+    "requires": []
+   },
+   {
+    "name": "Manage the lifecycle",
+    "condition": "an MCP capability is added, changed, or retired",
+    "outcome": "update the registry and remove access when it retires",
+    "requires": []
+   },
+   {
+    "name": "Audit use",
+    "condition": "an MCP capability is invoked",
+    "outcome": "record its use so it can be reviewed",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a capability has not been used for a long time",
+    "action": "review whether it should stay registered"
+   },
+   {
+    "condition": "a capability's declared access exceeds what it uses",
+    "action": "narrow it"
+   }
+  ]
+ },
+ "40384": {
+  "add_decision_rules": [
+   {
+    "name": "Keep a single source of truth",
+    "condition": "the same entity appears in several records",
+    "outcome": "resolve them to one canonical record",
+    "requires": []
+   },
+   {
+    "name": "Match deterministically",
+    "condition": "records are matched",
+    "outcome": "use fixed, documented matching rules so the same inputs give the same result",
+    "requires": []
+   },
+   {
+    "name": "Resolve conflicts by stated policy",
+    "condition": "merged records disagree on a value",
+    "outcome": "choose the surviving value by a documented survivorship rule",
+    "requires": []
+   },
+   {
+    "name": "Keep it auditable",
+    "condition": "records are merged",
+    "outcome": "record the sources and the rule applied",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a match is uncertain",
+    "action": "queue it for review rather than merging"
+   },
+   {
+    "condition": "new records arrive continuously",
+    "action": "process them incrementally"
+   }
+  ]
+ },
+ "40385": {
+  "add_decision_rules": [
+   {
+    "name": "Define root and level semantics",
+    "condition": "a hierarchy is constructed",
+    "outcome": "state what the root and each level represent",
+    "requires": []
+   },
+   {
+    "name": "Establish parent-child relationships",
+    "condition": "a node is added",
+    "outcome": "connect it to a defined parent",
+    "requires": []
+   },
+   {
+    "name": "Validate each expansion",
+    "condition": "a node is expanded further",
+    "outcome": "validate the new children before continuing to expand",
+    "requires": []
+   },
+   {
+    "name": "Keep expansions consistent",
+    "condition": "an expansion is added",
+    "outcome": "make it consistent with the existing levels and semantics",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "an expansion repeats existing content",
+    "action": "drop it"
+   },
+   {
+    "condition": "a level's meaning drifts",
+    "action": "revise the definition before further expansion"
+   }
+  ]
+ },
+ "40386": {
+  "add_decision_rules": [
+   {
+    "name": "Treat containers as ephemeral",
+    "condition": "a container is built or run",
+    "outcome": "ensure it can be destroyed and recreated from its definition without data loss",
+    "requires": []
+   },
+   {
+    "name": "Make builds reproducible",
+    "condition": "an image is built",
+    "outcome": "build it from a versioned definition so the same input produces the same image",
+    "requires": []
+   },
+   {
+    "name": "Automate the lifecycle",
+    "condition": "a container moves from build to teardown",
+    "outcome": "automate each stage including teardown",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "state is stored inside a container",
+    "action": "move it to external storage"
+   },
+   {
+    "condition": "an image is built from an unpinned base",
+    "action": "pin the base version"
+   }
+  ]
+ },
+ "40388": {
+  "add_decision_rules": [
+   {
+    "name": "Cover all test levels",
+    "condition": "a system is tested",
+    "outcome": "include tests at each applicable level (unit, integration, system)",
+    "requires": []
+   },
+   {
+    "name": "Automate validation",
+    "condition": "code changes",
+    "outcome": "run the automated tests on every change",
+    "requires": []
+   },
+   {
+    "name": "Report coverage gaps",
+    "condition": "tests are reviewed",
+    "outcome": "report the areas not covered",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a test is flaky",
+    "action": "fix or quarantine it"
+   },
+   {
+    "condition": "a bug is found without a test",
+    "action": "add a test that would have caught it"
+   }
+  ]
+ },
+ "40389": {
+  "add_decision_rules": [
+   {
+    "name": "Inspect the status code",
+    "condition": "an HTTP response is received",
+    "outcome": "check its status code before using the body",
+    "requires": []
+   },
+   {
+    "name": "Classify errors",
+    "condition": "an HTTP error occurs",
+    "outcome": "classify it as client or server error and as retryable or not by idempotency",
+    "requires": []
+   },
+   {
+    "name": "Log error context",
+    "condition": "an HTTP error occurs",
+    "outcome": "log the request, status, and relevant headers for diagnosis",
+    "requires": []
+   },
+   {
+    "name": "Retry carefully",
+    "condition": "a failed request is retried",
+    "outcome": "retry only idempotent requests with bounded, backed-off attempts",
+    "requires": []
+   },
+   {
+    "name": "Standardize error responses",
+    "condition": "an error response is returned",
+    "outcome": "use a consistent format following the relevant specification",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a server error persists",
+    "action": "degrade gracefully instead of retrying indefinitely"
+   },
+   {
+    "condition": "a client error recurs",
+    "action": "fix the request instead of retrying"
+   }
+  ]
+ },
+ "40391": {
+  "add_decision_rules": [
+   {
+    "name": "Grant least privilege",
+    "condition": "access is given to a registry or provider",
+    "outcome": "grant minimal access and time-limit it where possible",
+    "requires": []
+   },
+   {
+    "name": "Rotate credentials",
+    "condition": "a credential is used",
+    "outcome": "rotate it on a schedule and record the rotation",
+    "requires": []
+   },
+   {
+    "name": "Audit access",
+    "condition": "registry or provider access occurs",
+    "outcome": "keep an audit record of who accessed what",
+    "requires": []
+   },
+   {
+    "name": "Verify trust anchors",
+    "condition": "a registry is relied on",
+    "outcome": "verify its trust anchors before trusting its content",
+    "requires": []
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "a credential is long-lived",
+    "action": "replace it with a short-lived one"
+   },
+   {
+    "condition": "provider-specific code spreads",
+    "action": "hide it behind a common abstraction"
+   }
+  ]
+ }
+}

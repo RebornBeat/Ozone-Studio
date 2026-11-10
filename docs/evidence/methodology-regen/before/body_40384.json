@@ -1,0 +1,25 @@
+{
+  "description": "Auto-synthesized methodology for: Canonical Resolution & Deduplication",
+  "storage": {
+    "category": "Data Management / Master Data Management",
+    "description": "A systematic approach to identifying duplicate records across disparate data sources, resolving attribute conflicts, and establishing a single authoritative canonical representation (golden record) for each real-world entity.",
+    "keywords": [
+      "entity resolution",
+      "record linkage",
+      "deduplication",
+      "canonicalization",
+      "golden record",
+      "matching",
+      "blocking",
+      "survivorship"
+    ],
+    "name": "Canonical Resolution & Deduplication",
+    "principles": [
+      "Single source of truth",
+      "Deterministic matching and merging",
+      "Data survivorship and conflict resolution",
+      "Transparency and auditability",
+      "Scalability and incremental processing"
+    ]
+  }
+}

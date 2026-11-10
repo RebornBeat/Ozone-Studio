@@ -1,0 +1,29 @@
+{
+  "description": "Auto-synthesized methodology for: Software Testing",
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A systematic process of evaluating software to identify defects, verify requirements, and ensure quality through static and dynamic techniques across the software development lifecycle.",
+    "keywords": [
+      "unit testing",
+      "integration testing",
+      "system testing",
+      "acceptance testing",
+      "test automation",
+      "quality assurance",
+      "test cases",
+      "bug tracking",
+      "regression testing",
+      "test coverage"
+    ],
+    "name": "Software Testing",
+    "principles": [
+      "Testing shows presence of defects",
+      "Exhaustive testing is impossible",
+      "Early testing saves time and cost",
+      "Defects cluster together",
+      "Beware of the pesticide paradox",
+      "Testing is context dependent",
+      "Absence of errors is a fallacy"
+    ]
+  }
+}

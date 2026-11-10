@@ -1,0 +1,22 @@
+{
+  "description": "Auto-synthesized methodology for: API Design",
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A comprehensive methodology for designing robust, scalable, and maintainable APIs with focus on RESTful principles, versioning, documentation, and security best practices.",
+    "keywords": [
+      "API design",
+      "RESTful",
+      "versioning",
+      "documentation",
+      "security",
+      "backend development"
+    ],
+    "name": "API Design",
+    "principles": [
+      "RESTful design principles",
+      "Versioning and backward compatibility",
+      "Consistent error handling and status codes",
+      "Clear and comprehensive documentation"
+    ]
+  }
+}

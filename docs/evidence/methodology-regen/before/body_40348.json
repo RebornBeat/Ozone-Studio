@@ -1,0 +1,23 @@
+{
+  "description": "Auto-synthesized methodology for: Container Management",
+  "storage": {
+    "category": "Infrastructure & DevOps",
+    "description": "A comprehensive methodology for designing, deploying, and maintaining containerized applications across environments, ensuring efficient resource utilization, scalability, and security.",
+    "keywords": [
+      "container orchestration",
+      "Kubernetes",
+      "Docker",
+      "microservices",
+      "scalability",
+      "isolation",
+      "security",
+      "lifecycle management"
+    ],
+    "name": "Container Management",
+    "principles": [
+      "Automation and orchestration",
+      "Isolation and security",
+      "Scalability and resilience"
+    ]
+  }
+}

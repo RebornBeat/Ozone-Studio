@@ -1,0 +1,20 @@
+{
+  "description": "Auto-synthesized methodology for: Data Validation",
+  "storage": {
+    "category": "Data Management",
+    "description": "A methodology for ensuring data accuracy, consistency, and reliability by verifying it against predefined rules and standards before processing or storage.",
+    "keywords": [
+      "validation",
+      "data quality",
+      "integrity",
+      "rules",
+      "checks"
+    ],
+    "name": "Data Validation",
+    "principles": [
+      "Accuracy",
+      "Consistency",
+      "Validity"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Auto-synthesized methodology for: Container Lifecycle Management",
+  "storage": {
+    "category": "Cloud Native / DevOps",
+    "description": "Covers practices for building, deploying, running, scaling, monitoring, updating, and securely destroying containerized applications across their lifecycle.",
+    "keywords": [
+      "containers",
+      "Kubernetes",
+      "DevOps",
+      "orchestration"
+    ],
+    "name": "Container Lifecycle Management",
+    "principles": [
+      "Treat containers as ephemeral and reproducible",
+      "Automate the full container lifecycle from build to teardown"
+    ]
+  }
+}
