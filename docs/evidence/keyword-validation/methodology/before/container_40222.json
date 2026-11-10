@@ -1,0 +1,306 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 40222,
+  "parent_id": 2,
+  "version": 11
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 2,
+      "packed": 0,
+      "returned": 12,
+      "returned_traced": 9
+     },
+     "source": "",
+     "validated": null
+    },
+    "MCP tool error": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 3,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "backoff retry": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "error handling": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "exponential backoff": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "farm_profile_start": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 2,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "malformed profile id": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "mcp tool failure": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 2,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "operator escalation": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "profile validation": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "profile_id": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "re-expansion error handling": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 4
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "re-expansion failure": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 2,
+      "returned_traced": 2
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "retry logic": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "tool failure": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 3,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": null
+    }
+   },
+   "keywords": [
+    "farm_profile_start",
+    "mcp tool failure",
+    "profile_id",
+    "re-expansion error handling",
+    "MCP tool error",
+    "tool failure",
+    "profile validation",
+    "malformed profile id",
+    "re-expansion failure",
+    "retry logic",
+    "error handling",
+    "operator escalation",
+    "backoff retry",
+    "exponential backoff"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "AMT Re-expansion",
+    "MCP Tool Execution",
+    "Error Handling",
+    "Container Management",
+    "Data Validation"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 12,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794298398,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 1794245998,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1794245998,
+   "materialized_path": null,
+   "modality": "Unknown",
+   "name": "AMT Re-expansion MCP Tool Failure Handling",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "methodology_create",
+   "updated_at": 1794298575
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies_created/methodology_1794245998_new.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

@@ -1,0 +1,318 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 30009,
+  "parent_id": 2,
+  "version": 13
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 16,
+      "returned_traced": 5
+     },
+     "source": "",
+     "validated": null
+    },
+    "analysis": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 8,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "analysis framework": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "analytical methodology": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "data": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 8,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "data analysis approach": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 3,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "data analysis method": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 3,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "data analysis methodology": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 6,
+      "returned_traced": 3
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "data analysis process": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 3,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "data analytics method": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 3,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "methodology": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "qualitative analysis": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "quantitative method": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "research methodology": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "statistical method": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "statistics": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": null
+    }
+   },
+   "keywords": [
+    "data",
+    "analysis",
+    "statistics",
+    "data analysis methodology",
+    "methodology",
+    "data analysis approach",
+    "analytical methodology",
+    "data analysis process",
+    "statistical method",
+    "research methodology",
+    "data analytics method",
+    "analysis framework",
+    "quantitative method",
+    "qualitative analysis",
+    "data analysis method"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "data",
+    "analysis",
+    "statistics"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 16,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794274845,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1792391529,
+   "materialized_path": "/Methodologies/Data Analysis Methodology",
+   "modality": "Unknown",
+   "name": "Data Analysis Methodology",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "bootstrap",
+   "updated_at": 1794306045
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies/method_9_data_analysis.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

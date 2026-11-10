@@ -1,0 +1,182 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 40395,
+  "parent_id": 2,
+  "version": 2
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    },
+    "farm_command": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    },
+    "farm_profile_start": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    },
+    "farm_state_set": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    },
+    "reexpansion": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    },
+    "reexpansion-mcp": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    }
+   },
+   "keywords": [
+    "AMT re-expansion",
+    "capability",
+    "farm_command",
+    "farm_profile_start",
+    "farm_state_set",
+    "mcp",
+    "reexpansion",
+    "reexpansion-mcp"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "farm",
+    "mcp",
+    "browser-farm",
+    "re-expansion"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 1,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794298398,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 1794298054,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1794298054,
+   "materialized_path": null,
+   "modality": "Unknown",
+   "name": "Registered Farm Start Fallback",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "methodology_create",
+   "updated_at": 1794298575
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies_created/methodology_1794298054_new.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}
