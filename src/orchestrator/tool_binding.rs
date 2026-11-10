@@ -324,6 +324,65 @@ pub fn set_gap_status(name: &str, status: &str, reason: &str, by: &str) {
     }
 }
 
+/// Record a LIFECYCLE EVENT on a gap (e.g. "replanned", "verified") WITHOUT changing its `status`: one more entry in `resolutions` (the gap's
+/// history). Idempotent per event name (the first occurrence is the record; a second call changes nothing). The work-order tree
+/// (`orchestrator/work_order.rs`) ticks its checklist items from these real entries.
+pub fn note_gap_event(name: &str, event: &str, reason: &str, by: &str) {
+    let mut rows = capability_gaps();
+    let now = now_secs();
+    let mut changed = false;
+    for r in rows.iter_mut() {
+        if r["name"].as_str().map(|n| n.eq_ignore_ascii_case(name.trim())) != Some(true) {
+            continue;
+        }
+        if !r["resolutions"].is_array() {
+            r["resolutions"] = json!([]);
+        }
+        if let Some(a) = r["resolutions"].as_array_mut() {
+            if a.iter().any(|x| x["status"].as_str() == Some(event)) {
+                continue;
+            }
+            a.push(json!({ "status": event, "reason": reason, "by": by, "at": now }));
+            changed = true;
+        }
+    }
+    if changed {
+        if let Ok(json) = serde_json::to_string_pretty(&rows) {
+            let _ = std::fs::write(gaps_path(), json);
+        }
+    }
+}
+
+/// Link a gap to its work-order task (`work_order_task` = the current one; every earlier one stays in `work_order_history` — a rerun is a NEW
+/// task, the old one is never reused or edited).
+pub fn link_gap_task(name: &str, task_id: u64) {
+    let mut rows = capability_gaps();
+    let mut changed = false;
+    for r in rows.iter_mut() {
+        if r["name"].as_str().map(|n| n.eq_ignore_ascii_case(name.trim())) != Some(true) {
+            continue;
+        }
+        if r["work_order_task"].as_u64() == Some(task_id) {
+            continue;
+        }
+        if let Some(old) = r["work_order_task"].as_u64() {
+            if !r["work_order_history"].is_array() {
+                r["work_order_history"] = json!([]);
+            }
+            if let Some(h) = r["work_order_history"].as_array_mut() {
+                h.push(json!(old));
+            }
+        }
+        r["work_order_task"] = json!(task_id);
+        changed = true;
+    }
+    if changed {
+        if let Ok(json) = serde_json::to_string_pretty(&rows) {
+            let _ = std::fs::write(gaps_path(), json);
+        }
+    }
+}
+
 /// Mark `wanted` gaps whose capability is now registered as `satisfied` (keeps the history; reopens if it vanishes).
 pub fn close_satisfied_gaps(registry: &[RegistryRow]) {
     let mut rows = capability_gaps();

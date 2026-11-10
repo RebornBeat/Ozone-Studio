@@ -59,6 +59,7 @@ pub mod decision_review;
 pub mod jurisdiction;
 pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed step (2026-11-02)
 pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
+pub mod work_order; // the work-order tree: walk → AMT branches → steps, capability-gap checklists; one completion rule, completed is final (2026-11-10)
 pub mod tool_binding; // per-rule tool bindings, missing-capability capture, tool health (2026-11-04)
 pub mod ripple_class; // meta ripple: categories, dispatcher, event-driven loop gates (2026-11-04)
 pub mod graph_fanout; // per-modality fan-out rule: edge classes, entries, flow sequence (2026-11-03)

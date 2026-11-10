@@ -820,7 +820,7 @@ impl TaskManager {
             device_id,
             workspace_id,
             project_id,
-            parent_task_id: None,
+            parent_task_id: inputs.get("parent_task_id").and_then(|v| v.as_u64()),
             inputs: Some(serde_json::to_value(&inputs).unwrap_or_default()),
             outputs: None,
             steps: Vec::new(),
@@ -2149,6 +2149,199 @@ Ok(task_id)
     }
 
     // ========================================================================
+    // WORK-ORDER TREE (operator 2026-11-10) — the universal checklist on the EXISTING task records
+    // ========================================================================
+    // RULES (one rule, derived — never a separately-set flag):
+    //   1. A work-order task is COMPLETE exactly when every one of its checklist items is done AND every child task is complete (and it has
+    //      at least one item or child). Checklist completion = step completion = task completion; `settle` derives it and propagates upward.
+    //   2. COMPLETED IS FINAL. `complete_item` never writes `done: false`; a completed task rejects `graft_item`; nothing reopens anything. The
+    //      item's `completed_at` / `by` / `evidence` and the task's `completed_at` ARE the log. A RERUN is a NEW task (`create_work_task` with
+    //      `rerun_of`), and an edit of the plan is a GRAFT — new items on an open task, or a new child under the original (`parent_task_id`) —
+    //      never a rewrite of completed ones.
+    //   3. The tree grows with the AMT: `create_work_task` is idempotent on (parent, kind, key), so a re-materialization after the AMT expanded
+    //      adds only the NEW nodes, under their parents; an expanded branch gates its parent's completion (rule 1 counts every child).
+    //   4. Work-order tasks have kind `wo_*`, are never queued, never gated by consciousness and do not appear in `/order/global` unless asked
+    //      for by kind. Items are ticked ONLY by the real event that completes them.
+
+    /// Create a work-order task (idempotent on `(parent, kind, key)` unless `rerun_of` is given: a rerun is always a NEW task). `items` are
+    /// `(key, text)` checklist items, all open. Scope (user / device / workspace / project) comes from `scope_from` (or the parent).
+    pub async fn create_work_task(
+        &self,
+        parent: Option<TaskID>,
+        kind: &str,
+        key: &str,
+        title: &str,
+        items: &[(String, String)],
+        rerun_of: Option<TaskID>,
+        scope_from: Option<TaskID>,
+    ) -> Option<TaskID> {
+        let mut tasks = self.tasks.write().await;
+        if rerun_of.is_none() {
+            if let Some((id, _)) = tasks.iter().find(|(_, t)| t.parent_task_id == parent && t.kind == kind && wo_key(t) == Some(key)) {
+                return Some(*id);
+            }
+        }
+        let scope = scope_from.or(parent).and_then(|id| tasks.get(&id)).map(|t| (t.user_id, t.device_id, t.workspace_id, t.project_id));
+        let (user_id, device_id, workspace_id, project_id) = scope.unwrap_or((0, 0, None, None));
+        let mut next = self.next_id.write().await;
+        let task_id = *next;
+        *next += 1;
+        drop(next);
+        let mut inputs = serde_json::json!({"kind": kind, "work_key": key, "title": title, "prompt": title, "source": "work-order"});
+        if let Some(r) = rerun_of {
+            inputs["rerun_of"] = serde_json::json!(r);
+        }
+        tasks.insert(
+            task_id,
+            StoredTask {
+                task_id,
+                blueprint_id: None,
+                status: "open".to_string(),
+                progress: 0.0,
+                created_at: now(),
+                started_at: None,
+                completed_at: None,
+                user_id,
+                device_id,
+                workspace_id,
+                project_id,
+                parent_task_id: parent,
+                inputs: Some(inputs),
+                outputs: None,
+                steps: Vec::new(),
+                total_tokens: 0,
+                error: None,
+                gate_result: None,
+                thinking_log: Vec::new(),
+                amt_summary: None,
+                kind: kind.to_string(),
+                due_at: None,
+                remind_at: None,
+                recurrence: None,
+                meeting_url: None,
+                external_ref: None,
+                checklist: items.iter().map(|(k, t)| serde_json::json!({"key": k, "text": t, "done": false})).collect(),
+                note_body: None,
+            },
+        );
+        drop(tasks);
+        self.logs.write().await.insert(task_id, Vec::new());
+        let _ = self.save_to_disk().await;
+        Some(task_id)
+    }
+
+    /// The newest work-order task of this `(kind, key)` under ANY parent (a global thing such as a capability gap lives under the walk that
+    /// first reported it; later walks find it here).
+    pub async fn find_work_task_any_parent(&self, kind: &str, key: &str) -> Option<TaskID> {
+        self.tasks.read().await.iter().filter(|(_, t)| t.kind == kind && wo_key(t) == Some(key)).map(|(id, _)| *id).max()
+    }
+
+    /// The walk task that produced this persisted AMT container (task inputs carry `amt_container_id`) — the parent of work grafted onto that
+    /// AMT after the walk (re-expansion).
+    pub async fn find_walk_for_amt_container(&self, container_id: u64) -> Option<TaskID> {
+        self.tasks
+            .read()
+            .await
+            .iter()
+            .filter(|(_, t)| t.inputs.as_ref().and_then(|i| i.get("amt_container_id")).and_then(|c| c.as_u64()) == Some(container_id))
+            .map(|(id, _)| *id)
+            .min()
+    }
+
+    /// Mark ONE checklist item done by the real event that completes it. Idempotent: an item that is already done is left exactly as it was
+    /// (its original evidence / time / author stay the record) and `false` is returned. There is deliberately no way to set `done` back to
+    /// false. After a tick the completion is re-derived for the task and its ancestors (`settle`).
+    pub async fn complete_item(&self, task_id: TaskID, item_key: &str, evidence: &str, by: &str) -> bool {
+        let mut ticked = false;
+        {
+            let mut tasks = self.tasks.write().await;
+            if let Some(t) = tasks.get_mut(&task_id) {
+                if let Some(item) = t.checklist.iter_mut().find(|i| i.get("key").and_then(|k| k.as_str()) == Some(item_key)) {
+                    if item.get("done").and_then(|d| d.as_bool()) != Some(true) {
+                        item["done"] = serde_json::json!(true);
+                        item["completed_at"] = serde_json::json!(now());
+                        item["by"] = serde_json::json!(by);
+                        item["evidence"] = serde_json::json!(evidence);
+                        ticked = true;
+                    }
+                }
+            }
+        }
+        if ticked {
+            self.settle(task_id).await;
+            let _ = self.save_to_disk().await;
+        }
+        ticked
+    }
+
+    /// GRAFT a new checklist item onto an OPEN task (idempotent on `key`). A completed task is FINAL: it rejects the graft (`Err`), and the
+    /// caller grafts a new child task under it instead (`create_work_task` with this task as `parent`).
+    pub async fn graft_item(&self, task_id: TaskID, key: &str, text: &str) -> Result<bool, String> {
+        let mut tasks = self.tasks.write().await;
+        let Some(t) = tasks.get_mut(&task_id) else { return Err("no such task".into()) };
+        if t.status == "completed" {
+            return Err("completed is final — graft a child task (or start a rerun) instead".into());
+        }
+        if t.checklist.iter().any(|i| i.get("key").and_then(|k| k.as_str()) == Some(key)) {
+            return Ok(false);
+        }
+        t.checklist.push(serde_json::json!({"key": key, "text": text, "done": false}));
+        drop(tasks);
+        let _ = self.save_to_disk().await;
+        Ok(true)
+    }
+
+    /// Re-derive completion for a work-order task and its ancestors. A `wo_*` task becomes "completed" (once, final) when all its items are
+    /// done and all its children are complete. A non-work-order ancestor (the walk's own task) keeps the status its own lifecycle sets.
+    async fn settle(&self, start: TaskID) {
+        let mut tasks = self.tasks.write().await;
+        let mut cur = Some(start);
+        while let Some(id) = cur {
+            let Some(t) = tasks.get(&id) else { break };
+            let parent = t.parent_task_id;
+            if !t.kind.starts_with("wo_") {
+                break;
+            }
+            let (already, items_done, has_items) = (t.status == "completed", t.checklist.iter().all(|i| i.get("done").and_then(|d| d.as_bool()) == Some(true)), !t.checklist.is_empty());
+            let children: Vec<&StoredTask> = tasks.values().filter(|c| c.parent_task_id == Some(id)).collect();
+            let children_done = children.iter().all(|c| c.status == "completed");
+            let complete = items_done && children_done && (has_items || !children.is_empty());
+            if already || !complete {
+                break; // final stays final; an open task stays open and so does everything above it
+            }
+            if let Some(t) = tasks.get_mut(&id) {
+                t.status = "completed".to_string();
+                t.completed_at = Some(now());
+                t.progress = 1.0;
+            }
+            cur = parent;
+        }
+    }
+
+    /// The work-order tree rooted at `root` (derived at read time from the task records — nothing is copied): each node carries its checklist
+    /// (with the completion record of every done item), its derived completion, `rerun_of`, and its children, oldest first.
+    pub async fn work_order(&self, root: TaskID) -> Option<serde_json::Value> {
+        let tasks = self.tasks.read().await;
+        fn node(tasks: &HashMap<TaskID, StoredTask>, id: TaskID, depth: usize) -> Option<serde_json::Value> {
+            let t = tasks.get(&id)?;
+            let mut kids: Vec<TaskID> = tasks.values().filter(|c| c.parent_task_id == Some(id)).map(|c| c.task_id).collect();
+            kids.sort();
+            let children: Vec<serde_json::Value> = if depth > 64 { Vec::new() } else { kids.iter().filter_map(|k| node(tasks, *k, depth + 1)).collect() };
+            let done_items = t.checklist.iter().filter(|i| i.get("done").and_then(|d| d.as_bool()) == Some(true)).count();
+            let children_complete = children.iter().all(|c| c["complete"].as_bool() == Some(true));
+            let derived = done_items == t.checklist.len() && children_complete && (!t.checklist.is_empty() || !children.is_empty());
+            Some(serde_json::json!({
+                "task_id": t.task_id, "kind": t.kind, "key": wo_key(t), "title": t.inputs.as_ref().and_then(|i| i.get("title")).cloned(),
+                "status": t.status, "complete": derived, "completed_at": t.completed_at,
+                "rerun_of": t.inputs.as_ref().and_then(|i| i.get("rerun_of")).cloned(),
+                "checklist": t.checklist, "items_done": done_items, "items_total": t.checklist.len(),
+                "children": children,
+            }))
+        }
+        node(&tasks, root, 0)
+    }
+
+    // ========================================================================
     // HELPERS
     // ========================================================================
 
@@ -2241,6 +2434,11 @@ pub trait ZSEIAccess: Send + Sync {
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
+
+/// The work-order key of a task (inputs.work_key) — the idempotency key within its parent and kind.
+fn wo_key(t: &StoredTask) -> Option<&str> {
+    t.inputs.as_ref().and_then(|i| i.get("work_key")).and_then(|k| k.as_str())
+}
 
 fn now() -> u64 {
     std::time::SystemTime::now()

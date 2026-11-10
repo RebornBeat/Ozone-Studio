@@ -1689,6 +1689,23 @@ async fn get_assistant_feed(
     }))
 }
 
+/// GET /order/work/<task_id> — the WORK-ORDER TREE rooted at that task (docs/UNIVERSAL_ORDER_GUIDE.md; orchestrator/work_order.rs): the walk →
+/// its AMT branches → their steps, plus a checklist task per capability gap. DERIVED at read time from the task records (nothing is copied).
+/// A node is `complete` exactly when all its checklist items are done and all its children are complete; completed nodes are final (their
+/// items carry `completed_at` / `by` / `evidence` — the log). Reruns appear as new nodes with `rerun_of`.
+async fn get_work_order(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(task_id): axum::extract::Path<u64>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let task_mgr = runtime.task_manager.read().await;
+    // the capability gaps this walk reported hang under it (parent = the walk that first reported them), so one read answers "what is still open"
+    match task_mgr.work_order(task_id).await {
+        Some(tree) => Json(serde_json::json!({ "success": true, "work_order": tree })),
+        None => Json(serde_json::json!({ "success": false, "error": "no such task" })),
+    }
+}
+
 /// GET /order/global — the universal native task order (guide §9, Phase
 /// 2b, operator architecture). A DERIVED VIEW, never a copy: joins the
 /// real task store (every task + its real steps) and groups by native
@@ -1772,6 +1789,8 @@ async fn get_global_order(
             if &kind != want {
                 continue;
             }
+        } else if kind.starts_with("wo_") {
+            continue; // work-order tree nodes (branches, steps, capability gaps) are read through /order/work/<task_id>, not mixed into the day view
         }
         let due_at = t.due_at;
         if let Some(due) = q.due.as_deref() {
@@ -4877,6 +4896,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/get", post(get_task))
         .route("/task/list", post(list_tasks))
         .route("/order/global", get(get_global_order))
+        .route("/order/work/:task_id", get(get_work_order))
         .route("/assistant/feed", get(get_assistant_feed))
         .route("/consciousness/review_pass", post(consciousness_review_pass))
         .route("/task/cancel", post(cancel_task))

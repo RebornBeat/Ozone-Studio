@@ -314,6 +314,7 @@ impl PromptOrchestrator {
                 let replanned = self.stage_3_blueprint_assignment(state).await;
                 state.replan = false;
                 replanned?;
+                self.work_order_after_replan(state).await;
             }
         }
 
@@ -355,6 +356,7 @@ impl PromptOrchestrator {
                 let replanned = self.stage_3_blueprint_assignment(state).await;
                 state.replan = false;
                 replanned?;
+                self.work_order_after_replan(state).await;
                 self.stage_4_zero_shot_simulation(state).await?;
                 let now = state.simulation_result.as_ref().map(|r| rank(&r.overall_feasibility)).unwrap_or(2);
                 if now <= prev {
@@ -1254,7 +1256,17 @@ impl PromptOrchestrator {
                 // to a fresh design (previously it reported "Using existing
                 // blueprint" with an empty plan).
                 let mut loaded_steps: Vec<BlueprintStep> = Vec::new();
+                // the stored body's own `missing_capabilities` (plain strings, or objects with a `name`) — a reused plan reports them exactly
+                // like a freshly designed one, so every walk of the blueprint feeds the same gap path (and the work-order gap tasks)
+                let mut body_missing: Vec<String> = Vec::new();
                 if let Ok(Some(container)) = self.store.get_container(bp_id).await {
+                    if let Some(body) = Self::read_blueprint_body(&container) {
+                        body_missing = body
+                            .get("missing_capabilities")
+                            .and_then(|m| m.as_array())
+                            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from).or_else(|| x["name"].as_str().map(String::from))).collect())
+                            .unwrap_or_default();
+                    }
                     let loaded = Self::read_blueprint_body(&container)
                         .and_then(|b| b.get("steps").cloned());
                     let steps_value = loaded.or_else(|| {
@@ -1281,7 +1293,7 @@ impl PromptOrchestrator {
                     // attached, stale/unknown tool calls dropped, missing capabilities captured (tool_binding.rs)
                     self.judge_rule_applicability(state).await;
                     Self::audit_rule_refs(state);
-                    let _ = Self::reconcile_tool_bindings(state, &format!("blueprint {}", bp_id), &[]).await;
+                    let _ = Self::reconcile_tool_bindings(state, &format!("blueprint {}", bp_id), &body_missing).await;
                     self.record_stage_timed(
                         state,
                         6,
@@ -2842,6 +2854,9 @@ Return JSON:
             &format!("Task: {:?}", state.task_id),
         );
         }
+        // WORK-ORDER TREE (operator 2026-11-10): record this walk's structure (AMT branches, steps, capability-gap checklists) on the task
+        // records; idempotent, so a resumed walk only adds what is new.
+        self.materialize_work_order(state).await;
         // Initial checkpoint: from here a failure can pause + resume this run.
         self.write_checkpoint(state, None);
 
@@ -2958,6 +2973,10 @@ Return JSON:
                             .await
                             .update_progress(task_id, completed.len() as u32, steps.len() as u32)
                             .await;
+                        // the step ran to completion: tick its work-order item (completion cascades by the one rule)
+                        if let Some(pos) = steps.iter().position(|s| std::ptr::eq(s, step)) {
+                            self.work_order_step_done(state, pos, &format!("step executed to completion ({} tokens)", result.tokens_used)).await;
+                        }
                     }
                 }
             } else {
@@ -3027,6 +3046,10 @@ Return JSON:
                             .await
                             .update_progress(task_id, completed.len() as u32, steps.len() as u32)
                             .await;
+                        // the step ran to completion: tick its work-order item (completion cascades by the one rule)
+                        if let Some(pos) = steps.iter().position(|s| std::ptr::eq(s, step)) {
+                            self.work_order_step_done(state, pos, &format!("step executed to completion ({} tokens)", result.tokens_used)).await;
+                        }
                     }
                 }
             }
@@ -4016,6 +4039,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                         state.tokens_used_so_far,
                     )
                     .await;
+                self.work_order_walk_done(state).await;
             } else {
                 // The failure keeps its cause: the walk's last attempt (model,
                 // failure_source tag, outcome, next step) is read from the
