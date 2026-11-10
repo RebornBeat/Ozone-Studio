@@ -187,3 +187,20 @@ Full account and per-flow matrices: **`docs/KEYWORD_FLOW_AND_NEEDS_GUIDE.md`**. 
 * **Noted, not changed:** pipeline-internal node hotness (modality nodes) is a separate, now-zeroed field.
 ### 16.2 "Is the account actively funded?" — checked
 The host derives the tier from `GET /api/v1/key` → `free_model_daily_requests.limit` (50 = unfunded, 1000 = a $10+ credit purchase raised it); the live reading is **limit 1,000, `limit_remaining` 48.58 credits, `usage_daily` $0.00**. So credit has been bought and remains on the key, and no paid spend is happening (consistent with the free-only doctrine). Caveat: `limit_remaining` is the key's remaining credit limit, not an invoice balance — the OpenRouter dashboard is the authority for the exact balance.
+
+## 17. KEYWORD REVIEW — measured on both stores after the first real walk (2026-11-10; evidence: `docs/evidence/keyword-measure/{local,eu}-2026-11-10.json`)
+| | local | EU |
+|---|---|---|
+| containers / keyword slots | 5,983 / 32,354 | 3,102 / 11,073 |
+| distinct vocabulary | 10,618 | 1,881 |
+| sentence-like keywords | 66 | 18 |
+| typed scope set | 1,494 (old binary — backfill not run yet) | 2,209 (71%, backfill in progress) |
+| keyword_meta present | 3,108 | 2,424 |
+| methodology mean keywords | 29.0 | 12.4 |
+| filler words as keywords (the/a/and/you/it) | 22 | 15 |
+**Findings**
+1. **System bookkeeping tags dominate the vocabulary.** EU top terms: `scope:global` 1,334, `tool_call` 1,315, `sensor-tick` 1,267, `uidocument_ingest` 875, `proj:1` 875, `run-span` 459, `loop:i_loop` 422, `element` 417, `stylerule` 175 — i.e. event kinds, agent names, ingest node kinds. Only the `scope:`/`proj:`/`ws:`/`loop:` ones are marker-shaped (markers meet only markers); the rest are plain words, so a content search for `task`, `link`, `field`, `failure`, `release`, `claim` matches thousands of system events (`tool_call` alone is 12% of all EU slots). Hotness/hits will not fix it (system events are never packed/applied; they only add noise and recency-tie wins). **Options (operator ruling needed — NOT edited):** (A) namespace the tags at emission (`kind:tool_call`, `agent:sensor-tick`, `node:element`) so the existing marker rule applies — needs every reader updated (`actors.rs` filters on `"tool_call"`, `mcp_graph.rs` RESERVED_KEYWORDS) + a backfill of ~3k stored containers; (B) leave tags, and let content searches rank bookkeeping container types below content types via the hits-derived key only (no hand rule) — weak; (C) leave it, searches that want content already pass a `container_type`. Recommendation: A for NEW events + readers accept both forms, backfill later.
+2. **Methodology keyword count is over-added on the local store (29.0 vs 12.4 on the EU)** — local carries pre-hygiene keywords (title-tokenised, expansion terms). Settlement Pass C (unanimous drop) removes them only when five YES votes line up (see STATE_CAPTURE §17 N7: 0/60 passed) — so over-adding persists until a vote tally shows whether the gate is too strict or the question is mis-worded. Edit candidate (logging only): record the per-vote tally on every judgment.
+3. **Request-term leak from system-generated prompts — FIXED** (this wave): tasks stamped with `source` (amt-loop, sensor-tick) now run under an `internal` origin: events are logged (observed use / hotness unchanged) but are skipped by both dataset passes (no search/creation training pairs) and their machine-text prompt contributes no request terms. Test: `system_generated_work_is_flagged_internal_and_read_back_from_the_log`; EU lib 259/259.
+4. **Scope backfill and keyword_meta are catching up on the EU (71% / 78%)** — housekeeping runs every 5 min; check completion at the next run.
+5. **Token search is name-aware** (`the`: scan 0 / token 4 on the EU) — expected: token matches NAME as well as keywords; K1 was corrected for this.
