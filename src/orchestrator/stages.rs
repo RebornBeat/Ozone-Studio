@@ -835,9 +835,10 @@ impl PromptOrchestrator {
         }
         let branches = super::amt::render_within_window(state, "rule_gate_branches", 4, branches);
         let strength = crate::shared_contracts::k_validation::configured_strength();
+        // steps are addressed by their POSITION in `blueprint_steps` (never by `step_index`, which a drafting model can duplicate)
         let steps_all: Vec<(usize, String, Vec<String>)> =
-            state.blueprint_steps.iter().map(|s| (s.step_index as usize, s.description.clone(), s.rule_refs.clone())).collect();
-        // (methodology id, name, all its rules, the keys not judged yet, the (step, rule key) citations)
+            state.blueprint_steps.iter().enumerate().map(|(pos, s)| (pos, s.description.clone(), s.rule_refs.clone())).collect();
+        // (methodology id, name, all its rules, the keys not judged yet, the (step POSITION, rule key) citations)
         let mut work: Vec<(u64, String, Vec<(String, String)>, std::collections::BTreeSet<String>, Vec<(usize, String)>)> = Vec::new();
         for id in state.methodologies.clone() {
             let Ok(Some(container)) = self.store.get_container(id).await else { continue };
@@ -890,12 +891,12 @@ impl PromptOrchestrator {
             // EVERY judged citation is a labelled sample (kept AND removed), so the ML sees both classes
             for (step_index, key) in &cites {
                 let rule_text = items.iter().find(|(k, _)| k == key).map(|(_, t)| t.as_str()).unwrap_or("");
-                let desc = state.blueprint_steps.iter().find(|s| s.step_index as usize == *step_index).map(|s| s.description.clone()).unwrap_or_default();
+                let desc = state.blueprint_steps.get(*step_index).map(|s| s.description.clone()).unwrap_or_default();
                 crate::keyword_program::record_judgment("rule_step_fidelity", Some(id), rule_text, &desc, "does this step NOT carry out the rule it cites?", not_carried.contains(&(*step_index, key.clone())), strength);
             }
             for (step_index, key) in &not_carried {
                 let rule_ref = format!("m{id}:{key}");
-                if let Some(st) = state.blueprint_steps.iter_mut().find(|s| s.step_index as usize == *step_index) {
+                if let Some(st) = state.blueprint_steps.get_mut(*step_index) {
                     let before = st.rule_refs.len();
                     st.rule_refs.retain(|r| *r != rule_ref);
                     if st.rule_refs.len() < before {
@@ -1044,7 +1045,10 @@ impl PromptOrchestrator {
         // COVERAGE (operator 2026-11-10: "a sound methodology is one where all rules apply"): every rule judged applicable should be carried by
         // at least one step. Deterministic; a rule no step cites is RECORDED (never added, never removed) for the refinement loop — either the
         // plan missed an applicable rule or the rule is not really actionable as a step.
-        let uncovered: Vec<String> = state.rule_verdicts.iter().filter(|(r, ok)| **ok && !applied.contains(*r)).map(|(r, _)| r.clone()).collect();
+        // (declared per-rule PROVIDER rules are excluded: `reconcile_tool_bindings` runs right after this audit and attaches each one to a carrier or
+        // inserts its provider step, so counting them here would report rules that are about to be covered)
+        let uncovered: Vec<String> =
+            state.rule_verdicts.iter().filter(|(r, ok)| **ok && !applied.contains(*r) && !manifest_refs.contains(*r)).map(|(r, _)| r.clone()).collect();
         if !uncovered.is_empty() && !state.blueprint_steps.is_empty() {
             tracing::warn!(uncovered = uncovered.len(), of = state.rule_verdicts.len(), "blueprint gate: applicable rules no step cites");
             crate::orchestrator::meta_loop::record_uncovered_rules(&uncovered, &state.keywords);

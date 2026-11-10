@@ -1525,7 +1525,7 @@ impl OzoneRuntime {
             }
 
             // P2P MARKETPLACE BRIDGE (operator 2026-11-10: NOTIFY AND GATE). spawn_network_hook_bridge turns real creation events of the ALLOWED
-            // kinds (methodology, jurisdiction rule set, pipeline, tool — never blueprints, never user data) into MANIFESTS on this instance's
+            // kinds (methodology, jurisdiction rule set, pipeline — never blueprints, never tool-result nodes, never user data) into MANIFESTS on this instance's
             // marketplace listing and ONE push notification on the shared marketplace topic (not a message per peer); spawn_marketplace_exchange
             // lets CONNECTED peers pull the listing; the receiving marketplace lists offers and gates them. Nothing is downloaded or applied.
             // Opt-in only (auto_broadcast_sync defaults false).
@@ -1538,11 +1538,10 @@ impl OzoneRuntime {
                     runtime.read().await.network.clone(),
                     bridge_store.clone(),
                 );
-                // the data dir the marketplace files live in (an `.await` cannot sit inside `unwrap_or_else`'s closure, hence the match)
-                let exchange_dir = match std::env::var("OZONE_ZSEI_DATA_DIR") {
-                    Ok(d) => d,
-                    Err(_) => runtime.read().await.config.general.data_dir.clone(),
-                };
+                // the data dir the marketplace files live in: the NETWORK's own (`config.general.data_dir`) — the swarm writes the inbox, the listing and
+                // `paired_peers.json` there, and the marketplace HTTP handlers read it from the same config value, so the exchange / review / import
+                // loops must too (an `OZONE_ZSEI_DATA_DIR` override that differed would make them read a different, empty inbox)
+                let exchange_dir = runtime.read().await.config.general.data_dir.clone();
                 // the pull side of the marketplace exchange (connected peers; manifests only, never content)
                 crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir.clone());
                 // the zero-shot half of the gate: an ADVISORY recommendation per offer (download / ignore / review) — the operator's decision acts

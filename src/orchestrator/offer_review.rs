@@ -81,6 +81,15 @@ async fn local_methodologies(store: &Arc<dyn StoreAccess>) -> Vec<(String, Vec<S
     out
 }
 
+/// Names of the registered tools (`mcp_tool_registry.json`, an array of `{name, …}`); empty when the file is absent.
+fn tool_names(dir: &Path) -> Vec<String> {
+    std::fs::read_to_string(dir.join("mcp_tool_registry.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|e| e["name"].as_str().map(String::from)).collect()))
+        .unwrap_or_default()
+}
+
 /// Ask the model for ONE verdict about an offer. None = no usable answer (the offer is retried on the next pass).
 async fn one_round(executor: &Arc<dyn PipelineExecutor>, o: &RawOffer, similar: &[String], conflict: bool) -> Option<(String, String)> {
     let prompt = format!(
@@ -125,8 +134,15 @@ async fn review_pass(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn Store
         }
         // 2. the zero-shot question, strength-N rounds; the first round that disagrees with the first answer ends it (no unanimity possible)
         let conflict = o.item_type == "methodology" && !same_name.is_empty();
-        let pool: Vec<(String, Vec<String>)> = local.iter().map(|(n, k, _)| (n.clone(), k.clone())).collect();
-        let similar = similar_local(&o.name, &o.keywords, &pool, 8);
+        // what this instance already has OF THE SAME KIND: methodologies for a methodology offer, registered tool names for a tool offer;
+        // other kinds have no local index to compare against (the prompt says so rather than listing unrelated items). No cap on the list —
+        // names only, so it is small, and a cut would hide exactly the duplicate the reviewer must see.
+        let pool: Vec<(String, Vec<String>)> = match o.item_type.as_str() {
+            "methodology" => local.iter().map(|(n, k, _)| (n.clone(), k.clone())).collect(),
+            "tool" => tool_names(dir).into_iter().map(|n| (n, Vec::new())).collect(),
+            _ => Vec::new(),
+        };
+        let similar = similar_local(&o.name, &o.keywords, &pool, usize::MAX);
         let mut verdicts: Vec<String> = Vec::new();
         let mut reason = String::new();
         let mut failed = false;

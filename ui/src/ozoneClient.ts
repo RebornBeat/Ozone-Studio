@@ -594,8 +594,8 @@ export interface MarketplacePeerOffer {
   keywords: string[];
   announced_at?: number;
   received_at?: number;
-  /** have = same name + same content already here · conflict = same name, different content (kept as a separate version, never overwritten) · new */
-  local_status: "have" | "conflict" | "new" | "not_checked";
+  /** have = same name + same content already here · conflict = same name, different content (kept as a separate version, never overwritten) · same_name = a TOOL with this name is already registered (name only, no hash) · new */
+  local_status: "have" | "conflict" | "same_name" | "new" | "not_checked";
   decision: "pending" | "download" | "ignore" | "not_needed";
   note: string;
   /** outcome of an approved download: imported / have / staged / approval_only / failed / rejected (null = not started or in flight) */

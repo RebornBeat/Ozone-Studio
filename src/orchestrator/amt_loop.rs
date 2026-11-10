@@ -1894,7 +1894,7 @@ Instruction with added constraints: IPv4 and IPv6..."#);
 }
 
 /// Bridge the graph ripple to the marketplace (operator 2026-11-10: NOTIFY AND GATE). Spawns a subscriber that turns `created` GraphEvents
-/// of the ALLOWED kinds (methodology, jurisdiction rule set, pipeline, tool) into a MANIFEST on this instance's marketplace listing plus one
+/// of the ALLOWED kinds (methodology, jurisdiction rule set, pipeline — never tool RESULT nodes, never user data) into a MANIFEST on this instance's marketplace listing plus one
 /// push notification (`NetworkManager::on_item_announced`). Blueprints are private and every other container is never announced.
 ///
 /// Gated by `NetworkConfig::auto_broadcast_sync` at the one real call site
@@ -1927,7 +1927,9 @@ pub fn spawn_network_hook_bridge(
                         "Methodology" => SyncItemType::Methodology,
                         "JurisdictionRuleSet" => SyncItemType::JurisdictionRuleSet,
                         "Pipeline" => SyncItemType::Pipeline,
-                        "McpEntity" => SyncItemType::Tool,
+                        // NOT "McpEntity": an McpEntity container is a graph NODE built from an MCP tool's RESULT (e.g. every Element / StyleRule of an
+                        // ingested UI document) — user data, not a tool. Announcing those as "tool" offers would publish the user's own content to
+                        // peers. A tool offer, if ever published, comes from the tool REGISTRY, never from a container-created event.
                         _ => continue,
                     };
                     let Ok(Some(c)) = store.get_container(evt.container_id).await else { continue };

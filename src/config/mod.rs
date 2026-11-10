@@ -606,7 +606,7 @@ pub struct NetworkConfig {
     pub enable_mdns: bool,
     /// Sync interval in seconds for batch sync
     pub batch_sync_interval_secs: u64,
-    /// NOTIFY AND GATE (operator 2026-11-10). When true, creation of a methodology, jurisdiction rule set, pipeline or tool is published as a
+    /// NOTIFY AND GATE (operator 2026-11-10). When true, creation of a methodology, jurisdiction rule set or pipeline is published as a
     /// MANIFEST (type, name, body hash, keywords — no content) to THIS instance's marketplace listing, and ONE notification is pushed to every
     /// connected peer on the shared marketplace topic (never a message per peer). Blueprints are private and never published. Paired peers
     /// pull the listing; the receiving marketplace lists each item as an offer and a gate / the operator decides whether to download it.

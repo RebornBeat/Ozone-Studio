@@ -972,19 +972,6 @@ async fn context_span_out(
     Json(v)
 }
 
-/// GET /marketplace/overview — everything the Marketplace UI needs in ONE read-only call (2026-11-04):
-///   * `tools`   — this host's registered tools/MCPs (same facts as /mcp/tools) grouped into providers (process = endpoint)
-///   * `peers`   — paired peers + the honest catalog-exchange status (NOT implemented yet: no peer listings are invented)
-///   * `methodologies` — every methodology on disk with its RULES; per rule the DECLARED `requires[]` (the binding) and,
-///                 for rules that declare none, tools INFERRED by keyword overlap (labelled `inferred`, never presented as binding)
-///   * `blueprints` — blueprints with their steps' pipelines and the methodology ids they cite
-///   * `policy`  — what is shared with peers (`auto_broadcast_sync`) and the review rules that apply to downloads
-/// docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6.
-/// PEER OFFERS (operator ruling 2026-11-10: notify and gate, never auto-sync). Every `announce` manifest received from a PAIRED peer
-/// (`peer_sync_candidates.jsonl`) is an OFFER; nothing is downloaded or applied. The deterministic part of the gate classifies a methodology
-/// offer against the local store by NAME + BODY HASH: `have` (same name, same hash → nothing to do), `conflict` (same name, different hash →
-/// review, never overwrite), `new`. A TOOL offer is classified by name against `mcp_tool_registry.json` (`same_name` / `new`, never "identical"). Pipelines and jurisdiction sets stay `not_checked` (no reliable local name/hash index). The decision (`download` / `ignore`) is the
-/// operator's and is recorded in `peer_offer_decisions.json`; `download` records approval only — the fetch step is not built yet.
 /// Lower-cased `name` of every entry of a JSON array file (e.g. `mcp_tool_registry.json`); empty when the file is absent or not an array.
 fn read_json_array_names(path: &std::path::Path) -> std::collections::HashSet<String> {
     std::fs::read_to_string(path)
@@ -994,6 +981,13 @@ fn read_json_array_names(path: &std::path::Path) -> std::collections::HashSet<St
         .unwrap_or_default()
 }
 
+/// PEER OFFERS (operator ruling 2026-11-10: notify and gate, never auto-sync). Every offer in the marketplace inbox / catalog
+/// (`collect_offers`) is only an OFFER; nothing is downloaded or applied by listing it. The deterministic part of the gate classifies a
+/// methodology offer against the local store by NAME + BODY HASH: `have` (same name, same hash → nothing to do), `conflict` (same name,
+/// different hash → review, never overwrite), `new`. A TOOL offer is classified by name against `mcp_tool_registry.json` (`same_name` /
+/// `new`, never "identical"). Pipelines and jurisdiction sets stay `not_checked` (no reliable local name/hash index). The decision
+/// (`download` / `ignore`) is the operator's, recorded in `peer_offer_decisions.json`; an approved download is then fetched and imported by
+/// `orchestrator::peer_import` (methodologies imported, jurisdiction files staged, tools and pipelines approval-only).
 fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<String, String>) -> Vec<serde_json::Value> {
     use serde_json::{json, Value};
     let dir = std::path::Path::new(data_dir);
@@ -1042,15 +1036,16 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
         .collect()
 }
 
-/// Record the operator's decision on a peer offer. `download` records APPROVAL only (no fetch is built yet); `ignore` dismisses it.
-async fn marketplace_offer_decide(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+/// Record the operator's decision on a peer offer. `download` records the APPROVAL (the import loop then fetches and imports it); `ignore` dismisses it.
+async fn marketplace_offer_decide(State(state): State<Arc<AppState>>, Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
     use serde_json::json;
     let key = body["offer_key"].as_str().unwrap_or("").to_string();
     let decision = body["decision"].as_str().unwrap_or("").to_string();
     if key.is_empty() || !matches!(decision.as_str(), "download" | "ignore" | "pending") {
         return Json(json!({"success": false, "error": "offer_key and decision (download | ignore | pending) are required"}));
     }
-    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    // the NETWORK's data dir (`config.general.data_dir`): the swarm's inbox and the import / review loops read the marketplace files from there
+    let data_dir = state.runtime.read().await.config.general.data_dir.clone();
     let path = std::path::Path::new(&data_dir).join("peer_offer_decisions.json");
     let mut all: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
     all[&key] = json!({"decision": decision, "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)});
@@ -1069,15 +1064,24 @@ async fn marketplace_offer_decide(Json(body): Json<serde_json::Value>) -> Json<s
     }
 }
 
+/// GET /marketplace/overview — everything the Marketplace UI needs in ONE read-only call (2026-11-04):
+///   * `tools`   — this host's registered tools/MCPs (same facts as /mcp/tools) grouped into providers (process = endpoint)
+///   * `peers`   — paired peers + the connected-peer exchange status; `peer_offers` / `published` / `exchange` carry the marketplace (nothing is invented: only what was really received or published)
+///   * `methodologies` — every methodology on disk with its RULES; per rule the DECLARED `requires[]` (the binding) and,
+///                 for rules that declare none, tools INFERRED by keyword overlap (labelled `inferred`, never presented as binding)
+///   * `blueprints` — blueprints with their steps' pipelines and the methodology ids they cite
+///   * `policy`  — what is shared with peers (`auto_broadcast_sync`) and the review rules that apply to downloads
+/// docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6.
 async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     use serde_json::{json, Value};
     let tools_v: Vec<Value> = mcp_list_tools(State(state.clone())).await.0["tools"].as_array().cloned().unwrap_or_default();
-    let (data_dir, auto_sync, paired, net_status) = {
+    let (data_dir, auto_sync, paired, net_status, net_dir) = {
         let runtime = state.runtime.read().await;
+        let net_dir = runtime.config.general.data_dir.clone();
         let dd = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.config.general.data_dir.clone());
         let paired = runtime.network.read().await.paired_peer_ids().await;
         let net_status = runtime.network.read().await.get_status().await;
-        (dd, runtime.config.network.auto_broadcast_sync, paired, net_status)
+        (dd, runtime.config.network.auto_broadcast_sync, paired, net_status, net_dir)
     };
     // PROVIDERS (operator doctrine 2026-11-04): a provider is the MCP SERVER process behind one or more tool names — the unit that
     // is installed, trusted, started/stopped and shared. Grouped by provider id (the supervisor port table's tool dir).
@@ -1202,7 +1206,8 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
     }
     let local_method_hashes: std::collections::HashMap<String, String> =
         methodologies.iter().filter_map(|m| Some((m["name"].as_str()?.to_string(), m["body_hash"].as_str()?.to_string()))).collect();
-    let peer_offers = peer_offers_view(&data_dir, &local_method_hashes);
+    // the marketplace files (inbox, listing, decisions, refusals) live in the NETWORK's data dir, not necessarily the content dir above
+    let peer_offers = peer_offers_view(&net_dir, &local_method_hashes);
     let peer_offers_pending = peer_offers.iter().filter(|o| o["decision"].as_str() == Some("pending")).count();
     Json(json!({
         "success": true,
@@ -1214,10 +1219,10 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
             "publishing_enabled": auto_sync,
             "p2p_enabled": net_status.enabled,
             "connected_peers": net_status.connected_peers,
-            "refused_inbound": std::fs::read_to_string(std::path::Path::new(&data_dir).join("peer_marketplace_rejected.jsonl")).map(|t| t.lines().count()).unwrap_or(0),
+            "refused_inbound": std::fs::read_to_string(std::path::Path::new(&net_dir).join("peer_marketplace_rejected.jsonl")).map(|t| t.lines().count()).unwrap_or(0),
         },
         // what THIS instance publishes to the marketplace (manifests only; blueprints never)
-        "published": std::fs::read_to_string(std::path::Path::new(&data_dir).join("marketplace_published.json"))
+        "published": std::fs::read_to_string(std::path::Path::new(&net_dir).join("marketplace_published.json"))
             .ok()
             .and_then(|t| serde_json::from_str::<serde_json::Map<String, Value>>(&t).ok())
             .map(|m| m.into_values().collect::<Vec<_>>())
@@ -1232,7 +1237,7 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
         "peers": {
             "paired": paired,
             "catalog_exchange": "announce_only (manifests, no content) — offers are listed under peer_offers and gated; nothing is downloaded automatically",
-            "note": "Peer catalogs are not exchanged yet (no tool/MCP offer protocol): nothing from other users is listed because nothing real is received. Pairing is real.",
+            "note": "Peers exchange MANIFESTS only (marketplace topic, connected peers); whatever was really received is listed under peer_offers. Nothing is downloaded without your decision. `paired` is the approved-peer allow-list.",
         },
         "methodologies": methodologies,
         "blueprints": blueprints,

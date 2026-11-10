@@ -289,7 +289,7 @@ Operator: stop spending model calls on testing removals; review what the loop di
 ## 23. CLEANUP LOG — what the 2026-11-10 work SUPERSEDED and what was done about it
 | Superseded | Replaced by | Cleaned up |
 |---|---|---|
-| E14 per-rule vote at the END of Stage 6 (`gate_rule_applicability`) | rule gate after the AMT (`judge_rule_applicability`) + deterministic citation gate | function and both call sites REMOVED; registries (ZERO_SHOT §20, CALL_ROUTE R30), test guide (§27b W8 marked superseded, §27h), ZERO_SHOT_EXPANSION E14 row marked superseded |
+| E14 per-rule vote at the END of Stage 6 (`gate_rule_applicability`) | rule gate after the blueprint draft (`judge_rule_applicability`; was right after the AMT until 2026-11-10) + deterministic citation gate | function and both call sites REMOVED; registries (ZERO_SHOT §20, CALL_ROUTE R30), test guide (§27b W8 marked superseded, §27h), ZERO_SHOT_EXPANSION E14 row marked superseded |
 | Settlement Pass B "proposed non-keywords" + Pass C proposal votes | Pass V1 / V2 (asymmetric validation) | prompt tail + parsing removed; `keyword_settle.rs` module doc rewritten; ZERO_SHOT row 26 corrected |
 | `is_settled` = provenance only | settled = validated | code + tests |
 | Three separate methodology body readers (data dir only) | `tool_binding::read_object_file` (data dir, then app root) | all three call sites switched; the inline copy in `methodology_whole` removed |
