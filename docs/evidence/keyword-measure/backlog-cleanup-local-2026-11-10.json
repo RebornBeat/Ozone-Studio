@@ -1,0 +1,3413 @@
+{
+ "label": "local",
+ "date": "2026-11-10T10:19:23.865Z",
+ "apply": false,
+ "total": 238,
+ "by_rule": {
+  "R3-duplicate": 117,
+  "R5-filler": 29,
+  "R2-sentence": 59,
+  "R1-empty": 2,
+  "R4-digit-only": 31
+ },
+ "containers": [
+  {
+   "id": 10001,
+   "type": "Pipeline",
+   "name": "Auth",
+   "remove": [
+    {
+     "term": "auth",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10002,
+   "type": "Pipeline",
+   "name": "ThemeLoader",
+   "remove": [
+    {
+     "term": "themeloader",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10003,
+   "type": "Pipeline",
+   "name": "ZSEIQuery",
+   "remove": [
+    {
+     "term": "zseiquery",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10004,
+   "type": "Pipeline",
+   "name": "ZSEIWrite",
+   "remove": [
+    {
+     "term": "zseiwrite",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10005,
+   "type": "Pipeline",
+   "name": "TaskManager",
+   "remove": [
+    {
+     "term": "taskmanager",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10006,
+   "type": "Pipeline",
+   "name": "WorkspaceTab",
+   "remove": [
+    {
+     "term": "workspacetab",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10007,
+   "type": "Pipeline",
+   "name": "LibraryTab",
+   "remove": [
+    {
+     "term": "librarytab",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10008,
+   "type": "Pipeline",
+   "name": "SettingsTab",
+   "remove": [
+    {
+     "term": "settingstab",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10009,
+   "type": "Pipeline",
+   "name": "Prompt",
+   "remove": [
+    {
+     "term": "prompt",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10010,
+   "type": "Pipeline",
+   "name": "Voice",
+   "remove": [
+    {
+     "term": "voice",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10011,
+   "type": "Pipeline",
+   "name": "MethodologyFetch",
+   "remove": [
+    {
+     "term": "methodologyfetch",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10012,
+   "type": "Pipeline",
+   "name": "MethodologyCreate",
+   "remove": [
+    {
+     "term": "methodologycreate",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10013,
+   "type": "Pipeline",
+   "name": "BlueprintSearch",
+   "remove": [
+    {
+     "term": "blueprintsearch",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10014,
+   "type": "Pipeline",
+   "name": "BlueprintCreate",
+   "remove": [
+    {
+     "term": "blueprintcreate",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10015,
+   "type": "Pipeline",
+   "name": "PipelineCreation",
+   "remove": [
+    {
+     "term": "pipelinecreation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "pipeline",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10016,
+   "type": "Pipeline",
+   "name": "ZeroShotSimulation",
+   "remove": [
+    {
+     "term": "zeroshotsimulation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10017,
+   "type": "Pipeline",
+   "name": "TraversalML",
+   "remove": [
+    {
+     "term": "traversalml",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10018,
+   "type": "Pipeline",
+   "name": "CodeAnalysis",
+   "remove": [
+    {
+     "term": "codeanalysis",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10019,
+   "type": "Pipeline",
+   "name": "PackageContext",
+   "remove": [
+    {
+     "term": "packagecontext",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10020,
+   "type": "Pipeline",
+   "name": "TextAnalysis",
+   "remove": [
+    {
+     "term": "textanalysis",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10021,
+   "type": "Pipeline",
+   "name": "ContextAggregation",
+   "remove": [
+    {
+     "term": "contextaggregation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10022,
+   "type": "Pipeline",
+   "name": "GraphVisualization",
+   "remove": [
+    {
+     "term": "graphvisualization",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10023,
+   "type": "Pipeline",
+   "name": "TaskRecommendation",
+   "remove": [
+    {
+     "term": "taskrecommendation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10024,
+   "type": "Pipeline",
+   "name": "Reordering",
+   "remove": [
+    {
+     "term": "reordering",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10025,
+   "type": "Pipeline",
+   "name": "BrowserNavigation",
+   "remove": [
+    {
+     "term": "browsernavigation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10026,
+   "type": "Pipeline",
+   "name": "IntegrityCheck",
+   "remove": [
+    {
+     "term": "integritycheck",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10027,
+   "type": "Pipeline",
+   "name": "Consensus",
+   "remove": [
+    {
+     "term": "consensus",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10028,
+   "type": "Pipeline",
+   "name": "ExternalReference",
+   "remove": [
+    {
+     "term": "externalreference",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10029,
+   "type": "Pipeline",
+   "name": "PackageRelationship",
+   "remove": [
+    {
+     "term": "packagerelationship",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10030,
+   "type": "Pipeline",
+   "name": "FileLink",
+   "remove": [
+    {
+     "term": "filelink",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10031,
+   "type": "Pipeline",
+   "name": "URLLink",
+   "remove": [
+    {
+     "term": "urllink",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10032,
+   "type": "Pipeline",
+   "name": "PackageLink",
+   "remove": [
+    {
+     "term": "packagelink",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10033,
+   "type": "Pipeline",
+   "name": "Sync",
+   "remove": [
+    {
+     "term": "sync",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10034,
+   "type": "Pipeline",
+   "name": "DeviceRegister",
+   "remove": [
+    {
+     "term": "deviceregister",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10035,
+   "type": "Pipeline",
+   "name": "HomeReturn",
+   "remove": [
+    {
+     "term": "homereturn",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10036,
+   "type": "Pipeline",
+   "name": "TaskViewer",
+   "remove": [
+    {
+     "term": "taskviewer",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10037,
+   "type": "Pipeline",
+   "name": "LogViewer",
+   "remove": [
+    {
+     "term": "logviewer",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10038,
+   "type": "Pipeline",
+   "name": "DeviceStatus",
+   "remove": [
+    {
+     "term": "devicestatus",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10039,
+   "type": "Pipeline",
+   "name": "ConsciousnessDecisionGate",
+   "remove": [
+    {
+     "term": "consciousnessdecisiongate",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "consciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10040,
+   "type": "Pipeline",
+   "name": "ExperienceCategorization",
+   "remove": [
+    {
+     "term": "experiencecategorization",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10041,
+   "type": "Pipeline",
+   "name": "CoreMemoryFormation",
+   "remove": [
+    {
+     "term": "corememoryformation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10042,
+   "type": "Pipeline",
+   "name": "ExperienceRetrieval",
+   "remove": [
+    {
+     "term": "experienceretrieval",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10043,
+   "type": "Pipeline",
+   "name": "EmotionalBaselineUpdate",
+   "remove": [
+    {
+     "term": "emotionalbaselineupdate",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10044,
+   "type": "Pipeline",
+   "name": "ILoop",
+   "remove": [
+    {
+     "term": "iloop",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "i",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10045,
+   "type": "Pipeline",
+   "name": "InternalLanguage",
+   "remove": [
+    {
+     "term": "internallanguage",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10046,
+   "type": "Pipeline",
+   "name": "NarrativeConstruction",
+   "remove": [
+    {
+     "term": "narrativeconstruction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10047,
+   "type": "Pipeline",
+   "name": "RelationshipDevelopment",
+   "remove": [
+    {
+     "term": "relationshipdevelopment",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10048,
+   "type": "Pipeline",
+   "name": "EthicalAssessment",
+   "remove": [
+    {
+     "term": "ethicalassessment",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10049,
+   "type": "Pipeline",
+   "name": "EthicalSimulation",
+   "remove": [
+    {
+     "term": "ethicalsimulation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10050,
+   "type": "Pipeline",
+   "name": "PlaybackReview",
+   "remove": [
+    {
+     "term": "playbackreview",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10051,
+   "type": "Pipeline",
+   "name": "UserFeedback",
+   "remove": [
+    {
+     "term": "userfeedback",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10052,
+   "type": "Pipeline",
+   "name": "CollectiveConsciousness",
+   "remove": [
+    {
+     "term": "collectiveconsciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "consciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10053,
+   "type": "Pipeline",
+   "name": "VoiceIdentity",
+   "remove": [
+    {
+     "term": "voiceidentity",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10054,
+   "type": "Pipeline",
+   "name": "MetaPortionConsciousness",
+   "remove": [
+    {
+     "term": "metaportionconsciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "consciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 10055,
+   "type": "Pipeline",
+   "name": "ContextViewer",
+   "remove": [
+    {
+     "term": "contextviewer",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 1073,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (29 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "conversion of carbon dioxide and water",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 1102,
+   "type": "JurisdictionRuleSet",
+   "name": "Norway Jurisdiction Rules (Personal Data Act 2018)",
+   "remove": [
+    {
+     "term": "no",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 1115,
+   "type": "JurisdictionRuleSet",
+   "name": "Dominican Republic Jurisdiction Rules (verified web search, ",
+   "remove": [
+    {
+     "term": "do",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 80,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 1144,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: do",
+   "remove": [
+    {
+     "term": "do",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 80,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 1150,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: no",
+   "remove": [
+    {
+     "term": "no",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30003,
+   "type": "Methodology",
+   "name": "Clean Code Principles",
+   "remove": [
+    {
+     "term": "code",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 26,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30004,
+   "type": "Methodology",
+   "name": "Code Review Best Practices",
+   "remove": [
+    {
+     "term": "code",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 26,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "review",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 20,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30005,
+   "type": "Methodology",
+   "name": "Security Awareness",
+   "remove": [
+    {
+     "term": "security",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30009,
+   "type": "Methodology",
+   "name": "Data Analysis Methodology",
+   "remove": [
+    {
+     "term": "data",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "analysis",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 10,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30010,
+   "type": "Methodology",
+   "name": "API Design Principles",
+   "remove": [
+    {
+     "term": "api",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "design",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30011,
+   "type": "Methodology",
+   "name": "Documentation Standards",
+   "remove": [
+    {
+     "term": "documentation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30012,
+   "type": "Methodology",
+   "name": "Technical Writing",
+   "remove": [
+    {
+     "term": "writing",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30014,
+   "type": "Methodology",
+   "name": "Formal Proof Methods",
+   "remove": [
+    {
+     "term": "formal",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "proof",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30015,
+   "type": "Methodology",
+   "name": "Mathematical Rigor",
+   "remove": [
+    {
+     "term": "rigor",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30017,
+   "type": "Methodology",
+   "name": "Memory-Pressure-Aware Build Sequencing",
+   "remove": [
+    {
+     "term": "build",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30020,
+   "type": "Methodology",
+   "name": "Cross-Agent Claim Verification",
+   "remove": [
+    {
+     "term": "verification",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30021,
+   "type": "Methodology",
+   "name": "Jurisdiction Content Sourcing Standard",
+   "remove": [
+    {
+     "term": "jurisdiction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30023,
+   "type": "Methodology",
+   "name": "Idempotency Checks Must Read Durable State",
+   "remove": [
+    {
+     "term": "idempotency checks must read durable state",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "idempotency",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30025,
+   "type": "Methodology",
+   "name": "Trace the Full Write-to-Read Path",
+   "remove": [
+    {
+     "term": "trace the full write-to-read path",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30026,
+   "type": "Methodology",
+   "name": "Attribution Requires a Capability Check",
+   "remove": [
+    {
+     "term": "attribution requires a capability check",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "attribution",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30029,
+   "type": "Methodology",
+   "name": "Verify Test Assumptions Against Documented Exceptions Before",
+   "remove": [
+    {
+     "term": "verify test assumptions against documented exceptions before trusting a failure",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30030,
+   "type": "Methodology",
+   "name": "Enforcement Actions Need Real Behavior, Not Just Labels",
+   "remove": [
+    {
+     "term": "enforcement actions need real behavior, not just labels",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "enforcement",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30031,
+   "type": "Methodology",
+   "name": "Verify What's Actually Active, Not Just What's Built",
+   "remove": [
+    {
+     "term": "verify what's actually active, not just what's built",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "what's",
+     "rule": "R3-duplicate",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 2,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30032,
+   "type": "Methodology",
+   "name": "Self-Assessment Prompts Need a Calibration Bar",
+   "remove": [
+    {
+     "term": "self-assessment prompts need a calibration bar",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30033,
+   "type": "Methodology",
+   "name": "Verify the Artifact, Not the Status",
+   "remove": [
+    {
+     "term": "verify the artifact, not the status",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30034,
+   "type": "Methodology",
+   "name": "Jurisdiction Source Maintenance Protocol",
+   "remove": [
+    {
+     "term": "jurisdiction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "maintenance",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30035,
+   "type": "Methodology",
+   "name": "Rescue JSON From Model Noise",
+   "remove": [
+    {
+     "term": "rescue json from model noise",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30036,
+   "type": "Methodology",
+   "name": "Persist Gates Must Measure Content Depth, Not Element Count",
+   "remove": [
+    {
+     "term": "persist gates must measure content depth, not element count",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "gates",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30037,
+   "type": "Methodology",
+   "name": "Canonical Container Resolution Must Be Order-Independent",
+   "remove": [
+    {
+     "term": "canonical container resolution must be order-independent",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30038,
+   "type": "Methodology",
+   "name": "Tune From Measured Metrics, Never Preemptive Caps",
+   "remove": [
+    {
+     "term": "tune from measured metrics, never preemptive caps",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30039,
+   "type": "Methodology",
+   "name": "A Guard Held Across a Forever-Loop Is a Permanent Lock",
+   "remove": [
+    {
+     "term": "a guard held across a forever-loop is a permanent lock",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30040,
+   "type": "Methodology",
+   "name": "Persisted Shape Must Match the Loader's Parse Shape",
+   "remove": [
+    {
+     "term": "persisted shape must match the loader's parse shape",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "shape",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30041,
+   "type": "Methodology",
+   "name": "New Nodes Link Through Relationship Paths First",
+   "remove": [
+    {
+     "term": "new nodes link through relationship paths first",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30042,
+   "type": "Methodology",
+   "name": "Planning Artifacts Outlive the Process That Made Them",
+   "remove": [
+    {
+     "term": "planning artifacts outlive the process that made them",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "planning",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30043,
+   "type": "Methodology",
+   "name": "Every Failure Path Marks State Truthfully",
+   "remove": [
+    {
+     "term": "every failure path marks state truthfully",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 30392,
+   "type": "ModalityGraph",
+   "name": "Expression math graph (7 nodes, 6 edges, 0 proof steps)",
+   "remove": [
+    {
+     "term": "a",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 30433,
+   "type": "ModalityGraph",
+   "name": "Expression math graph (20 nodes, 19 edges, 0 proof steps)",
+   "remove": [
+    {
+     "term": "a",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 40002,
+   "type": "Blueprint",
+   "name": "Code Review",
+   "remove": [
+    {
+     "term": "code review",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 36,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "review",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 20,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "code",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 26,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 40003,
+   "type": "Blueprint",
+   "name": "Documentation",
+   "remove": [
+    {
+     "term": "documentation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40006,
+   "type": "Blueprint",
+   "name": "Data Analysis",
+   "remove": [
+    {
+     "term": "data",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "analysis",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 10,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "data",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40007,
+   "type": "Blueprint",
+   "name": "Mathematical Proof Verification",
+   "remove": [
+    {
+     "term": "mathematical",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "proof",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "proof",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40008,
+   "type": "Blueprint",
+   "name": "Modality Pipeline Onboarding",
+   "remove": [
+    {
+     "term": "modality",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "pipeline",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40009,
+   "type": "Blueprint",
+   "name": "Jurisdiction Expansion",
+   "remove": [
+    {
+     "term": "jurisdiction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40010,
+   "type": "Blueprint",
+   "name": "Methodology Creation and Registration",
+   "remove": [
+    {
+     "term": "methodology",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "and",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 40011,
+   "type": "Blueprint",
+   "name": "Living-Graph Linking Audit",
+   "remove": [
+    {
+     "term": "audit",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40012,
+   "type": "Blueprint",
+   "name": "Cross-Process Retrieval Hardening",
+   "remove": [
+    {
+     "term": "cross-process",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "retrieval",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "hardening",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40013,
+   "type": "Blueprint",
+   "name": "Text Document Analysis",
+   "remove": [
+    {
+     "term": "text",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "document",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "text",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40014,
+   "type": "Blueprint",
+   "name": "Incident Postmortem to Methodology",
+   "remove": [
+    {
+     "term": "incident",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "postmortem",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "to",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "methodology",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40015,
+   "type": "Blueprint",
+   "name": "Agent Onboarding Protocol",
+   "remove": [
+    {
+     "term": "agent",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "onboarding",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "protocol",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40016,
+   "type": "Blueprint",
+   "name": "Data Integrity Audit and Repair",
+   "remove": [
+    {
+     "term": "data integrity audit and repair",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "integrity",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "audit",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "and",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "repair",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40017,
+   "type": "Blueprint",
+   "name": "Fallback and Capture Verification",
+   "remove": [
+    {
+     "term": "fallback",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "and",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "capture",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "verification",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40561,
+   "type": "ModalityGraph",
+   "name": "CAD graph (2 nodes, 2 edges)",
+   "remove": [
+    {
+     "term": "A",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "identifier",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 40575,
+   "type": "ModalityGraph",
+   "name": "Proteomics graph (1 nodes, 0 edges)",
+   "remove": [
+    {
+     "term": "",
+     "rule": "R1-empty",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40605,
+   "type": "ModalityGraph",
+   "name": "Geospatial graph (2 nodes, 1 edges)",
+   "remove": [
+    {
+     "term": "",
+     "rule": "R1-empty",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 40721,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (9 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "the purpose of modality graphs",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 41517,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "a one-paragraph status of this system",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 41528,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (17 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "our koi pond filtration plan",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 41602,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (17 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "2000",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "verbatim",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 41609,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (17 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "2000",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "verbatim",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 41872,
+   "type": "FileReference",
+   "name": "File: /home/rebornbeat/Downloads/Lavender Ivory Studio Beaut",
+   "remove": [
+    {
+     "term": "lavender ivory studio beauty salon.png",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42208,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (11 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42213,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (11 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42215,
+   "type": "Blueprint",
+   "name": "Generated Blueprint",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42219,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (11 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42221,
+   "type": "Blueprint",
+   "name": "Generated Blueprint",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42226,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (11 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42228,
+   "type": "Blueprint",
+   "name": "Security Finding Investigation Blueprint",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42232,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (11 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42234,
+   "type": "Blueprint",
+   "name": "Blueprint name",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42238,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (11 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40560",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42245,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42247,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "verbatim",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 42249,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42251,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42253,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42255,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42257,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42259,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42261,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42263,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42265,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42268,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42270,
+   "type": "Blueprint",
+   "name": "Generated Blueprint",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42274,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42276,
+   "type": "Blueprint",
+   "name": "InitialBuild Project Setup",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42279,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42319,
+   "type": "Blueprint",
+   "name": "Generated Blueprint",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42364,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42414,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "42169",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42927,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: it",
+   "remove": [
+    {
+     "term": "it",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 42930,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: is",
+   "remove": [
+    {
+     "term": "is",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 43853,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (14 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "what a graph database is and one benefit of it",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 43862,
+   "type": "Methodology",
+   "name": "Software Testing & Formal Verification",
+   "remove": [
+    {
+     "term": "software testing & formal verification",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 43864,
+   "type": "Methodology",
+   "name": "Business Impact Analysis & Adoption Strategy",
+   "remove": [
+    {
+     "term": "business impact analysis & adoption strategy",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 43866,
+   "type": "Methodology",
+   "name": "Software Engineering & Delivery Operations",
+   "remove": [
+    {
+     "term": "software engineering & delivery operations",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 43868,
+   "type": "Methodology",
+   "name": "Data Quality & Filtration Engineering",
+   "remove": [
+    {
+     "term": "data quality & filtration engineering",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 43870,
+   "type": "Methodology",
+   "name": "User-Centered Design & Adaptive Communication",
+   "remove": [
+    {
+     "term": "user-centered design & adaptive communication",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44045,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (4 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 44047,
+   "type": "Methodology",
+   "name": "Software Testing & Quality Assurance",
+   "remove": [
+    {
+     "term": "software testing & quality assurance",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44048,
+   "type": "Methodology",
+   "name": "API Design & Microservices Architecture",
+   "remove": [
+    {
+     "term": "api design & microservices architecture",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44049,
+   "type": "Methodology",
+   "name": "Data Management & Persistence Engineering",
+   "remove": [
+    {
+     "term": "data management & persistence engineering",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44051,
+   "type": "Methodology",
+   "name": "Observability & Site Reliability Engineering",
+   "remove": [
+    {
+     "term": "observability & site reliability engineering",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44052,
+   "type": "Methodology",
+   "name": "Machine Learning Operations & Optimization",
+   "remove": [
+    {
+     "term": "machine learning operations & optimization",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44053,
+   "type": "Methodology",
+   "name": "Technical Documentation & Knowledge Management",
+   "remove": [
+    {
+     "term": "technical documentation & knowledge management",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44054,
+   "type": "Methodology",
+   "name": "Configuration Management & Feature Flagging",
+   "remove": [
+    {
+     "term": "configuration management & feature flagging",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44055,
+   "type": "Methodology",
+   "name": "Distributed Systems & Multi-Agent Coordination",
+   "remove": [
+    {
+     "term": "distributed systems & multi-agent coordination",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44056,
+   "type": "Methodology",
+   "name": "User Experience Design & Context-Aware Adaptation",
+   "remove": [
+    {
+     "term": "user experience design & context-aware adaptation",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44057,
+   "type": "Methodology",
+   "name": "Software Engineering & Release Management",
+   "remove": [
+    {
+     "term": "software engineering & release management",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44224,
+   "type": "Blueprint",
+   "name": "Analog Clock 10:10 Generation and Verification Blueprint",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 4,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "me an analog clock showing 10:10 using your 3d (blender) tool first, producing a glb/stl and a rendered image.",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44514,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (7 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 44515,
+   "type": "Methodology",
+   "name": "3D Modeling & Computer-Aided Design",
+   "remove": [
+    {
+     "term": "3d modeling & computer-aided design",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44521,
+   "type": "Methodology",
+   "name": "Mathematical Verification & Scientific Rigor",
+   "remove": [
+    {
+     "term": "mathematical verification & scientific rigor",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44661,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (8 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "how the original works in two sentences",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44689,
+   "type": "Blueprint",
+   "name": "Two-Sentence Explanation Blueprint for zzsuffmw4ekxdp's Orig",
+   "remove": [
+    {
+     "term": "how zzsuffmw4ekxdp's original works in two sentences",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44840,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (8 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "how zzsuffmw5qi3vg's original works in two sentences",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44879,
+   "type": "Blueprint",
+   "name": "zzsuffmw5qi3vg Original Two-Sentence Explanation Blueprint",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "how the zzsuffmw5qi3vg original works in two sentences",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44888,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (7 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "a 3d clock showing 10:10",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44889,
+   "type": "Methodology",
+   "name": "3D Modeling and Computer-Aided Design",
+   "remove": [
+    {
+     "term": "3d modeling and computer-aided design",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44903,
+   "type": "Methodology",
+   "name": "Mathematical Modeling and Geometric Computation",
+   "remove": [
+    {
+     "term": "mathematical modeling and geometric computation",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44908,
+   "type": "Methodology",
+   "name": "Additive Manufacturing and 3D Printing",
+   "remove": [
+    {
+     "term": "additive manufacturing and 3d printing",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44918,
+   "type": "Methodology",
+   "name": "Data Serialization and Pipeline Engineering",
+   "remove": [
+    {
+     "term": "data serialization and pipeline engineering",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44924,
+   "type": "Methodology",
+   "name": "Build Orchestration and Pipeline Engineering",
+   "remove": [
+    {
+     "term": "build orchestration and pipeline engineering",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44926,
+   "type": "Blueprint",
+   "name": "zzclockmw5rxpra 3D Clock Build - 10:10 Display",
+   "remove": [
+    {
+     "term": "a zzclockmw5rxpra 3d clock showing 10:10",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 44982,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (21 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "the order in which run_report calls its helper functions and what each one does",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 45027,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (21 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "you",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "the order in which run_report calls its helper functions and what each one does",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 45053,
+   "type": "Methodology",
+   "name": "Continuous Integration & Quality Automation",
+   "remove": [
+    {
+     "term": "continuous integration & quality automation",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 45096,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (22 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "the order in which run_report calls its helper functions and what each one does",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 45149,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (35 words, 2 sentences)",
+   "remove": [
+    {
+     "term": "'code must be present in the workspace for analysis; git clone is not available'.",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  },
+  {
+   "id": 45228,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (22 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "the order in which run_report calls its helper functions and what each one does.",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ]
+  }
+ ]
+}

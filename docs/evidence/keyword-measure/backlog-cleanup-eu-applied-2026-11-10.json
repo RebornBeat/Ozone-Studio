@@ -1,0 +1,2282 @@
+{
+ "label": "eu-applied",
+ "date": "2026-11-10T10:20:45.588Z",
+ "apply": true,
+ "total": 121,
+ "by_rule": {
+  "R3-duplicate": 73,
+  "R5-filler": 14,
+  "R4-digit-only": 10,
+  "R2-sentence": 24
+ },
+ "containers": [
+  {
+   "id": 10044,
+   "type": "Pipeline",
+   "name": "ILoop",
+   "remove": [
+    {
+     "term": "iloop",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "i",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10045,
+   "type": "Pipeline",
+   "name": "InternalLanguage",
+   "remove": [
+    {
+     "term": "internallanguage",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10046,
+   "type": "Pipeline",
+   "name": "NarrativeConstruction",
+   "remove": [
+    {
+     "term": "narrativeconstruction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10047,
+   "type": "Pipeline",
+   "name": "RelationshipDevelopment",
+   "remove": [
+    {
+     "term": "relationshipdevelopment",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10048,
+   "type": "Pipeline",
+   "name": "EthicalAssessment",
+   "remove": [
+    {
+     "term": "ethicalassessment",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10049,
+   "type": "Pipeline",
+   "name": "EthicalSimulation",
+   "remove": [
+    {
+     "term": "ethicalsimulation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10050,
+   "type": "Pipeline",
+   "name": "PlaybackReview",
+   "remove": [
+    {
+     "term": "playbackreview",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10051,
+   "type": "Pipeline",
+   "name": "UserFeedback",
+   "remove": [
+    {
+     "term": "userfeedback",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10052,
+   "type": "Pipeline",
+   "name": "CollectiveConsciousness",
+   "remove": [
+    {
+     "term": "collectiveconsciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "consciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10053,
+   "type": "Pipeline",
+   "name": "VoiceIdentity",
+   "remove": [
+    {
+     "term": "voiceidentity",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10054,
+   "type": "Pipeline",
+   "name": "MetaPortionConsciousness",
+   "remove": [
+    {
+     "term": "metaportionconsciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "consciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 10055,
+   "type": "Pipeline",
+   "name": "ContextViewer",
+   "remove": [
+    {
+     "term": "contextviewer",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 1161,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: is",
+   "remove": [
+    {
+     "term": "is",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 1168,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: no",
+   "remove": [
+    {
+     "term": "no",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 1224,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: do",
+   "remove": [
+    {
+     "term": "do",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 1248,
+   "type": "JurisdictionRuleSet",
+   "name": "Jurisdiction: it",
+   "remove": [
+    {
+     "term": "it",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 2503,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (16 words, 2 sentences)",
+   "remove": [
+    {
+     "term": "2490",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 2506,
+   "type": "Blueprint",
+   "name": "Generated Blueprint",
+   "remove": [
+    {
+     "term": "2490",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30003,
+   "type": "Methodology",
+   "name": "Clean Code Principles",
+   "remove": [
+    {
+     "term": "code",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 27,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30004,
+   "type": "Methodology",
+   "name": "Code Review Best Practices",
+   "remove": [
+    {
+     "term": "code",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 27,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "review",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 23,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30005,
+   "type": "Methodology",
+   "name": "Security Awareness",
+   "remove": [
+    {
+     "term": "security",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30009,
+   "type": "Methodology",
+   "name": "Data Analysis Methodology",
+   "remove": [
+    {
+     "term": "data",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 8,
+       "returned_traced": 5,
+       "packed": 0,
+       "kept": 1,
+       "dropped": 0,
+       "applied": 1,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "analysis",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 8,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30010,
+   "type": "Methodology",
+   "name": "API Design Principles",
+   "remove": [
+    {
+     "term": "api",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "design",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30011,
+   "type": "Methodology",
+   "name": "Documentation Standards",
+   "remove": [
+    {
+     "term": "documentation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30012,
+   "type": "Methodology",
+   "name": "Technical Writing",
+   "remove": [
+    {
+     "term": "writing",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30014,
+   "type": "Methodology",
+   "name": "Formal Proof Methods",
+   "remove": [
+    {
+     "term": "formal",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "proof",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30015,
+   "type": "Methodology",
+   "name": "Mathematical Rigor",
+   "remove": [
+    {
+     "term": "rigor",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30017,
+   "type": "Methodology",
+   "name": "Memory-Pressure-Aware Build Sequencing",
+   "remove": [
+    {
+     "term": "build",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 8,
+       "returned_traced": 8,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30020,
+   "type": "Methodology",
+   "name": "Cross-Agent Claim Verification",
+   "remove": [
+    {
+     "term": "verification",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30021,
+   "type": "Methodology",
+   "name": "Jurisdiction Content Sourcing Standard",
+   "remove": [
+    {
+     "term": "jurisdiction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30023,
+   "type": "Methodology",
+   "name": "Idempotency Checks Must Read Durable State",
+   "remove": [
+    {
+     "term": "idempotency checks must read durable state",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "idempotency",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30025,
+   "type": "Methodology",
+   "name": "Trace the Full Write-to-Read Path",
+   "remove": [
+    {
+     "term": "trace the full write-to-read path",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30026,
+   "type": "Methodology",
+   "name": "Attribution Requires a Capability Check",
+   "remove": [
+    {
+     "term": "attribution requires a capability check",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "attribution",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30029,
+   "type": "Methodology",
+   "name": "Verify Test Assumptions Against Documented Exceptions Before",
+   "remove": [
+    {
+     "term": "verify test assumptions against documented exceptions before trusting a failure",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30030,
+   "type": "Methodology",
+   "name": "Enforcement Actions Need Real Behavior, Not Just Labels",
+   "remove": [
+    {
+     "term": "enforcement actions need real behavior, not just labels",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "enforcement",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30031,
+   "type": "Methodology",
+   "name": "Verify What's Actually Active, Not Just What's Built",
+   "remove": [
+    {
+     "term": "verify what's actually active, not just what's built",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "what's",
+     "rule": "R3-duplicate",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30032,
+   "type": "Methodology",
+   "name": "Self-Assessment Prompts Need a Calibration Bar",
+   "remove": [
+    {
+     "term": "self-assessment prompts need a calibration bar",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30033,
+   "type": "Methodology",
+   "name": "Verify the Artifact, Not the Status",
+   "remove": [
+    {
+     "term": "verify the artifact, not the status",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "the",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "the",
+     "rule": "R3-duplicate",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30035,
+   "type": "Methodology",
+   "name": "Rescue JSON From Model Noise",
+   "remove": [
+    {
+     "term": "rescue json from model noise",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30036,
+   "type": "Methodology",
+   "name": "Persist Gates Must Measure Content Depth, Not Element Count",
+   "remove": [
+    {
+     "term": "persist gates must measure content depth, not element count",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "gates",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "not",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30037,
+   "type": "Methodology",
+   "name": "Canonical Container Resolution Must Be Order-Independent",
+   "remove": [
+    {
+     "term": "canonical container resolution must be order-independent",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30038,
+   "type": "Methodology",
+   "name": "Tune From Measured Metrics, Never Preemptive Caps",
+   "remove": [
+    {
+     "term": "tune from measured metrics, never preemptive caps",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30039,
+   "type": "Methodology",
+   "name": "A Guard Held Across a Forever-Loop Is a Permanent Lock",
+   "remove": [
+    {
+     "term": "a guard held across a forever-loop is a permanent lock",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30040,
+   "type": "Methodology",
+   "name": "Persisted Shape Must Match the Loader's Parse Shape",
+   "remove": [
+    {
+     "term": "persisted shape must match the loader's parse shape",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "shape",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30041,
+   "type": "Methodology",
+   "name": "New Nodes Link Through Relationship Paths First",
+   "remove": [
+    {
+     "term": "new nodes link through relationship paths first",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30042,
+   "type": "Methodology",
+   "name": "Planning Artifacts Outlive the Process That Made Them",
+   "remove": [
+    {
+     "term": "planning artifacts outlive the process that made them",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "planning",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "the",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30043,
+   "type": "Methodology",
+   "name": "Every Failure Path Marks State Truthfully",
+   "remove": [
+    {
+     "term": "every failure path marks state truthfully",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 30044,
+   "type": "Methodology",
+   "name": "Session Token Metering",
+   "remove": [
+    {
+     "term": "metering",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40002,
+   "type": "Blueprint",
+   "name": "Code Review",
+   "remove": [
+    {
+     "term": "code review",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 42,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "review",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 23,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "code",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 27,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40003,
+   "type": "Blueprint",
+   "name": "Documentation",
+   "remove": [
+    {
+     "term": "documentation",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40006,
+   "type": "Blueprint",
+   "name": "Data Analysis",
+   "remove": [
+    {
+     "term": "data",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 11,
+       "returned_traced": 8,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "analysis",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 8,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "data",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 11,
+       "returned_traced": 8,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40007,
+   "type": "Blueprint",
+   "name": "Mathematical Proof Verification",
+   "remove": [
+    {
+     "term": "mathematical",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "proof",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "proof",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40008,
+   "type": "Blueprint",
+   "name": "Modality Pipeline Onboarding",
+   "remove": [
+    {
+     "term": "modality",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "pipeline",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40009,
+   "type": "Blueprint",
+   "name": "Jurisdiction Expansion",
+   "remove": [
+    {
+     "term": "jurisdiction",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40010,
+   "type": "Blueprint",
+   "name": "Methodology Creation and Registration",
+   "remove": [
+    {
+     "term": "methodology",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40011,
+   "type": "Blueprint",
+   "name": "Living-Graph Linking Audit",
+   "remove": [
+    {
+     "term": "audit",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40012,
+   "type": "Blueprint",
+   "name": "Cross-Process Retrieval Hardening",
+   "remove": [
+    {
+     "term": "cross-process",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "retrieval",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "hardening",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40013,
+   "type": "Blueprint",
+   "name": "Text Document Analysis",
+   "remove": [
+    {
+     "term": "text",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "document",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "text",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40014,
+   "type": "Blueprint",
+   "name": "Incident Postmortem to Methodology",
+   "remove": [
+    {
+     "term": "incident",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "postmortem",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "to",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "methodology",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40015,
+   "type": "Blueprint",
+   "name": "Agent Onboarding Protocol",
+   "remove": [
+    {
+     "term": "agent",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "onboarding",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "protocol",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40016,
+   "type": "Blueprint",
+   "name": "Data Integrity Audit and Repair",
+   "remove": [
+    {
+     "term": "data integrity audit and repair",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "integrity",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "audit",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "and",
+     "rule": "R5-filler",
+     "validated": true,
+     "meta": {
+      "source": "extracted",
+      "validated": true,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "repair",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40017,
+   "type": "Blueprint",
+   "name": "Fallback and Capture Verification",
+   "remove": [
+    {
+     "term": "fallback",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "capture",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    },
+    {
+     "term": "verification",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40019,
+   "type": "Blueprint",
+   "name": "TD-2 Consciousness Full-Context",
+   "remove": [
+    {
+     "term": "consciousness",
+     "rule": "R3-duplicate",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40048,
+   "type": "Blueprint",
+   "name": "AMT Re-expansion Farm Profile Start Failure Resolution",
+   "remove": [
+    {
+     "term": "3644",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 12,
+       "returned_traced": 12,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40087,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40047",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "verbatim",
+      "validated": null,
+      "hits": {
+       "returned": 3,
+       "returned_traced": 3,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40094,
+   "type": "Blueprint",
+   "name": "AMT Re-expansion Initial Build Blueprint - Container 40047",
+   "remove": [
+    {
+     "term": "40047",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 1,
+       "returned_traced": 1,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40160,
+   "type": "Blueprint",
+   "name": "GraphDatabaseExplanationBlueprint",
+   "remove": [
+    {
+     "term": "why",
+     "rule": "R5-filler",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 1,
+       "returned_traced": 1,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40183,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40159",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "verbatim",
+      "validated": null,
+      "hits": {
+       "returned": 2,
+       "returned_traced": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40212,
+   "type": "Blueprint",
+   "name": "AMT Re-Expansion Recovery Blueprint for Container 3645",
+   "remove": [
+    {
+     "term": "3645",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40250,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "40211",
+     "rule": "R4-digit-only",
+     "validated": true,
+     "meta": {
+      "source": "verbatim",
+      "validated": true,
+      "hits": {
+       "returned": 2,
+       "returned_traced": 2,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40255,
+   "type": "Blueprint",
+   "name": "AMT Re-Expansion Initial Build Blueprint",
+   "remove": [
+    {
+     "term": "40211",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "extracted",
+      "validated": null,
+      "hits": {
+       "returned": 0,
+       "returned_traced": 0,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40346,
+   "type": "ModalityGraph",
+   "name": "Unknown text graph (12 words, 1 sentences)",
+   "remove": [
+    {
+     "term": "amt re-expansion [initialbuild] container 40328",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    },
+    {
+     "term": "main amt for this project",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40381,
+   "type": "Methodology",
+   "name": "Error Handling & Resilience Engineering",
+   "remove": [
+    {
+     "term": "error handling & resilience engineering",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40382,
+   "type": "Methodology",
+   "name": "Input Validation & Data Integrity",
+   "remove": [
+    {
+     "term": "input validation & data integrity",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40385,
+   "type": "Methodology",
+   "name": "Hierarchy Construction & Re-expansion Workflow",
+   "remove": [
+    {
+     "term": "hierarchy construction & re-expansion workflow",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40391,
+   "type": "Methodology",
+   "name": "Registry Access & Provider Management",
+   "remove": [
+    {
+     "term": "registry access & provider management",
+     "rule": "R2-sentence",
+     "validated": null,
+     "meta": null
+    }
+   ],
+   "applied": true
+  },
+  {
+   "id": 40397,
+   "type": "Blueprint",
+   "name": "AMT Re-expansion Failure Recovery Blueprint for Container 36",
+   "remove": [
+    {
+     "term": "3644",
+     "rule": "R4-digit-only",
+     "validated": null,
+     "meta": {
+      "source": "",
+      "validated": null,
+      "hits": {
+       "returned": 1,
+       "returned_traced": 1,
+       "packed": 0,
+       "kept": 0,
+       "dropped": 0,
+       "applied": 0,
+       "human": 0
+      }
+     }
+    }
+   ],
+   "applied": true
+  }
+ ],
+ "applied_ok": 77,
+ "applied_failed": 0
+}
