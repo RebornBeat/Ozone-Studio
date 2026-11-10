@@ -29,6 +29,29 @@ use std::sync::{Arc, Mutex, OnceLock};
 /// Reserved `keyword_meta` key holding the CONTAINER-LEVEL hit totals (not a keyword; ignored as a term).
 pub const CONTAINER_TOTALS_KEY: &str = "*";
 
+/// VALIDATION GATE (2026-11-10; operator: every stored keyword must be validated). A term is validated when it passed the strength-N
+/// yes/no gate in keyword settlement (`validated == Some(true)`), or it is a deterministic graph fact (`identifier` / `rollup` — read from
+/// the content's own structure, not guessed by a model).
+pub fn term_is_validated(meta: Option<&TermMeta>) -> bool {
+    meta.map(|m| m.validated == Some(true) || m.source == "identifier" || m.source == "rollup").unwrap_or(false)
+}
+
+/// STRICT MODE (`OZONE_KEYWORD_REQUIRE_VALIDATED=1`, default OFF): search ignores keywords that have not passed the gate. Off by default
+/// because it empties recall on a store whose backlog is still being validated; flip it once the backlog is done.
+pub fn require_validated_keywords() -> bool {
+    matches!(std::env::var("OZONE_KEYWORD_REQUIRE_VALIDATED").ok().as_deref(), Some("1") | Some("true"))
+}
+
+/// The keywords a search may match: all of them, or (strict) only markers and validated terms. Markers are scope/provenance data, never
+/// sent through the model gate, so strict mode keeps them.
+pub fn searchable_keywords(keywords: &[String], meta: &BTreeMap<String, TermMeta>, strict: bool) -> Vec<String> {
+    if !strict {
+        return keywords.to_vec();
+    }
+    keywords.iter().filter(|k| km::is_marker(k) || term_is_validated(meta.get(k.as_str()).or_else(|| meta.get(&k.to_lowercase())))).cloned().collect()
+}
+
+
 pub fn data_dir() -> PathBuf {
     PathBuf::from(std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string()))
 }
@@ -1019,6 +1042,19 @@ mod tests {
         assert!(creation_pair_eligible(&ev("Blueprint", &["x"])));
         assert!(!creation_pair_eligible(&ev("Methodology", &[])), "no request terms (created outside a request) = no pair");
         assert!(!creation_pair_eligible(&ev("CoordinationEvent", &["x"])));
+    }
+
+    #[test]
+    fn strict_mode_keeps_only_markers_and_validated_terms() {
+        let mut meta: BTreeMap<String, TermMeta> = BTreeMap::new();
+        meta.insert("api".into(), TermMeta { source: "extracted".into(), validated: Some(true), hits: Default::default() });
+        meta.insert("guess".into(), TermMeta { source: "expansion".into(), validated: None, hits: Default::default() });
+        meta.insert("rejected".into(), TermMeta { source: "expansion".into(), validated: Some(false), hits: Default::default() });
+        meta.insert("src/main.rs".into(), TermMeta { source: "identifier".into(), validated: None, hits: Default::default() });
+        let kws: Vec<String> = ["api", "guess", "rejected", "src/main.rs", "scope:global", "no-meta"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(searchable_keywords(&kws, &meta, false), kws, "non-strict = everything");
+        assert_eq!(searchable_keywords(&kws, &meta, true), vec!["api", "src/main.rs", "scope:global"], "strict = validated + deterministic facts + markers");
+        assert!(!term_is_validated(None) && term_is_validated(meta.get("api")) && !term_is_validated(meta.get("rejected")));
     }
 
     #[test]

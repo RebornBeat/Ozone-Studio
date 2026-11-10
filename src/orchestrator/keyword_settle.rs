@@ -30,7 +30,7 @@ use std::sync::Arc;
 const PROMPT_PIPELINE_ID: u64 = 9;
 
 /// Container types in settlement order — the most-searched / routing-critical first.
-const SETTLE_ORDER: &[&str] = &["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "FileReference", "Category", "McpEntity"];
+const SETTLE_ORDER: &[&str] = &["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "JurisdictionRuleSet", "FileReference", "Category", "McpEntity"];
 
 /// Host-MEMORY guard (not a work cap): at most this many roll-up terms are folded into one Project/Workspace container.
 /// `OZONE_ROLLUP_TERMS_MAX` overrides it.
@@ -65,13 +65,13 @@ fn is_rollup_type(c: &Container) -> bool {
     matches!(c.local_state.metadata.container_type, ContainerType::Project | ContainerType::Workspace)
 }
 
-/// SETTLED = every meaning keyword has provenance in `keyword_meta`, and (Project/Workspace) the roll-up reflects the CURRENT child set.
+/// SETTLED = every meaning keyword has provenance in `keyword_meta` AND has passed the validation gate (Pass V), and (Project/Workspace) the roll-up reflects the CURRENT child set.
 pub fn is_settled(c: &Container) -> bool {
     let ctx = &c.local_state.context;
     if is_rollup_type(c) && ctx.keyword_meta.get(ROLLUP_KEY).map(|m| m.source.as_str()) != Some(rollup_signature(c).as_str()) {
         return false;
     }
-    km::meaning_terms(&ctx.keywords).iter().all(|k| ctx.keyword_meta.get(k).map(|m| !m.source.is_empty()).unwrap_or(false))
+    km::meaning_terms(&ctx.keywords).iter().all(|k| ctx.keyword_meta.get(k).map(|m| !m.source.is_empty()).unwrap_or(false) && crate::keyword_program::term_is_validated(ctx.keyword_meta.get(k)))
 }
 
 fn push_unique(list: &mut Vec<String>, term: &str) -> bool {
@@ -247,6 +247,142 @@ async fn vote_not_keyword(
     yes
 }
 
+/// The outcome of the validation gate for one container.
+#[derive(Debug, Default)]
+pub struct Validation {
+    /// passed every round — safe to store / mark validated
+    pub validated: Vec<String>,
+    /// answered NO in some round — removed / never stored
+    pub rejected: Vec<String>,
+    /// no usable answer (model failure, missing or contradictory entry) — neither validated nor rejected; retried next pass
+    pub unresolved: Vec<String>,
+}
+
+/// Split `terms` into chunks that fit `max_tokens` of input (about one token per three characters plus list overhead) and hold at most
+/// `max_items` (one reply must be able to answer them all). NEVER drops a term: the rest simply goes into the next chunk.
+pub fn chunk_terms(terms: &[String], max_tokens: usize, max_items: usize) -> Vec<Vec<String>> {
+    let mut out: Vec<Vec<String>> = Vec::new();
+    let mut cur: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    for t in terms {
+        let cost = t.chars().count() / 3 + 4;
+        if !cur.is_empty() && (used + cost > max_tokens || cur.len() >= max_items.max(1)) {
+            out.push(std::mem::take(&mut cur));
+            used = 0;
+        }
+        used += cost;
+        cur.push(t.clone());
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Read one validation round's reply: 1-based numbers in `yes` / `no` (numbers or numeric strings, in range). A number in BOTH lists is
+/// contradictory and counts as NO VOTE, like an absent one — a blank or garbled answer is never read as a verdict.
+pub fn parse_round(v: &serde_json::Value, n: usize) -> (std::collections::BTreeSet<usize>, std::collections::BTreeSet<usize>) {
+    let nums = |key: &str| -> std::collections::BTreeSet<usize> {
+        v.get(key)
+            .and_then(|a| a.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_u64().map(|n| n as usize).or_else(|| x.as_str().and_then(|s| s.trim().parse().ok()))).filter(|i| *i >= 1 && *i <= n).collect())
+            .unwrap_or_default()
+    };
+    let (yes, no) = (nums("yes"), nums("no"));
+    let both: std::collections::BTreeSet<usize> = yes.intersection(&no).copied().collect();
+    (yes.difference(&both).copied().collect(), no.difference(&both).copied().collect())
+}
+
+fn model_json<E>(res: &Result<serde_json::Value, E>) -> Option<serde_json::Value> {
+    match res {
+        Ok(r) => {
+            let text = r.get("response").and_then(|x| x.as_str()).unwrap_or("");
+            if text.trim().is_empty() {
+                None
+            } else {
+                serde_json::from_str(PromptOrchestrator::extract_json_object_shared(text).trim()).ok()
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+/// THE GATE. `configured_strength()` rounds; each round is BATCHED (one call carries many terms, chunked to the reading model's window),
+/// asks "is this a true keyword for this container?" per numbered term, and only the round's YES terms continue to the next round — so a
+/// false positive costs one round and a true keyword costs `strength`. Each round presents the terms in a different rotation so the votes
+/// are not the same prompt repeated. Every outcome is logged as a labelled sample.
+#[allow(clippy::too_many_arguments)]
+async fn validate_terms(
+    executor: &Arc<dyn PipelineExecutor>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
+    container_id: u64,
+    label: &str,
+    body: &str,
+    topics: &[String],
+    terms: Vec<String>,
+    stats: &mut PassStats,
+) -> Validation {
+    const QUESTION: &str = "is this a true, content-bearing keyword for the container?";
+    let strength = k_validation::configured_strength().max(1);
+    let (window, window_source) = reader_window(available_models, meta_fallback);
+    let want_output = 1500usize;
+    let budget = run_spans::input_budget_tokens(window, want_output);
+    let mut out = Validation::default();
+    let mut alive: Vec<String> = terms;
+    for round in 1..=strength {
+        if alive.is_empty() {
+            break;
+        }
+        let mut next: Vec<String> = Vec::new();
+        for mut chunk in chunk_terms(&alive, (budget / 2).max(64), 200) {
+            let rot = ((round - 1) as usize * chunk.len()) / strength as usize;
+            chunk.rotate_left(rot.min(chunk.len().saturating_sub(1)));
+            let list = chunk.iter().enumerate().map(|(i, t)| format!("{}. {}", i + 1, t)).collect::<Vec<_>>().join("\n");
+            let head = format!("{}\n\nCONTAINER: {label}\nTOPICS: {}\n\nCANDIDATE KEYWORDS (numbered):\n{list}\n", run_spans::now_line(), topics.join(", "));
+            let tail = "\nQUESTION: For EACH numbered candidate, is it a TRUE, content-bearing SEARCH keyword for THIS container — a word or short phrase that genuinely names something this container is about, so a person searching for it should be shown this container? Answer NO for filler words, pronouns, fragments, markup, system tags, generic words that do not describe this container, and phrases for subject matter it does not cover. When in doubt, NO.\nReturn ONLY JSON: {\"yes\": [numbers], \"no\": [numbers]} — every number in exactly one list.";
+            let mut sections = vec![crate::context_budget::ContextSection::new("scaffold-head", 0, head)];
+            if !body.is_empty() {
+                sections.push(crate::context_budget::ContextSection::new("body", 3, format!("\nCONTENT (whole):\n{body}\n")));
+            }
+            sections.push(crate::context_budget::ContextSection::new("scaffold-tail", 0, tail.to_string()));
+            let assembled = crate::context_budget::assemble(sections, budget);
+            run_spans::record_view_trims("keyword_validate", "", window, window_source, want_output, &assembled);
+            let prompt = assembled.text;
+            let input = serde_json::json!({
+                "prompt": prompt, "max_tokens": want_output, "temperature": 0.1,
+                "system_prompt": "You validate search keywords for graph containers. Return only valid JSON."
+            });
+            stats.calls_made += 1;
+            let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
+            PromptOrchestrator::capture_loop_model_call("keyword_validate", &prompt, &res);
+            match model_json(&res) {
+                None => out.unresolved.extend(chunk),
+                Some(v) => {
+                    let (yes, no) = parse_round(&v, chunk.len());
+                    for (i, t) in chunk.iter().enumerate() {
+                        let n = i + 1;
+                        if no.contains(&n) {
+                            crate::keyword_program::record_judgment("keyword_validation", Some(container_id), t, label, QUESTION, false, strength);
+                            out.rejected.push(t.clone());
+                        } else if yes.contains(&n) {
+                            next.push(t.clone());
+                        } else {
+                            out.unresolved.push(t.clone());
+                        }
+                    }
+                }
+            }
+        }
+        alive = next;
+    }
+    for t in alive {
+        crate::keyword_program::record_judgment("keyword_validation", Some(container_id), &t, label, QUESTION, true, strength);
+        out.validated.push(t);
+    }
+    out
+}
+
 /// Settle ONE container. Returns Ok(true) when something was written.
 async fn settle_container(
     executor: &Arc<dyn PipelineExecutor>,
@@ -268,7 +404,8 @@ async fn settle_container(
     for (term, source) in adds_a {
         if push_unique(&mut c.local_state.context.keywords, &term) {
             let key = c.local_state.context.keywords.last().cloned().unwrap_or(term);
-            c.local_state.context.keyword_meta.entry(key).or_insert_with(|| TermMeta { source: source.to_string(), validated: None, hits: Default::default() });
+            let deterministic = matches!(source, "identifier" | "rollup"); // read from the content's own structure — a fact, not a guess
+            c.local_state.context.keyword_meta.entry(key).or_insert_with(|| TermMeta { source: source.to_string(), validated: if deterministic { Some(true) } else { None }, hits: Default::default() });
             changed = true;
         }
     }
@@ -296,7 +433,7 @@ async fn settle_container(
         current.join(", "),
         topics.join(", ")
     );
-    let tail = "\nReturn ONLY JSON: {\"expansion\": [\"...\"], \"not_keywords\": [\"...\"]}\n- expansion: synonyms, aliases, alternative phrasings someone might use to REQUEST this, and translations in the content's own language(s). Single words or short phrases (at most 3 words). NEVER sentences. Only terms that genuinely fit.\n- not_keywords: items from CURRENT KEYWORDS that are NOT content-bearing keywords for this container (pronouns, filler, sentence fragments, markup). Empty list if all are fine.";
+    let tail = "\nReturn ONLY JSON: {\"expansion\": [\"...\"]}\n- expansion: DISTINCT alternative ways someone might REQUEST this — synonyms, aliases, and translations in the content's own language(s). NOT rewordings of a term already listed or already in your own list. Single words or short phrases (at most 3 words). NEVER sentences. Only terms that genuinely fit. Every term you return is individually validated before it is stored.";
     let mut sections = vec![crate::context_budget::ContextSection::new("scaffold-head", 0, head)];
     if !body.is_empty() {
         sections.push(crate::context_budget::ContextSection::new("body", 3, format!("\nCONTENT (whole):\n{body}\n")));
@@ -327,30 +464,66 @@ async fn settle_container(
     let strs = |v: &serde_json::Value, k: &str| -> Vec<String> {
         v.get(k).and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).collect()).unwrap_or_default()
     };
-    let (expansion, proposed) = match &parsed {
-        Some(p) => (strs(p, "expansion"), strs(p, "not_keywords")),
-        None => (Vec::new(), Vec::new()),
+    let expansion: Vec<String> = match &parsed {
+        Some(p) => strs(p, "expansion"),
+        None => Vec::new(),
     };
+    // ---- Pass V — THE VALIDATION GATE (operator 2026-11-10: every stored keyword must be validated; false positives are cleared BEFORE
+    // they are stored). Nothing a model proposes is stored until it passes: every EXISTING meaning term not yet validated, plus every new
+    // expansion candidate, goes through `validate_terms` (strength-N batched yes/no rounds; survivors continue, any NO ends that term). A
+    // term that fails is REMOVED (existing) or never stored (new); a model failure leaves it pending for the next pass.
+    let mut new_candidates: Vec<String> = Vec::new();
     for term in expansion {
-        if term.split_whitespace().count() <= 3 && push_unique(&mut c.local_state.context.keywords, &term) {
-            let key = c.local_state.context.keywords.last().cloned().unwrap_or(term);
-            c.local_state.context.keyword_meta.insert(key, TermMeta { source: "expansion".to_string(), validated: None, hits: Default::default() });
+        let t = term.trim().to_string();
+        if t.is_empty() || t.split_whitespace().count() > 3 || km::is_marker(&t) || km::is_sentence_like(&t) {
+            continue;
+        }
+        let kws = &c.local_state.context;
+        let already = kws.keywords.iter().any(|k| k.trim().eq_ignore_ascii_case(&t));
+        let rejected_before = kws.keyword_meta.get(&t).or_else(|| kws.keyword_meta.get(&t.to_lowercase())).map(|m| m.validated == Some(false)).unwrap_or(false);
+        if already || rejected_before || new_candidates.iter().any(|x| x.eq_ignore_ascii_case(&t)) {
+            continue;
+        }
+        new_candidates.push(t);
+    }
+    let mut to_validate: Vec<String> = km::meaning_terms(&c.local_state.context.keywords)
+        .into_iter()
+        .filter(|k| !crate::keyword_program::term_is_validated(c.local_state.context.keyword_meta.get(k)))
+        .collect();
+    to_validate.extend(new_candidates.iter().cloned());
+    if !to_validate.is_empty() {
+        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, to_validate, stats).await;
+        for t in &outcome.validated {
+            let is_new = new_candidates.iter().any(|x| x.eq_ignore_ascii_case(t));
+            if is_new {
+                push_unique(&mut c.local_state.context.keywords, t); // stored only now, after it passed
+            }
+            let key = c.local_state.context.keywords.iter().find(|k| k.trim().eq_ignore_ascii_case(t)).cloned().unwrap_or_else(|| t.clone());
+            let e = c.local_state.context.keyword_meta.entry(key).or_default();
+            e.validated = Some(true);
+            if e.source.is_empty() {
+                e.source = if is_new { "expansion".to_string() } else { legacy_source(ctype).to_string() };
+            }
+            changed = true;
+        }
+        for t in &outcome.rejected {
+            let was_stored = c.local_state.context.keywords.iter().any(|k| k.trim().eq_ignore_ascii_case(t));
+            c.local_state.context.keywords.retain(|k| !k.trim().eq_ignore_ascii_case(t));
+            let e = c.local_state.context.keyword_meta.entry(t.clone()).or_default();
+            e.validated = Some(false); // remembered, so it is never proposed or stored again
+            if e.source.is_empty() {
+                e.source = if was_stored { legacy_source(ctype).to_string() } else { "expansion".to_string() };
+            }
             changed = true;
         }
     }
 
-    // ---- Pass C: unanimous-drop judgment for proposed removals + terms whose REAL hit evidence turned negative
+    // ---- Pass C/D: terms whose REAL hit evidence turned negative and that were never affirmed get the unanimous-drop judgment
+    let current: Vec<String> = km::meaning_terms(&c.local_state.context.keywords);
     let mut candidates: Vec<String> = Vec::new();
-    for p in proposed {
-        if let Some(existing) = current.iter().find(|k| k.eq_ignore_ascii_case(&p)) {
-            if !candidates.iter().any(|x| x.eq_ignore_ascii_case(existing)) {
-                candidates.push(existing.clone());
-            }
-        }
-    }
     for k in &current {
         if let Some(m) = c.local_state.context.keyword_meta.get(k) {
-            if m.hits.dropped > m.hits.kept + m.hits.applied && m.validated != Some(true) && !candidates.iter().any(|x| x.eq_ignore_ascii_case(k)) {
+            if m.hits.dropped > m.hits.kept + m.hits.applied && m.validated != Some(true) {
                 candidates.push(k.clone());
             }
         }
@@ -550,11 +723,18 @@ mod tests {
     }
 
     #[test]
-    fn settled_means_every_meaning_keyword_has_provenance_and_markers_are_ignored() {
+    fn settled_means_every_meaning_keyword_is_validated_and_markers_are_ignored() {
         assert!(!is_settled(&container_with(&["static analysis"], &[])));
-        assert!(is_settled(&container_with(&["static analysis", "scope:global"], &[("static analysis", "extracted")])));
+        assert!(!is_settled(&container_with(&["static analysis", "scope:global"], &[("static analysis", "extracted")])), "provenance alone is NOT enough — it must pass the gate");
+        let mut ok = container_with(&["static analysis", "scope:global"], &[("static analysis", "extracted")]);
+        ok.local_state.context.keyword_meta.get_mut("static analysis").unwrap().validated = Some(true);
+        assert!(is_settled(&ok));
         assert!(is_settled(&container_with(&["scope:global"], &[]))); // markers only: nothing to settle
+        assert!(is_settled(&container_with(&["src/main.rs"], &[("src/main.rs", "identifier")])), "a deterministic graph fact is validated by construction");
         assert!(!is_settled(&container_with(&["a", "b"], &[("a", "verbatim")])));
+        let mut rejected = container_with(&["x"], &[("x", "expansion")]);
+        rejected.local_state.context.keyword_meta.get_mut("x").unwrap().validated = Some(false);
+        assert!(!is_settled(&rejected), "a rejected term still sitting in keywords is not settled (the gate removes it)");
     }
 
     #[test]
@@ -610,5 +790,27 @@ mod tests {
         assert!(needs_rejudge(&c));
         c.local_state.context.keyword_meta.get_mut("noise").unwrap().validated = Some(true);
         assert!(!needs_rejudge(&c));
+    }
+
+    #[test]
+    fn parse_round_reads_numbers_and_treats_contradiction_or_absence_as_no_vote() {
+        let v = serde_json::json!({"yes": [1, "3", 9], "no": [2, 3]});
+        let (yes, no) = parse_round(&v, 4);
+        assert_eq!(yes.into_iter().collect::<Vec<_>>(), vec![1], "3 is in both lists (contradictory), 9 is out of range");
+        assert_eq!(no.into_iter().collect::<Vec<_>>(), vec![2]);
+        let (y2, n2) = parse_round(&serde_json::json!({"verdict": "maybe"}), 3);
+        assert!(y2.is_empty() && n2.is_empty(), "a garbled answer is never a verdict");
+    }
+
+    #[test]
+    fn chunk_terms_never_drops_a_term_and_respects_both_limits() {
+        let terms: Vec<String> = (0..50).map(|i| format!("keyword number {i}")).collect();
+        let by_items = chunk_terms(&terms, 1_000_000, 7);
+        assert!(by_items.iter().all(|c| c.len() <= 7) && by_items.iter().map(|c| c.len()).sum::<usize>() == 50);
+        let by_tokens = chunk_terms(&terms, 40, 1_000);
+        assert!(by_tokens.len() > 1 && by_tokens.iter().map(|c| c.len()).sum::<usize>() == 50, "a small window splits, it never truncates");
+        let flat: Vec<String> = by_tokens.into_iter().flatten().collect();
+        assert_eq!(flat, terms, "order preserved, nothing lost");
+        assert_eq!(chunk_terms(&["x".to_string()], 0, 0).len(), 1, "a single term always fits somewhere");
     }
 }

@@ -107,10 +107,12 @@ impl SearchStrategy for KeywordScan {
                         continue;
                     }
                 }
-                let haystack: Vec<String> = container
-                    .local_state
-                    .context
-                    .keywords
+                let active_kw = crate::keyword_program::searchable_keywords(
+                    &container.local_state.context.keywords,
+                    &container.local_state.context.keyword_meta,
+                    crate::keyword_program::require_validated_keywords(),
+                );
+                let haystack: Vec<String> = active_kw
                     .iter()
                     .chain(container.local_state.context.topics.iter())
                     .map(|s| s.to_lowercase())
@@ -159,10 +161,12 @@ impl SearchStrategy for LooseScan {
                         continue;
                     }
                 }
-                let haystack: Vec<String> = container
-                    .local_state
-                    .context
-                    .keywords
+                let active_kw = crate::keyword_program::searchable_keywords(
+                    &container.local_state.context.keywords,
+                    &container.local_state.context.keyword_meta,
+                    crate::keyword_program::require_validated_keywords(),
+                );
+                let haystack: Vec<String> = active_kw
                     .iter()
                     .chain(container.local_state.context.topics.iter())
                     .map(|s| s.to_lowercase())
@@ -199,6 +203,7 @@ impl SearchStrategy for TokenAware {
         if query.is_empty() {
             return Ok(Vec::new());
         }
+        let strict_validated = crate::keyword_program::require_validated_keywords();
         let mut cands: Vec<km::Candidate> = Vec::new();
         for id in storage.all_ids() {
             let Some(container) = storage.load(id)? else { continue };
@@ -209,11 +214,13 @@ impl SearchStrategy for TokenAware {
             }
             let ctx = &container.local_state.context;
             let name = container.local_state.metadata.name.clone().unwrap_or_default();
-            let mut terms: Vec<String> = ctx.keywords.clone();
+            // VALIDATION GATE (strict mode, off by default): only validated keywords + markers may match
+            let active_kw = crate::keyword_program::searchable_keywords(&ctx.keywords, &ctx.keyword_meta, strict_validated);
+            let mut terms: Vec<String> = active_kw.clone();
             terms.extend(ctx.topics.iter().cloned());
             let Some(info) = km::match_info(&query, &name, &terms, false) else { continue };
             let matched_keywords: Vec<String> =
-                ctx.keywords.iter().filter(|k| km::match_info(&query, "", &[(*k).clone()], false).is_some()).cloned().collect();
+                active_kw.iter().filter(|k| km::match_info(&query, "", &[(*k).clone()], false).is_some()).cloned().collect();
             let facts = crate::keyword_program::facts_from_context(
                 info.best,
                 info.matched_terms,
@@ -287,10 +294,12 @@ impl SearchStrategy for ExactMatch {
                         continue;
                     }
                 }
-                let haystack: Vec<String> = container
-                    .local_state
-                    .context
-                    .keywords
+                let active_kw = crate::keyword_program::searchable_keywords(
+                    &container.local_state.context.keywords,
+                    &container.local_state.context.keyword_meta,
+                    crate::keyword_program::require_validated_keywords(),
+                );
+                let haystack: Vec<String> = active_kw
                     .iter()
                     .chain(container.local_state.context.topics.iter())
                     .map(|s| s.to_lowercase())
