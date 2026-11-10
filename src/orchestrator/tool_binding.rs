@@ -46,11 +46,21 @@ impl Binding {
     }
 }
 
+/// Read a container body file by its `storage.object_store_path`: absolute as given; relative → under the DATA dir first, then as given
+/// (relative to the app root / cwd). ONE reader for every methodology consumer — live EU 2026-11-10: 48 of 98 methodologies keep their body
+/// only under the app root, and the three separate readers (keyword validation, blueprint rules text, tool-binding `requires`) each read the
+/// data dir alone, so those methodologies contributed NO rules to a blueprint and their declared provider requirements were never seen.
+pub(crate) fn read_object_file(rel: &str) -> Option<String> {
+    if std::path::Path::new(rel).is_absolute() {
+        return std::fs::read_to_string(rel).ok();
+    }
+    std::fs::read_to_string(format!("{}/{}", data_dir(), rel)).ok().or_else(|| std::fs::read_to_string(rel).ok())
+}
+
 /// The methodology body JSON (the file `storage.object_store_path` points at).
 fn read_methodology_body(container: &Value) -> Option<Value> {
     let rel = container.get("local_state")?.get("storage")?.get("object_store_path")?.as_str()?;
-    let full = if std::path::Path::new(rel).is_absolute() { rel.to_string() } else { format!("{}/{}", data_dir(), rel) };
-    serde_json::from_str(&std::fs::read_to_string(full).ok()?).ok()
+    serde_json::from_str(&read_object_file(rel)?).ok()
 }
 
 /// Every DECLARED per-rule requirement of the given methodologies (empty when none declare any — legacy methodologies).

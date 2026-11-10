@@ -2578,20 +2578,8 @@ Return ONLY valid JSON with a single one-word answer:
             .and_then(|s| s.get("object_store_path"))
             .and_then(|p| p.as_str())?;
 
-        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-        // Absolute object_store_path used as-is; only relative paths join
-        // the data dir — the third real occurrence of this exact bug class
-        // tonight (amt_loop.rs's try_reexpand_one, jurisdiction.rs's
-        // load_jurisdiction_rules, now here), found by task 62's own test
-        // using an absolute temp-dir fixture path. Every prior real call
-        // site here happened to pass a relative path, so this was latent,
-        // not yet observed live.
-        let full_path = if std::path::Path::new(object_store_path).is_absolute() {
-            object_store_path.to_string()
-        } else {
-            format!("{}/{}", data_dir, object_store_path)
-        };
-        let content = std::fs::read_to_string(&full_path).ok()?;
+        // data dir first, then the path as given (bootstrap-seeded methodologies live under the app root) — the shared reader
+        let content = super::tool_binding::read_object_file(object_store_path)?;
         let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
         let mut lines: Vec<String> = Vec::new();

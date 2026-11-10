@@ -1140,6 +1140,7 @@ impl PromptOrchestrator {
             "  (none matched this request)".to_string()
         } else {
             let mut lines = Vec::new();
+            let mut without_rules: Vec<String> = Vec::new(); // OBSERVABILITY: a methodology that contributes no rules must never be silent
             // Copy of the ids: the loop body sizes rules against `state`
             // (mutable), so it cannot keep a borrow of state.methodologies.
             for method_id in state.methodologies.clone() {
@@ -1158,10 +1159,20 @@ impl PromptOrchestrator {
                             );
                             lines.push(format!("  - {}: {}", name, rules))
                         }
-                        None => lines.push(format!("  - {} (no detailed rules on file yet)", name)),
+                        None => {
+                            without_rules.push(format!("{method_id}:{name}"));
+                            lines.push(format!("  - {} (no detailed rules on file yet)", name))
+                        }
                     }
                 }
             }
+            tracing::info!(
+                stage = 6,
+                gathered = state.methodologies.len(),
+                contributing_rules = state.methodologies.len().saturating_sub(without_rules.len()),
+                without_rules = %without_rules.join(" | "),
+                "blueprint: methodology rules rendered into the prompt"
+            );
             lines.join("\n")
         };
 

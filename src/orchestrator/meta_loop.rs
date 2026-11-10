@@ -125,14 +125,11 @@ pub(crate) async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> 
         .pointer("/local_state/context/keywords")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
-    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-    // The body file lives under the data dir for graph-written methodologies but under the APP ROOT (cwd-relative `methodologies/…`) for
-    // bootstrap-seeded ones — live EU 2026-11-10: 48 of 98 methodologies had their body only there and were read as EMPTY (so the keyword
-    // validation gate judged them with no content). Try the data dir first, then the path as given.
+    // the shared reader: data dir first, then the path as given (see tool_binding::read_object_file)
     let body = c
         .pointer("/local_state/storage/object_store_path")
         .and_then(|v| v.as_str())
-        .and_then(|rel| std::fs::read_to_string(format!("{}/{}", data_dir, rel)).ok().or_else(|| std::fs::read_to_string(rel).ok()))
+        .and_then(crate::orchestrator::tool_binding::read_object_file)
         .unwrap_or_default();
     Some((name, kws, body))
 }
