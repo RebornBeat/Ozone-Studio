@@ -41,6 +41,14 @@ pub enum MethodologyCreateInput {
         /// New decision rules (with their per-rule providers) appended to the existing ones.
         #[serde(default)]
         add_decision_rules: Option<Vec<DecisionRuleInput>>,
+        /// RETIRE decision rules (2026-11-10): each entry is the rule's `condition` text, matched EXACTLY (trimmed) against the CURRENT body —
+        /// never by index (positions shift). Refuses (error, nothing written) when an entry matches nothing or when the methodology would be
+        /// left with no real decision rule and no real heuristic. See [`retire_rules`].
+        #[serde(default)]
+        remove_decision_rules: Option<Vec<String>>,
+        /// RETIRE heuristics: each entry is the heuristic's `when_to_apply` text (the condition `add_heuristics` stored), matched exactly.
+        #[serde(default)]
+        remove_heuristics: Option<Vec<String>>,
         add_keywords: Option<Vec<String>>,
         remove_keywords: Option<Vec<String>>,
     },
@@ -105,6 +113,12 @@ pub struct MethodologyCreateOutput {
     pub version: Option<u32>,
     pub proposal_id: Option<u64>,
     pub error: Option<String>,
+    /// Update with removals only: exactly what was retired (`{"decision_rules": [...], "heuristics": [...]}`, the whole removed entries) and the
+    /// path of the body that was replaced (`previous_body_path` — pointing the container's object_store_path back at it reverses the update).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_body_path: Option<String>,
 }
 
 const METHODOLOGY_ROOT_ID: u64 = 2;
@@ -321,6 +335,8 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                 version: Some(1),
                 proposal_id: None,
                 error: None,
+                removed: None,
+                previous_body_path: None,
             })
         }
         MethodologyCreateInput::Update {
@@ -331,6 +347,8 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             remove_principles,
             add_heuristics,
             add_decision_rules,
+            remove_decision_rules,
+            remove_heuristics,
             add_keywords,
             remove_keywords,
         } => {
@@ -396,6 +414,19 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                     content_changed = true;
                 }
             }
+            // RETIRE rules FIRST (against the CURRENT body), then the additions are applied, and the guard looks at the FINAL shape — all on the
+            // in-memory copy: a refusal returns before anything is written (no file, no container update).
+            let mut removed_record: Option<serde_json::Value> = None;
+            let removing = remove_decision_rules.as_ref().map(|v| !v.is_empty()).unwrap_or(false) || remove_heuristics.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+            if removing {
+                let (rec, _) = retire_rules(
+                    &mut content,
+                    remove_decision_rules.as_deref().unwrap_or(&[]),
+                    remove_heuristics.as_deref().unwrap_or(&[]),
+                )?;
+                removed_record = Some(rec);
+                content_changed = true;
+            }
             if let Some(add) = &add_principles {
                 let arr = content["principles"].as_array().cloned().unwrap_or_default();
                 let mut arr = arr;
@@ -421,6 +452,12 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                 }
                 content["decision_rules"] = serde_json::json!(arr);
                 content_changed = true;
+            }
+            if removing && !has_real_rule(&content) {
+                return Err(format!(
+                    "refusing to retire: methodology {} would be left with no decision rule and no heuristic carrying real text (a methodology never ends empty) — nothing was written",
+                    methodology_id
+                ));
             }
             let new_path = if content_changed { write_content_file(&methodology_id.to_string(), &content) } else { None };
 
@@ -465,6 +502,8 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                 version: Some(container.pointer("/global_state/version").and_then(|v| v.as_u64()).unwrap_or(1) as u32 + 1),
                 proposal_id: None,
                 error: None,
+                removed: removed_record,
+                previous_body_path: if removing { existing_path.clone() } else { None },
             })
         }
         MethodologyCreateInput::Delete { methodology_id } => {
@@ -478,6 +517,8 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                 version: None,
                 proposal_id: None,
                 error: None,
+                removed: None,
+                previous_body_path: None,
             })
         }
         MethodologyCreateInput::Propose { methodology_id: _ } => {
@@ -488,6 +529,165 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             // honestly rather than fake success.
             Err("Methodology proposal/consensus is not implemented yet — publishing to paired peers needs the peer catalog exchange (signed offers, review states): docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6; the Marketplace tab previews exactly what would be shared".to_string())
         }
+    }
+}
+
+/// A rule/heuristic counts only when it carries real text (empty and the drafting placeholders "..." / "…" do not) — the same definition as
+/// the host's `rule_items` (src/orchestrator/amt.rs), restated here because this crate does not link the host.
+fn real_text(t: &str) -> bool {
+    let t = t.trim();
+    !t.is_empty() && t != "..." && t != "…"
+}
+
+/// True when the body still has at least one decision rule (condition + action/outcome) or heuristic (when_to_apply + description) with real text.
+fn has_real_rule(content: &serde_json::Value) -> bool {
+    let text = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let rules = content.get("decision_rules").and_then(|r| r.as_array()).map(|a| {
+        a.iter().any(|r| {
+            let action = if r.get("action").is_some() { text(r, "action") } else { text(r, "outcome") };
+            real_text(&text(r, "condition")) && real_text(&action)
+        })
+    });
+    let heur = content.get("heuristics").and_then(|h| h.as_array()).map(|a| a.iter().any(|h| real_text(&text(h, "when_to_apply")) && real_text(&text(h, "description"))));
+    rules.unwrap_or(false) || heur.unwrap_or(false)
+}
+
+/// RETIRE decision rules / heuristics from a methodology body, in memory. Each requested entry is the rule's `condition` (decision rules) or
+/// `when_to_apply` (heuristics) text, compared EXACTLY after trimming — never by position (positions shift on every removal and the
+/// blueprint citations `m<id>:r<n>` follow positions). Every stored entry whose text equals a requested text is removed (identical text is the
+/// same rule); nothing else is touched. Returns `(record of what was removed, count)`.
+/// REFUSES with an error — leaving `content` UNCHANGED — when a requested text matches nothing (a typo or a stale request must not silently
+/// do nothing), or when the request is empty. The caller applies the "never ends empty" guard on the FINAL body (after additions).
+fn retire_rules(content: &mut serde_json::Value, remove_rules: &[String], remove_heuristics: &[String]) -> Result<(serde_json::Value, usize), String> {
+    let wanted_rules: Vec<String> = remove_rules.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+    let wanted_heur: Vec<String> = remove_heuristics.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+    if wanted_rules.is_empty() && wanted_heur.is_empty() {
+        return Err("remove_decision_rules / remove_heuristics were given but carry no text".to_string());
+    }
+    let mut work = content.clone(); // all-or-nothing: only a fully successful retirement replaces `content`
+    let mut removed_rules: Vec<serde_json::Value> = Vec::new();
+    let mut removed_heur: Vec<serde_json::Value> = Vec::new();
+    for (field, key, wanted, out) in [
+        ("decision_rules", "condition", &wanted_rules, &mut removed_rules),
+        ("heuristics", "when_to_apply", &wanted_heur, &mut removed_heur),
+    ] {
+        for text in wanted.iter() {
+            let arr = work.get_mut(field).and_then(|v| v.as_array_mut());
+            let Some(arr) = arr else {
+                return Err(format!("the body has no {field}; cannot retire {text:?}"));
+            };
+            let before = arr.len();
+            let mut hit: Vec<serde_json::Value> = Vec::new();
+            arr.retain(|e| {
+                let t = e.get(key).and_then(|x| x.as_str()).unwrap_or("").trim();
+                if t == text.as_str() {
+                    hit.push(e.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            if arr.len() == before {
+                return Err(format!("no {field} entry has {key} exactly {text:?} — nothing was written"));
+            }
+            out.extend(hit);
+        }
+    }
+    let n = removed_rules.len() + removed_heur.len();
+    *content = work;
+    Ok((serde_json::json!({"decision_rules": removed_rules, "heuristics": removed_heur}), n))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body() -> serde_json::Value {
+        serde_json::json!({
+            "principles": [{"statement": "p"}],
+            "heuristics": [{"name": "w1", "when_to_apply": "w1", "description": "d1"}],
+            "decision_rules": [
+                {"condition": "a", "action": "do a"},
+                {"condition": "b", "action": "do b"},
+                {"condition": "c", "outcome": "do c"}
+            ]
+        })
+    }
+
+    #[test]
+    fn retire_removes_exactly_the_named_rule_by_text_not_position() {
+        let mut c = body();
+        let (rec, n) = retire_rules(&mut c, &["b".to_string()], &[]).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(rec["decision_rules"][0]["action"], "do b");
+        let left: Vec<&str> = c["decision_rules"].as_array().unwrap().iter().map(|r| r["condition"].as_str().unwrap()).collect();
+        assert_eq!(left, vec!["a", "c"], "only b is gone; the others keep their text and order");
+        assert_eq!(c["heuristics"].as_array().unwrap().len(), 1, "heuristics untouched");
+        assert_eq!(c["principles"].as_array().unwrap().len(), 1, "principles untouched");
+    }
+
+    #[test]
+    fn retire_a_heuristic_by_when_to_apply() {
+        let mut c = body();
+        let (_, n) = retire_rules(&mut c, &[], &["w1".to_string()]).unwrap();
+        assert_eq!(n, 1);
+        assert!(c["heuristics"].as_array().unwrap().is_empty());
+        assert_eq!(c["decision_rules"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn retire_refuses_a_text_that_matches_nothing_and_changes_nothing() {
+        let mut c = body();
+        let before = c.clone();
+        let e = retire_rules(&mut c, &["a".to_string(), "no such rule".to_string()], &[]).unwrap_err();
+        assert!(e.contains("no such rule"), "{e}");
+        assert_eq!(c, before, "all-or-nothing: the matching first entry was NOT removed either");
+    }
+
+    #[test]
+    fn retire_is_exact_not_substring_and_trims_the_request() {
+        let mut c = body();
+        assert!(retire_rules(&mut c, &["a ".to_string()], &[]).is_ok(), "surrounding whitespace in the request is ignored");
+        let mut c2 = body();
+        assert!(retire_rules(&mut c2, &["do a".to_string()], &[]).is_err(), "the action text is not the condition; a substring is not a match");
+        let mut c3 = serde_json::json!({"decision_rules": [{"condition": "alpha beta", "action": "x"}]});
+        assert!(retire_rules(&mut c3, &["alpha".to_string()], &[]).is_err(), "a prefix does not match");
+    }
+
+    #[test]
+    fn retire_with_no_text_is_an_error() {
+        let mut c = body();
+        assert!(retire_rules(&mut c, &["  ".to_string()], &[]).is_err());
+        assert!(retire_rules(&mut c, &[], &[]).is_err());
+    }
+
+    #[test]
+    fn a_methodology_never_ends_empty() {
+        let mut c = serde_json::json!({"decision_rules": [{"condition": "only", "action": "x"}], "heuristics": []});
+        retire_rules(&mut c, &["only".to_string()], &[]).unwrap();
+        assert!(!has_real_rule(&c), "the guard the Update arm applies to the FINAL body sees no real rule left");
+        let mut c2 = body();
+        retire_rules(&mut c2, &["a".to_string()], &[]).unwrap();
+        assert!(has_real_rule(&c2));
+        let placeholders = serde_json::json!({"decision_rules": [{"condition": "...", "action": "x"}], "heuristics": [{"when_to_apply": "w", "description": "…"}]});
+        assert!(!has_real_rule(&placeholders), "placeholders are not rules");
+    }
+
+    #[test]
+    fn update_input_accepts_the_removal_fields_and_stays_backward_compatible() {
+        let with: MethodologyCreateInput = serde_json::from_value(serde_json::json!({
+            "action": "Update", "methodology_id": 7, "remove_decision_rules": ["a"], "remove_heuristics": ["w1"]
+        }))
+        .unwrap();
+        match with {
+            MethodologyCreateInput::Update { remove_decision_rules, remove_heuristics, .. } => {
+                assert_eq!(remove_decision_rules.unwrap(), vec!["a".to_string()]);
+                assert_eq!(remove_heuristics.unwrap(), vec!["w1".to_string()]);
+            }
+            _ => panic!("not an Update"),
+        }
+        let old: MethodologyCreateInput = serde_json::from_value(serde_json::json!({"action": "Update", "methodology_id": 7})).unwrap();
+        assert!(matches!(old, MethodologyCreateInput::Update { remove_decision_rules: None, remove_heuristics: None, .. }));
     }
 }
 

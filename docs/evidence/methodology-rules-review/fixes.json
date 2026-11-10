@@ -1,0 +1,894 @@
+[
+ {
+  "methodology_id": 40350,
+  "methodology": "Container Management",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "a container is run",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "subsumed by R5 ('limit its privileges, resources, and network access'); the merge from 40348 added R5 beside it"
+ },
+ {
+  "methodology_id": 40350,
+  "methodology": "Container Management",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "a container is changed by hand",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "R0 already says to build and deploy a new image instead of changing a running container"
+ },
+ {
+  "methodology_id": 40222,
+  "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "The MCP tool 'farm_profile_start' fails with a transient error (timeout, connection reset, provider unavailable)",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "identical to R1 (retry up to 3 times with exponential backoff)"
+ },
+ {
+  "methodology_id": 40222,
+  "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "AMT re-expansion container is [CoordinationReceived] and the required MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R0 (extract the malformed profile_id, halt)"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "target profile shows 'running' or 'starting' in farm_profiles but start failed",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "identical to R2 (stop the running profile, wait, retry start)"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "farm_profile_start returns HTTP error or '[object Object]' response",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R0+R1 (farm_status then farm_profiles)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "heuristic",
+  "position": 3,
+  "condition": "amt-hierarchy-tool-v2 returns error on create operation",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "identical to R3 (retry once with identical parameters)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "decision_rule",
+  "position": 4,
+  "condition": "Hierarchy depth reaches 6 levels during initial build",
+  "action": "retire",
+  "class": "c-fixed-cap",
+  "reason": "a hard abort at 6 hierarchy levels is a fixed cap with no stated measurement (operator doctrine: no fixed limits)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "heuristic",
+  "position": 2,
+  "condition": "hierarchy depth exceeds 6 levels",
+  "action": "retire",
+  "class": "c-fixed-cap",
+  "reason": "same 6-level abort as R4"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "Container ID is provided as a concrete numeric value (e.g., 40090)",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R0 (use the exact container id)"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "Both 'initial build' and 're-expansion' keywords are present",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R1 + R3 (initial build first, then re-expansion)"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "heuristic",
+  "position": 2,
+  "condition": "'main amt' keyword is present alongside AMT",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R2 (confirm the main AMT flag)"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "heuristic",
+  "position": 4,
+  "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R5 (validate profile_id early)"
+ },
+ {
+  "methodology_id": 40262,
+  "methodology": "AMT Re-expansion Initial Build Container 40211 \u2014 Registry Access Methodology",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "The requested capability is 'container-registry-mcp' AND the provider has not been registered in the current session AND the session has not previously attempted registration without success",
+  "action": "retire",
+  "class": "a-duplicate",
+  "reason": "restates R0 (declare the missing provider under requires)"
+ },
+ {
+  "methodology_id": 40125,
+  "methodology": "AMT Initial Build & Re-expansion Procedure",
+  "rule_kind": "decision_rule",
+  "position": 3,
+  "condition": "Re-expansion target version differs from current by more than one minor release",
+  "action": "review",
+  "class": "b-contradiction",
+  "reason": "R3 aborts and requires INITIAL_BUILD when the version gap exceeds one minor release; H1 says the same gap triggers a full re-expansion from scratch \u2014 the two cannot both apply",
+  "conflicts_with": "heuristic 'AMT version mismatch between current and target exceeds one minor release'"
+ },
+ {
+  "methodology_id": 40125,
+  "methodology": "AMT Initial Build & Re-expansion Procedure",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "AMT version mismatch between current and target exceeds one minor release",
+  "action": "review",
+  "class": "b-contradiction",
+  "reason": "contradicts R3 (see above)"
+ },
+ {
+  "methodology_id": 40084,
+  "methodology": "MCP Tool Failure & HTTP Response Recovery",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "HTTP response contains '[object ob]' AND the same endpoint returns valid JSON on a subsequent probe within 5 seconds",
+  "action": "review",
+  "class": "b-contradiction",
+  "reason": "R0 retries a '[object ob]' response if the endpoint answers validly within 5 s; H0 aborts and marks the operation failed on any '[object ob]' body without retry",
+  "conflicts_with": "heuristic 'HTTP response body contains [object ob]...'"
+ },
+ {
+  "methodology_id": 40084,
+  "methodology": "MCP Tool Failure & HTTP Response Recovery",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "HTTP response body contains '[object ob]' or similar unparseable object placeholder",
+  "action": "review",
+  "class": "b-contradiction",
+  "reason": "contradicts R0 (see above)"
+ },
+ {
+  "methodology_id": 40305,
+  "methodology": "Configuration Management",
+  "rule_kind": "decision_rule",
+  "position": 4,
+  "condition": "a configuration changes",
+  "action": "review",
+  "class": "a-near-duplicate",
+  "reason": "overlaps R0 (version control 'with a recorded history' already covers who/when/previous value); R4 is the more specific \u2014 keep R4, reword R0"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Any farm_profile_start failure occurs",
+  "action": "rewrite",
+  "class": "d-requires-kind",
+  "reason": "requires names the TOOL 'farm_status' with kind 'provider'; the provider that serves it is 'browser-farm-mcp' \u2014 evaluated as a provider it is never found, so every walk records a false missing capability",
+  "rewrite": {
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_status"
+    }
+   ]
+  },
+  "how": "Update with remove_decision_rules [condition] + add_decision_rules [same name/condition/outcome with the corrected requires] in ONE call"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "farm_status shows farm healthy but start failed",
+  "action": "rewrite",
+  "class": "d-requires-kind",
+  "reason": "requires names the TOOL 'farm_profiles' with kind 'provider'; the provider that serves it is 'browser-farm-mcp' \u2014 evaluated as a provider it is never found, so every walk records a false missing capability",
+  "rewrite": {
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profiles"
+    }
+   ]
+  },
+  "how": "Update with remove_decision_rules [condition] + add_decision_rules [same name/condition/outcome with the corrected requires] in ONE call"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "Target profile shows 'running', 'starting', or 'paused' in farm_profiles",
+  "action": "rewrite",
+  "class": "d-requires-kind",
+  "reason": "requires names the TOOL 'farm_profile_stop' with kind 'provider'; the provider that serves it is 'browser-farm-mcp' \u2014 evaluated as a provider it is never found, so every walk records a false missing capability",
+  "rewrite": {
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profile_stop"
+    }
+   ]
+  },
+  "how": "Update with remove_decision_rules [condition] + add_decision_rules [same name/condition/outcome with the corrected requires] in ONE call"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "decision_rule",
+  "position": 3,
+  "condition": "Error mentions 'CoordinationReceived' or 'AMT re-expansion'",
+  "action": "rewrite",
+  "class": "d-requires-kind",
+  "reason": "requires names the TOOL 'farm_state_get' with kind 'provider'; the provider that serves it is 'browser-farm-mcp' \u2014 evaluated as a provider it is never found, so every walk records a false missing capability",
+  "rewrite": {
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_state_get"
+    }
+   ]
+  },
+  "how": "Update with remove_decision_rules [condition] + add_decision_rules [same name/condition/outcome with the corrected requires] in ONE call"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "decision_rule",
+  "position": 4,
+  "condition": "Profile state unclear after farm_profiles",
+  "action": "rewrite",
+  "class": "d-requires-kind",
+  "reason": "requires names the TOOL 'farm_profile' with kind 'provider'; the provider that serves it is 'browser-farm-mcp' \u2014 evaluated as a provider it is never found, so every walk records a false missing capability",
+  "rewrite": {
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profile"
+    }
+   ]
+  },
+  "how": "Update with remove_decision_rules [condition] + add_decision_rules [same name/condition/outcome with the corrected requires] in ONE call"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "decision_rule",
+  "position": 5,
+  "condition": "Multiple profiles need sequential restart after farm-wide issue",
+  "action": "rewrite",
+  "class": "d-requires-kind",
+  "reason": "requires names the TOOL 'farm_state_set' with kind 'provider'; the provider that serves it is 'browser-farm-mcp' \u2014 evaluated as a provider it is never found, so every walk records a false missing capability",
+  "rewrite": {
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_state_set"
+    }
+   ]
+  },
+  "how": "Update with remove_decision_rules [condition] + add_decision_rules [same name/condition/outcome with the corrected requires] in ONE call"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'rollback-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40395,
+  "methodology": "Registered Farm Start Fallback",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "farm_profile_start and registered farm fallbacks fail",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'reexpansion-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'container-registry-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "Container is resolved AND keyword 'initial build' is present",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'build-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "Keyword 'main amt' is present",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'amt-hierarchy-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 3,
+  "condition": "Initial build completed successfully AND keyword 're-expansion' is present",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'reexpansion-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 4,
+  "condition": "Re-expansion completed AND no error flags are set on the container",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'validation-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 5,
+  "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'farm-profile-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 5,
+  "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'rollback-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40394,
+  "methodology": "Farm Profile Start Failure Recovery",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "Failure involves container image pull, registry authentication, or missing container-registry-mcp capability.",
+  "action": "review",
+  "class": "d-provider-missing",
+  "reason": "requires provider 'container-registry-mcp' which is not registered on the EU (registered: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp); it was named by the meta loop's draft \u2014 either it is a real capability gap to build/acquire (the capability-gap path records it) or the requirement should be dropped"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "rollback-mcp capability is installed and responding AND container 40211 state snapshot exists",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "Container 40211 state snapshot is missing",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40222,
+  "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "AMT re-expansion container 3645 is [CoordinationReceived] and MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'; the malformed profile_id has been corrected at least once but persists across attempts",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['3645'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40222,
+  "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "MCP tool 'farm_profile_start' fails after all bounded retries, or the malformed profile_id persists even after correction",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['3645'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40396,
+  "methodology": "farm-profile-start-failure-recovery",
+  "rule_kind": "heuristic",
+  "position": 3,
+  "condition": "error mentions 'container 3644' or specific container ID",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['3644'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40125,
+  "methodology": "AMT Initial Build & Re-expansion Procedure",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Target is first-time setup of Main AMT in container 40047 OR prior build state is corrupt/missing",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40047'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40125,
+  "methodology": "AMT Initial Build & Re-expansion Procedure",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "Container ID not found in registry",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40047'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40262,
+  "methodology": "AMT Re-expansion Initial Build Container 40211 \u2014 Registry Access Methodology",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "The requested capability is 'container-registry-mcp' OR the request involves any registry operation (push, pull, list, delete, build) for container 40211",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40262,
+  "methodology": "AMT Re-expansion Initial Build Container 40211 \u2014 Registry Access Methodology",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "The requested capability is 'container-registry-mcp' AND the provider is NOT installed AND the request is for container 40211 initialization",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40262,
+  "methodology": "AMT Re-expansion Initial Build Container 40211 \u2014 Registry Access Methodology",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "Any registry operation targets container 40211",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40262,
+  "methodology": "AMT Re-expansion Initial Build Container 40211 \u2014 Registry Access Methodology",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "The requested capability is 'container-registry-mcp' AND the provider has not been registered in the current session AND the session has not previously attempted registration without success",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40262,
+  "methodology": "AMT Re-expansion Initial Build Container 40211 \u2014 Registry Access Methodology",
+  "rule_kind": "heuristic",
+  "position": 3,
+  "condition": "The requested capability involves creating or initializing container 40211 AND the registry provider is unavailable",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40211'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40090'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40126,
+  "methodology": "AMT Re-Expansion Initial Build Methodology",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "Container ID is provided as a concrete numeric value (e.g., 40090)",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['40090'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40226,
+  "methodology": "amt-reexpansion-profile-resolution",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "farm_profile_start was called with an empty, null, or non-string profile_id",
+  "action": "rewrite",
+  "class": "b-incident-literal",
+  "reason": "names the literal id(s) ['3645'] of one incident; the rule only applies when that exact container is the subject, so it does not hold whenever the methodology is gathered",
+  "how": "rewrite the condition/action in terms of 'the target container' (no literal id)"
+ },
+ {
+  "methodology_id": 40352,
+  "methodology": "Capability Management",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "a capability is considered for development or investment",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about an ORGANIZATION's strategic capabilities (objectives, differentiators, investment) \u2014 it is gathered for MCP/tool 'capability' requests, where none of its rules apply"
+ },
+ {
+  "methodology_id": 40352,
+  "methodology": "Capability Management",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "capabilities are assessed",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about an ORGANIZATION's strategic capabilities (objectives, differentiators, investment) \u2014 it is gathered for MCP/tool 'capability' requests, where none of its rules apply"
+ },
+ {
+  "methodology_id": 40352,
+  "methodology": "Capability Management",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "a period passes or conditions change",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about an ORGANIZATION's strategic capabilities (objectives, differentiators, investment) \u2014 it is gathered for MCP/tool 'capability' requests, where none of its rules apply"
+ },
+ {
+  "methodology_id": 40352,
+  "methodology": "Capability Management",
+  "rule_kind": "decision_rule",
+  "position": 3,
+  "condition": "resources are assigned",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about an ORGANIZATION's strategic capabilities (objectives, differentiators, investment) \u2014 it is gathered for MCP/tool 'capability' requests, where none of its rules apply"
+ },
+ {
+  "methodology_id": 40320,
+  "methodology": "Mapping",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "a map is produced",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about cartographic maps (scale, projection, legend, layers) \u2014 gathered for graph/'mapping' requests where none applies"
+ },
+ {
+  "methodology_id": 40320,
+  "methodology": "Mapping",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "map data is plotted",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about cartographic maps (scale, projection, legend, layers) \u2014 gathered for graph/'mapping' requests where none applies"
+ },
+ {
+  "methodology_id": 40320,
+  "methodology": "Mapping",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "symbols or colors carry meaning",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about cartographic maps (scale, projection, legend, layers) \u2014 gathered for graph/'mapping' requests where none applies"
+ },
+ {
+  "methodology_id": 40320,
+  "methodology": "Mapping",
+  "rule_kind": "decision_rule",
+  "position": 3,
+  "condition": "features are drawn",
+  "action": "review",
+  "class": "b-name-collision",
+  "reason": "all rules are about cartographic maps (scale, projection, legend, layers) \u2014 gathered for graph/'mapping' requests where none applies"
+ },
+ {
+  "methodology_id": 30024,
+  "methodology": "Incremental Layering Requires Reconciliation",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "Adding new CSS (or similarly append-only config/rule structures) for a component that plausibly already has existing rules.",
+  "action": "review",
+  "class": "b-off-subject",
+  "reason": "a CSS-specific heuristic inside a general methodology about reconciling incrementally layered rules/config"
+ },
+ {
+  "methodology_id": 40352,
+  "methodology": "Capability Management",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "a capability supports no objective",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('question whether it should be maintained\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40352,
+  "methodology": "Capability Management",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "a capability is a gap",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('identify what is needed to build or acquire it\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40321,
+  "methodology": "Resilience Engineering",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "a near-miss is dismissed as harmless",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('review it as an early warning\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40383,
+  "methodology": "MCP Capability Management",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "a capability has not been used for a long time",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('review whether it should stay registered\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40315,
+  "methodology": "Hierarchy Construction",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "a node has only one child",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('check whether the level is needed\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40382,
+  "methodology": "Input Validation & Data Integrity",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "a check exists in only one layer",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('consider whether a second layer is needed\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40311,
+  "methodology": "Dependency Management",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "a dependency has had no maintenance for a long time",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('consider whether to replace it\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40305,
+  "methodology": "Configuration Management",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "the same deviation is recorded repeatedly",
+  "action": "review",
+  "class": "c-vague",
+  "reason": "the action asks for a judgment ('consider updating the standard to include it\u2026') without saying what to do or how to know it was done"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['rollback-mcp'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "rollback-mcp capability is installed and responding AND container 40211 state snapshot exists",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['rollback-mcp'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40268,
+  "methodology": "AMT Re-expansion Rollback Methodology",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "Capability 'rollback-mcp' is not installed or not responding",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['rollback-mcp'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "amt-hierarchy-tool-v2 is operational (no errors, successful responses)",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2', 'amt-hierarchy-tool'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "amt-hierarchy-tool-v2 is unavailable OR returns persistent errors on retry",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2', 'amt-hierarchy-tool'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "decision_rule",
+  "position": 2,
+  "condition": "amt-hierarchy-mcp is not installed but amt-hierarchy-tool-v2 is operational",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "container_id matches pattern ^[A-Z]+-[A-Z]+-\\d{5}$",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "container_id does not match standard pattern (non-standard format)",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "heuristic",
+  "position": 3,
+  "condition": "amt-hierarchy-tool-v2 returns error on create operation",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2', 'amt-hierarchy-tool'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40264,
+  "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+  "rule_kind": "heuristic",
+  "position": 4,
+  "condition": "amt-hierarchy-tool-v2 returns success but node ID does not match expected path",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt-hierarchy-tool-v2'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40226,
+  "methodology": "amt-reexpansion-profile-resolution",
+  "rule_kind": "decision_rule",
+  "position": 0,
+  "condition": "amt_reexpansion_coordination_received returns a profile_id field that is a non-empty string matching expected format (alphanumeric, hyphenated, or numeric), and farm_profile_start succeeds on first call.",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt_reexpansion_coordination_received'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40226,
+  "methodology": "amt-reexpansion-profile-resolution",
+  "rule_kind": "decision_rule",
+  "position": 1,
+  "condition": "amt_reexpansion_coordination_received response has no profile_id field or it is empty.",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt_reexpansion_coordination_received', 'amt_reexpansion_container'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40226,
+  "methodology": "amt-reexpansion-profile-resolution",
+  "rule_kind": "heuristic",
+  "position": 0,
+  "condition": "farm_profile_start was called with an empty, null, or non-string profile_id",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt_reexpansion_coordination_received'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ },
+ {
+  "methodology_id": 40226,
+  "methodology": "amt-reexpansion-profile-resolution",
+  "rule_kind": "heuristic",
+  "position": 1,
+  "condition": "amt_reexpansion_coordination_received returned no profile field at all",
+  "action": "review",
+  "class": "d-tool-name-unregistered",
+  "reason": "the text names ['amt_reexpansion_coordination_received', 'amt_reexpansion_container'] which is not a registered tool or provider on the EU (registered tools: browser-farm-mcp, document-mcp, p2p-bridge-mcp, security-mcp providers)"
+ }
+]

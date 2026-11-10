@@ -1,0 +1,106 @@
+[
+ {
+  "cluster": "configuration management",
+  "canonical": 40305,
+  "duplicates": [
+   40252
+  ],
+  "status": "MERGED 2026-11-10 (rules copied); 40252 still stored"
+ },
+ {
+  "cluster": "container management",
+  "canonical": 40350,
+  "duplicates": [
+   40348
+  ],
+  "related": [
+   40386
+  ],
+  "status": "MERGED 2026-11-10 (rules copied); 40348 still stored; 40386 (Container Lifecycle) overlaps R2/R3 of 40350"
+ },
+ {
+  "cluster": "input validation",
+  "canonical": 40317,
+  "duplicates": [
+   40382
+  ],
+  "related": [
+   40312
+  ],
+  "reason": "40382 R0/R1/R2 restate 40317 R0/R2/R1; 40312 (Data Validation) restates the same boundary-validation idea for data"
+ },
+ {
+  "cluster": "error handling",
+  "canonical": 40314,
+  "duplicates": [
+   40381
+  ],
+  "related": [
+   40321,
+   40389
+  ],
+  "reason": "40381 R0/R1/R2 are 40314 R0-R2 plus resilience rules; 40321 Resilience Engineering overlaps 40381"
+ },
+ {
+  "cluster": "deduplication",
+  "canonical": 40313,
+  "duplicates": [
+   40384
+  ],
+  "reason": "40384 R1/R3/H0 restate 40313 R0/R3/H0; its R0/R2 (canonical record, survivorship) are the additions to move"
+ },
+ {
+  "cluster": "hierarchy construction",
+  "canonical": 40315,
+  "duplicates": [
+   40385
+  ],
+  "reason": "40385 R0/R1/R3 restate 40315 R0/R3; its expansion rules (R2, R3, H0, H1) are the additions"
+ },
+ {
+  "cluster": "testing and verification",
+  "canonical": 40322,
+  "duplicates": [
+   40388
+  ],
+  "related": [
+   40326
+  ],
+  "reason": "40388 R0-R2/H0/H1 are testing rules; 40326 Verification is a different (claim-checking) concern and stays separate"
+ },
+ {
+  "cluster": "registry",
+  "canonical": 40351,
+  "duplicates": [
+   40391
+  ],
+  "reason": "40391 R0/R2 restate 40351 R1; its credential/trust-anchor rules are the additions"
+ },
+ {
+  "cluster": "capability declarations",
+  "canonical": 40349,
+  "related": [
+   40383,
+   40352
+  ],
+  "reason": "40383 (MCP Capability Management) overlaps 40349 on declaration/registry; 40352 is the organizational-strategy sense and should not be gathered for MCP capabilities (see b-name-collision)"
+ },
+ {
+  "cluster": "AMT re-expansion / farm profile start incident",
+  "canonical": null,
+  "duplicates": [
+   40084,
+   40125,
+   40126,
+   40222,
+   40226,
+   40262,
+   40264,
+   40268,
+   40394,
+   40395,
+   40396
+  ],
+  "reason": "eleven meta-loop drafts around ONE incident (container 40211 / 3645, farm_profile_start '[object Object]'); they overlap each other, carry literal container ids, invented providers and contradictory rules. Proposal: ONE generalized 'farm profile start failure recovery' methodology built from 40396 (it uses only registered farm tools) and retire the rest"
+ }
+]

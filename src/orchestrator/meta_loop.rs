@@ -218,10 +218,11 @@ pub(crate) fn summarize_refinement_candidates() {
 ///      evidence = no action. Judgments are recorded as `refinement_split` samples.
 ///   2. DRAFT + CREATE: a focused methodology that restates / refines ONLY what the original contained (no new facts) is created through the
 ///      existing create path (pipeline 12 `Create`; keywords go through the write gate and are validated like any other).
-///   3. RECORD (`methodology_refinement_actions.jsonl`, append-only): the split (original id, original body path, the rule, evidence count, new
-///      id) or the declined verdict. Nothing is edited or deleted: pipeline 12 has no way to remove a decision rule / heuristic (`Update` can only
-///      add; `Delete` drops a whole methodology), so the ORIGINAL keeps the rule — its retirement is recorded as pending in the report until the
-///      pipeline learns `remove_decision_rules` (an operator decision, not built).
+///   3. RETIRE the moved rule from the ORIGINAL (`retire_moved_rule`: pipeline 12 `Update` `remove_decision_rules` / `remove_heuristics`, exact
+///      text, versioned body, refuses to leave a methodology empty) — only after the new methodology is verified readable with real rules; a
+///      failure leaves the original untouched. Kill switch `OZONE_REFINEMENT_RETIRE=off`.
+///   4. RECORD (`methodology_refinement_actions.jsonl`, append-only): the split (original id, original body path, the rule, evidence count, new
+///      id), the retirement outcome (with the replaced body path — reversible) or the declined verdict. Nothing is ever deleted.
 /// Kill switch: `OZONE_REFINEMENT_ACTION=off`. A failed call never acts.
 async fn act_on_refinement_candidates(
     executor: &Arc<dyn PipelineExecutor>,
@@ -373,8 +374,11 @@ async fn act_on_refinement_candidates(
                         record["kind"] = serde_json::json!("split");
                         record["new_methodology_id"] = serde_json::json!(new_id);
                         record["new_name"] = create_input["name"].clone();
-                        record["original_rule_retirement"] = serde_json::json!("pending — pipeline 12 has no remove_decision_rules; the original is unchanged");
                         stats.successes += 1;
+                        // RETIRE the moved rule from the ORIGINAL — only after the focused methodology is created AND verified readable with real rules.
+                        // Every outcome (retired / refused / skipped) is recorded with the body path that was replaced, so it is reversible; a failure
+                        // changes nothing else (the split already stands, the original keeps the rule).
+                        record["original_rule_retirement"] = retire_moved_rule(executor, store, mid, text, new_id).await;
                         append_jsonl(&data_dir, "methodology_refinement_actions.jsonl", &record);
                     }
                     Err(e) => {
@@ -387,6 +391,74 @@ async fn act_on_refinement_candidates(
                 }
             }
         }
+    }
+}
+
+/// RETIREMENT of a moved rule (pipeline 12 Update `remove_decision_rules` / `remove_heuristics`, 2026-11-10). Returns the record stored under
+/// `original_rule_retirement`: `{status: "retired"|"skipped"|"refused", ...}`.
+///   * VERIFY first: the new focused methodology's body must be readable and carry at least one real rule (`rule_items`) — a split that did not
+///     really produce a methodology never removes the original's rule.
+///   * IDENTIFY the rule in the original's CURRENT body by the same text `rule_items` rendered when it was flagged (positions shift; text is the
+///     identity), and hand the pipeline its raw `condition` / `when_to_apply` text — the pipeline matches exactly and refuses on a miss or when the
+///     methodology would end up empty.
+///   * Kill switch `OZONE_REFINEMENT_RETIRE=off` (split only, the original keeps the rule). The crate `methodology_create` must be REBUILT with the
+///     removal fields before this can succeed; an older binary rejects/ignores the fields and the record says so.
+async fn retire_moved_rule(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn StoreAccess>, original_id: u64, rule_text: &str, new_id: Option<u64>) -> serde_json::Value {
+    use serde_json::json;
+    if std::env::var("OZONE_REFINEMENT_RETIRE").map(|v| v.eq_ignore_ascii_case("off")).unwrap_or(false) {
+        return json!({"status": "skipped", "reason": "OZONE_REFINEMENT_RETIRE=off"});
+    }
+    let Some(new_id) = new_id else {
+        return json!({"status": "skipped", "reason": "the create call returned no methodology id — nothing to verify, the original keeps the rule"});
+    };
+    // 1. verify the new methodology
+    let verified = match methodology_whole(store, new_id).await {
+        Some((_, _, body)) => serde_json::from_str::<serde_json::Value>(&body).map(|v| !crate::orchestrator::PromptOrchestrator::rule_items(&v).is_empty()).unwrap_or(false),
+        None => false,
+    };
+    if !verified {
+        return json!({"status": "skipped", "reason": "the new methodology's body is not readable or carries no real rule — the original keeps the rule"});
+    }
+    // 2. identify the rule in the original's CURRENT body
+    let Some((_, _, body)) = methodology_whole(store, original_id).await else {
+        return json!({"status": "skipped", "reason": "the original's body could not be read"});
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return json!({"status": "skipped", "reason": "the original's body is not JSON"});
+    };
+    let Some((is_heuristic, raw)) = retirement_target(&parsed, rule_text) else {
+        return json!({"status": "skipped", "reason": "the rule is no longer in the original's body (already retired or reworded)"});
+    };
+    let input = if is_heuristic {
+        json!({"action": "Update", "methodology_id": original_id, "remove_heuristics": [raw]})
+    } else {
+        json!({"action": "Update", "methodology_id": original_id, "remove_decision_rules": [raw]})
+    };
+    // 3. retire through the pipeline (exact text, versioned body, refuses to leave the methodology empty)
+    match executor.execute(METHODOLOGY_CREATE_PIPELINE_ID, input).await {
+        Ok(res) => {
+            if res.get("removed").is_none() {
+                // an older pipeline binary ignores the removal fields: it "succeeds" but removed nothing — never claim a retirement that did not happen
+                return json!({"status": "refused", "reason": "the pipeline did not report a removal (methodology_create has not been rebuilt with remove_decision_rules / remove_heuristics?) — the original is unchanged"});
+            }
+            tracing::info!(original = original_id, new = new_id, "refinement: the moved rule was retired from the original");
+            json!({"status": "retired", "removed": res.get("removed").cloned(), "previous_body_path": res.get("previous_body_path").cloned(), "new_version": res.get("version").cloned()})
+        }
+        Err(e) => json!({"status": "refused", "reason": e.to_string()}),
+    }
+}
+
+/// Find the rule whose `rule_items` text equals `rule_text` in `body`; returns (is_heuristic, the raw `condition` / `when_to_apply` text the
+/// pipeline matches on).
+fn retirement_target(body: &serde_json::Value, rule_text: &str) -> Option<(bool, String)> {
+    let key = crate::orchestrator::PromptOrchestrator::rule_items(body).into_iter().find(|(_, t)| t == rule_text).map(|(k, _)| k)?;
+    let (is_heuristic, idx) = if let Some(i) = key.strip_prefix('h') { (true, i.parse::<usize>().ok()?) } else { (false, key.strip_prefix('r')?.parse::<usize>().ok()?) };
+    let (arr, field) = if is_heuristic { ("heuristics", "when_to_apply") } else { ("decision_rules", "condition") };
+    let raw = body.get(arr)?.as_array()?.get(idx)?.get(field)?.as_str()?.trim().to_string();
+    if raw.is_empty() {
+        None
+    } else {
+        Some((is_heuristic, raw))
     }
 }
 
@@ -1389,4 +1461,29 @@ pub fn drain_awaiting_once(data_dir: &str) -> usize {
         super::awaiting::await_wake().notify_waiters();
     }
     due.len()
+}
+
+#[cfg(test)]
+mod refinement_retire_tests {
+    use super::retirement_target;
+
+    #[test]
+    fn the_rule_is_found_by_its_rendered_text_even_after_positions_shift() {
+        let before = serde_json::json!({
+            "decision_rules": [{"condition": "a", "action": "do a"}, {"condition": "b", "action": "do b"}],
+            "heuristics": [{"when_to_apply": "w", "description": "d"}]
+        });
+        // the rule was flagged as "IF b THEN do b" (key r1); after "a" is retired it sits at r0 — the TEXT is the identity
+        let after = serde_json::json!({"decision_rules": [{"condition": "b", "action": "do b"}], "heuristics": [{"when_to_apply": "w", "description": "d"}]});
+        assert_eq!(retirement_target(&before, "IF b THEN do b"), Some((false, "b".to_string())));
+        assert_eq!(retirement_target(&after, "IF b THEN do b"), Some((false, "b".to_string())));
+        assert_eq!(retirement_target(&before, "WHEN w: d"), Some((true, "w".to_string())), "a heuristic is identified by its when_to_apply");
+        assert_eq!(retirement_target(&before, "IF zzz THEN nothing"), None, "a rule that is not there is not a target");
+    }
+
+    #[test]
+    fn a_placeholder_or_unreal_rule_is_never_a_target() {
+        let body = serde_json::json!({"decision_rules": [{"condition": "...", "action": "x"}]});
+        assert_eq!(retirement_target(&body, "IF ... THEN x"), None);
+    }
 }
