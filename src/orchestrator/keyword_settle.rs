@@ -337,7 +337,8 @@ async fn validate_terms(
         let mut next: Vec<String> = Vec::new();
         for mut chunk in chunk_terms(&alive, (budget / 2).max(64), 200) {
             let rot = ((round - 1) as usize * chunk.len()) / strength as usize;
-            chunk.rotate_left(rot.min(chunk.len().saturating_sub(1)));
+            let rot = rot.min(chunk.len().saturating_sub(1));
+            chunk.rotate_left(rot);
             let list = chunk.iter().enumerate().map(|(i, t)| format!("{}. {}", i + 1, t)).collect::<Vec<_>>().join("\n");
             let head = format!("{}\n\nCONTAINER: {label}\nTOPICS: {}\n\nCANDIDATE KEYWORDS (numbered):\n{list}\n", run_spans::now_line(), topics.join(", "));
             let tail = "\nQUESTION: For EACH numbered candidate, is it a TRUE, content-bearing SEARCH keyword for THIS container — a word or short phrase that genuinely names something this container is about, so a person searching for it should be shown this container? Answer NO for filler words, pronouns, fragments, markup, system tags, generic words that do not describe this container, and phrases for subject matter it does not cover. When in doubt, NO.\nReturn ONLY JSON: {\"yes\": [numbers], \"no\": [numbers]} — every number in exactly one list.";
