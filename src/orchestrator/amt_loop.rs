@@ -1961,17 +1961,34 @@ pub fn spawn_network_hook_bridge(
             let manifest = crate::network::announce_envelope(&item_type, &name, &hash, &keywords, evt.container_id);
             Some(AnnounceItem { container_id: evt.container_id, item_type, manifest, body_path })
         }
+        // CREATED-TOOL FINDINGS (operator 2026-11-10: a tool created on an identified need is a FINDING and is published like a created
+        // methodology — automatically, as a manifest). They do not come from a container event (a created tool has no container; McpEntity rows
+        // are tool-RESULT nodes and are never announced), so they arrive on their own channel (`network::publish_created_tool`).
+        let mut tool_rx = crate::network::subscribe_created_tools();
         loop {
-            let first = match rx.recv().await {
-                Ok(evt) => evt,
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!(lagged = n, "Network hook bridge: missed graph events");
-                    continue;
-                }
-                Err(_) => break,
-            };
             let mut batch: Vec<AnnounceItem> = Vec::new();
-            batch.extend(manifest_of(&store, &first).await);
+            tokio::select! {
+                got = rx.recv() => match got {
+                    Ok(evt) => batch.extend(manifest_of(&store, &evt).await),
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::warn!(lagged = n, "Network hook bridge: missed graph events");
+                        continue;
+                    }
+                    Err(_) => break,
+                },
+                got = tool_rx.recv() => match got {
+                    Ok(f) => batch.push((*f).clone().into_announce_item()),
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::warn!(lagged = n, "Network hook bridge: missed created-tool findings");
+                        continue;
+                    }
+                    Err(_) => {} // the tool channel never closes while the process runs; ignore
+                },
+            }
+            // created-tool findings that arrived meanwhile join the same batch (no timer: only what is already available)
+            while let Ok(f) = tool_rx.try_recv() {
+                batch.push((*f).clone().into_announce_item());
+            }
             let mut closed = false;
             // everything that arrived meanwhile joins the SAME batch (no timer: only what is already available)
             loop {

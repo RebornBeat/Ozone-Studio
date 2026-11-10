@@ -850,3 +850,8 @@ Deterministic (no call): write-time keyword gate (`keyword_program::gate_keyword
 | 32 | `meta_loop_refinement_vote` (`meta_loop.rs::act_on_refinement_candidates`) | batched per methodology, strength-N rounds, asymmetric: a rule is split out only if EVERY round says "different concern"; unanswered / failed = no action | "does this rule belong to this methodology's own concern, or to a different focused one?" — sees the whole body, the rule and the request terms it was flagged on; samples `refinement_split` |
 | 33 | `meta_loop_refinement_draft` (`meta_loop.rs::draft_focused_methodology`) | one call per surviving rule | restate the rule as a standalone methodology using ONLY the original's content; a shell is never created |
 Deterministic (no call): the work-order tree (`work_order.rs`, `task/mod.rs` work-order section) — items ticked by real events, completion derived.
+
+## 23. 2026-11-10 (late) — tool creation on an identified need (PARSE-ONLY)
+| # | site | calls | question / output |
+|---|---|---|---|
+| 34 | `capability_tool_draft` (`stages.rs::create_tool_for_capability`, E30) | ONE call per gap judged necessary, after the methodology draft; no strength-N (additive creation) | "specify ONE small, general, reusable tool providing this capability" → `{description, capabilities, language:"javascript", input_contract, output_contract, implementation}` or `{"skip":true}`; parsed by `tool_creation::parse_spec`; samples: `capability_tool_draft` (yes = a real tool was created); hit event `tool_created`. Kill switch `OZONE_TOOL_CREATION=off`. |

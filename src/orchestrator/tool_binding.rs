@@ -299,7 +299,8 @@ pub fn record_capability_gaps(gaps: &[GapInput]) -> usize {
 
 /// Record what the walk DECIDED about a gap (operator 2026-11-06: missing capabilities are acted on in the walk, not just recorded):
 /// `status` = "not_needed" (a yes/no judgement said the request does not require it) | "methodology_drafted" (a methodology that achieves it
-/// was created on the spot) | "wanted" (still needed and could not be closed). History is kept in `resolutions`; matching is by name.
+/// was created on the spot) | "wanted" (still needed and could not be closed) | "satisfied" (a provider is registered — also set by
+/// [`mark_gap_tool_created`] when the system created the tool itself). History is kept in `resolutions`; matching is by name.
 pub fn set_gap_status(name: &str, status: &str, reason: &str, by: &str) {
     let mut rows = capability_gaps();
     let now = now_secs();
@@ -322,6 +323,41 @@ pub fn set_gap_status(name: &str, status: &str, reason: &str, by: &str) {
             let _ = std::fs::write(gaps_path(), json);
         }
     }
+}
+
+/// The gap's need was met by a tool THIS system created and registered (`orchestrator/tool_creation.rs`; operator 2026-11-10: identifying a need
+/// of a tool and creating it is automatic). Records `origin` (tool name, artifact path, body hash, methodology id, task id, request — the
+/// finding's provenance) on the row, the two lifecycle events the work-order tree ticks `tool` / `register` from (`tool_created`,
+/// `tool_registered`), `satisfied_at`, and sets the status to `satisfied` (the registry now has a provider for it; whether the tool RUNS is
+/// tool health's business, not the gap's). Returns false when no row matches the name.
+pub fn mark_gap_tool_created(name: &str, origin: Value, by: &str) -> bool {
+    let mut rows = capability_gaps();
+    let now = now_secs();
+    let mut changed = false;
+    for r in rows.iter_mut() {
+        if r["name"].as_str().map(|n| n.eq_ignore_ascii_case(name.trim())) != Some(true) {
+            continue;
+        }
+        if !r["resolutions"].is_array() {
+            r["resolutions"] = json!([]);
+        }
+        let tool = origin["tool"].as_str().unwrap_or("").to_string();
+        if let Some(a) = r["resolutions"].as_array_mut() {
+            a.push(json!({ "status": "tool_created", "reason": format!("tool `{tool}` created for this capability (artifact + origin recorded)"), "by": by, "at": now }));
+            a.push(json!({ "status": "tool_registered", "reason": format!("tool `{tool}` registered in the MCP registry (stdio: the host never spawns it)"), "by": by, "at": now }));
+            a.push(json!({ "status": "satisfied", "reason": format!("a provider (`{tool}`) is now registered for this capability"), "by": by, "at": now }));
+        }
+        r["status"] = json!("satisfied");
+        r["satisfied_at"] = json!(now);
+        r["created_tool"] = origin.clone();
+        changed = true;
+    }
+    if changed {
+        if let Ok(json) = serde_json::to_string_pretty(&rows) {
+            let _ = std::fs::write(gaps_path(), json);
+        }
+    }
+    changed
 }
 
 /// Record a LIFECYCLE EVENT on a gap (e.g. "replanned", "verified") WITHOUT changing its `status`: one more entry in `resolutions` (the gap's

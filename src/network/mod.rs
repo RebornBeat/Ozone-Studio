@@ -265,6 +265,44 @@ pub struct AnnounceItem {
     pub body_path: Option<String>,
 }
 
+/// A tool this system CREATED because a capability need was identified (`orchestrator/tool_creation.rs`) — a FINDING, published like a created
+/// methodology (operator 2026-11-10: "we push on findings, not offers … that is automatic"). It is NOT a container-created event and NOT an
+/// McpEntity (those are graph nodes built from tool RESULTS — user data — and are never announced; see `amt_loop::spawn_network_hook_bridge`).
+/// `body_path` = the one-file body (`created_tools/<name>/tool.json`) a later reviewed fetch is answered from; `body_hash` = its `body_hash`.
+#[derive(Debug, Clone)]
+pub struct CreatedToolFinding {
+    pub name: String,
+    pub body_hash: String,
+    pub keywords: Vec<String>,
+    pub body_path: String,
+}
+
+impl CreatedToolFinding {
+    /// The manifest + local body location handed to [`NetworkManager::on_items_announced`] (container id 0: a created tool has no container;
+    /// a fetch is answered from the type|name|hash body index, never from the id).
+    pub fn into_announce_item(self) -> AnnounceItem {
+        let manifest = announce_envelope(&SyncItemType::Tool, &self.name, &self.body_hash, &self.keywords, 0);
+        AnnounceItem { container_id: 0, item_type: SyncItemType::Tool, manifest, body_path: Some(self.body_path) }
+    }
+}
+
+static CREATED_TOOLS: std::sync::OnceLock<tokio::sync::broadcast::Sender<std::sync::Arc<CreatedToolFinding>>> = std::sync::OnceLock::new();
+
+fn created_tools_tx() -> &'static tokio::sync::broadcast::Sender<std::sync::Arc<CreatedToolFinding>> {
+    CREATED_TOOLS.get_or_init(|| tokio::sync::broadcast::channel(1024).0)
+}
+
+/// Publish a created-tool finding to whoever runs the marketplace bridge. A no-op when no bridge is subscribed (marketplace publishing off):
+/// creation never depends on publication.
+pub fn publish_created_tool(finding: CreatedToolFinding) {
+    let _ = created_tools_tx().send(std::sync::Arc::new(finding));
+}
+
+/// The bridge's receiver of created-tool findings.
+pub fn subscribe_created_tools() -> tokio::sync::broadcast::Receiver<std::sync::Arc<CreatedToolFinding>> {
+    created_tools_tx().subscribe()
+}
+
 /// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
 /// reviewed fetch can ask for exactly this item; it is never used as an identity.
 pub fn announce_envelope(item_type: &SyncItemType, name: &str, hash: &str, keywords: &[String], source_container_id: ContainerID) -> Vec<u8> {

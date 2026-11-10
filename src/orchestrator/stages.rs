@@ -1063,12 +1063,14 @@ impl PromptOrchestrator {
         tracing::info!(cited, distinct_rules_applied = applied.len(), "blueprint gate: rule citations audited");
     }
 
-    /// CAPABILITY CLOSURE, step 1 + 2 (see the call site in the walk). Returns `(methodologies_created, gaps_judged_necessary)`.
+    /// CAPABILITY CLOSURE, step 1 + 2 + 3 (see the call site in the walk). Returns `(things_created, gaps_judged_necessary)` — a methodology or
+    /// a tool counts once per gap.
     /// 1. JUDGE every still-unjudged missing capability: "can the request be fully and correctly completed WITHOUT it?" — strength-5
     ///    consecutive YES (the assured action is DROPPING a requirement, so that is what needs the unanimity). Dropped gaps are marked
     ///    `not_needed` in capability_gaps.json (reason kept) and leave `state.missing_capabilities`, so the simulation no longer plans
     ///    around tools the request never needed (the live walk invented a "representative_user_validation_panel" for a 2-sentence answer).
     /// 2. For every gap still judged NECESSARY: draft a methodology that achieves it on the spot (`draft_methodology_for_capability`).
+    /// 3. And create the missing TOOL (`create_tool_for_capability`, E30) — automatic; the finding is published (see `tool_creation.rs`).
     pub(crate) async fn close_capability_gaps(&self, state: &mut OrchestrationState) -> (usize, usize) {
         let pending: Vec<String> = state
             .missing_capabilities
@@ -1118,8 +1120,10 @@ impl PromptOrchestrator {
         let mut created = 0usize;
         let needed_count = needed.len();
         for name in needed {
+            let mut drafted_id: Option<u64> = None;
             match self.draft_methodology_for_capability(state, &name).await {
                 Some(id) => {
+                    drafted_id = Some(id);
                     state.methodologies.push(id);
                     created += 1;
                     state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
@@ -1131,8 +1135,113 @@ impl PromptOrchestrator {
                     tracing::warn!(capability = %name, "capability closure: judged necessary but no methodology could be drafted");
                 }
             }
+            // TOOL CREATION ON THE IDENTIFIED NEED (operator 2026-11-10, E30): the methodology says HOW; the missing tool is created too, and the
+            // created tool is published as a FINDING. A created tool counts as something created (the plan is rebuilt with it registered).
+            if self.create_tool_for_capability(state, &name, drafted_id).await.is_some() {
+                state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
+                if drafted_id.is_none() {
+                    created += 1; // a methodology that was created already counted
+                }
+            }
         }
         (created, needed_count)
+    }
+
+    /// TOOL CREATION ON AN IDENTIFIED NEED (E30, call site `capability_tool_draft`; module doc `tool_creation.rs` states exactly what a created
+    /// tool is and what executes — nothing the host runs). ONE zero-shot call drafts the spec (additive creation, so one call — the strength-5
+    /// necessity vote already ran before we got here); the draft is parsed for real (`tool_creation::parse_spec`), checked for a name collision,
+    /// written into the tool's own folder, registered (stdio, never auto-started), recorded on the gap with its provenance, and handed to the
+    /// marketplace bridge as a FINDING. Any failure = nothing is created (the gap stays recorded and the next walk retries); an artifact that
+    /// was written but could not be registered is removed again. Returns the created tool's name.
+    async fn create_tool_for_capability(&self, state: &mut OrchestrationState, capability: &str, methodology_id: Option<u64>) -> Option<String> {
+        use super::tool_creation as tc;
+        if !tc::enabled() {
+            return None;
+        }
+        let data_dir = tc::data_dir();
+        let registered: Vec<(String, String)> = crate::mcp::registry_entries()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| (t.name.clone(), format!("- {} {}", t.name, t.capabilities.join("; "))))
+            .collect();
+        let registered_names: Vec<String> = registered.iter().map(|r| r.0.clone()).collect();
+        let name = tc::sanitize_name(capability)?;
+        if let Some(why) = tc::collision(&name, &registered_names, &data_dir) {
+            tracing::info!(capability, reason = %why, "tool creation: skipped");
+            return None;
+        }
+        let request = state.request.prompt.clone();
+        let methodology = match methodology_id {
+            Some(id) => super::meta_loop::methodology_whole(&self.store, id).await.map(|(n, _kws, body)| format!("{n}\n{body}")),
+            None => None,
+        };
+        let prompt = tc::draft_prompt(
+            &crate::orchestrator::run_spans::now_line(),
+            capability,
+            &request,
+            &registered.iter().map(|r| r.1.clone()).collect::<Vec<_>>(),
+            methodology.as_deref(),
+        );
+        let input = serde_json::json!({
+            "prompt": prompt, "max_tokens": state.model_context_limit / 4, "temperature": 0.2,
+            "system_prompt": "Specify real, honest, general tools only. Return only valid JSON."
+        });
+        let result = self.metered_execute_resilient(state, input, "capability_tool_draft").await.ok();
+        let spec = result
+            .as_ref()
+            .map(|r| self.extract_output_text(r))
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(Self::extract_json_object_shared(&text).trim()).ok())
+            .map(|parsed| tc::parse_spec(&parsed, capability));
+        let created = match spec {
+            Some(Ok(spec)) => {
+                let origin = serde_json::json!({
+                    "tool": spec.name, "gap": capability, "request": request, "methodology_id": methodology_id, "task_id": state.task_id,
+                    "created_by": "capability-closure", "created_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+                    "transport": "stdio", "auto_start": false,
+                });
+                match tc::write_artifact(&data_dir, &spec, &origin) {
+                    Ok(art) => match crate::mcp::register_global(tc::registry_row(&spec)).await {
+                        Some(_) => {
+                            let mut origin = origin;
+                            origin["body_path"] = serde_json::json!(art.body_path);
+                            origin["body_hash"] = serde_json::json!(art.body_hash);
+                            origin["implementation_path"] = serde_json::json!(art.implementation_path);
+                            super::tool_binding::mark_gap_tool_created(capability, origin.clone(), "capability-closure");
+                            crate::keyword_program::record_event("tool_created", methodology_id.unwrap_or(0), &state.keywords, serde_json::json!({"tool": spec.name, "gap": capability}));
+                            // the FINDING: a manifest (name + body hash + keywords) goes to the marketplace bridge — a no-op while publishing is off
+                            crate::network::publish_created_tool(crate::network::CreatedToolFinding {
+                                name: spec.name.clone(),
+                                body_hash: art.body_hash,
+                                keywords: spec.capabilities.clone(),
+                                body_path: art.body_path,
+                            });
+                            tracing::info!(capability, tool = %spec.name, "tool creation: tool created, registered (stdio, never auto-started) and published as a finding");
+                            Some(spec.name)
+                        }
+                        None => {
+                            tc::remove_artifact(&data_dir, &spec.name); // the registry is not installed: do not leave an unregistered artifact behind
+                            tracing::warn!(capability, "tool creation: the MCP registry is not installed — nothing created");
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!(capability, error = %e, "tool creation: artifact could not be written — nothing created");
+                        None
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                tracing::warn!(capability, error = %e, "tool creation: the draft was not a real tool specification — nothing created");
+                None
+            }
+            None => {
+                tracing::warn!(capability, "tool creation: no usable draft this walk");
+                None
+            }
+        };
+        crate::keyword_program::record_judgment("capability_tool_draft", methodology_id, capability, &request, "was a real tool created for this capability?", created.is_some(), 1);
+        created
     }
 
     /// Draft ONE real methodology that achieves `capability` for this request using the registered providers/tools and ordinary model

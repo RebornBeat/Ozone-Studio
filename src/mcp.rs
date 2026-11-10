@@ -128,6 +128,14 @@ pub async fn registry_entries() -> Option<Vec<McpTool>> {
     }
 }
 
+/// Register one tool through the process-global registry (the same `McpRegistry::register` the `/mcp/tools/register` route uses, so it is
+/// persisted and visible to every reader). `None` = the global handles are not installed yet. Used by `orchestrator/tool_creation.rs`, which
+/// registers ONLY stdio rows (the host never spawns a stdio tool — see `McpTransport::Stdio` in `invoke`).
+pub async fn register_global(tool: McpTool) -> Option<bool> {
+    let (registry, _usage) = GLOBAL_MCP.get()?;
+    Some(registry.register(tool).await)
+}
+
 /// Issue the standardized abstract call through the process-global handles.
 /// Same metering, gating, and rippling as the HTTP path.
 /// Process-global jurisdiction gate for IN-PROCESS tool calls (2026-11-02 audit).

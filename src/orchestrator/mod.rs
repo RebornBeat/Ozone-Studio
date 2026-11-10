@@ -61,6 +61,7 @@ pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed st
 pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
 pub mod work_order; // the work-order tree: walk → AMT branches → steps, capability-gap checklists; one completion rule, completed is final (2026-11-10)
 pub mod tool_binding; // per-rule tool bindings, missing-capability capture, tool health (2026-11-04)
+pub mod tool_creation; // a tool created on an identified need (E30 `capability_tool_draft`): validated spec, own-folder artifact, stdio registry row, published as a finding (2026-11-10)
 pub mod ripple_class; // meta ripple: categories, dispatcher, event-driven loop gates (2026-11-04)
 pub mod graph_fanout; // per-modality fan-out rule: edge classes, entries, flow sequence (2026-11-03)
 pub mod chat_store; // scoped chat persistence: ChatSession/ChatTurn containers, full text (2026-11-02)
