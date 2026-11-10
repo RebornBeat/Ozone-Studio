@@ -204,3 +204,46 @@ The host derives the tier from `GET /api/v1/key` → `free_model_daily_requests.
 3. **Request-term leak from system-generated prompts — FIXED** (this wave): tasks stamped with `source` (amt-loop, sensor-tick) now run under an `internal` origin: events are logged (observed use / hotness unchanged) but are skipped by both dataset passes (no search/creation training pairs) and their machine-text prompt contributes no request terms. Test: `system_generated_work_is_flagged_internal_and_read_back_from_the_log`; EU lib 259/259.
 4. **Scope backfill and keyword_meta are catching up on the EU (71% / 78%)** — housekeeping runs every 5 min; check completion at the next run.
 5. **Token search is name-aware** (`the`: scan 0 / token 4 on the EU) — expected: token matches NAME as well as keywords; K1 was corrected for this.
+
+## 18. CATEGORIZED KEYWORD REVIEW (CONTENT containers only; tags set aside) — 2026-11-10
+Tools (read-only, identical on both hosts): `tools/keyword-measure/categorize.mjs` (shape / source / validation / duplicates / name-redundancy / genericness, no word lists) and `tools/keyword-measure/hits_by_source.py` (hit yield per term source). Evidence: `docs/evidence/keyword-measure/categorize-{local,eu}-2026-11-10.json`.
+### 18.1 Do we need tags?
+Keep the DATA, not the KEYWORD. Four different things share the `keywords` field: (1) **scope/provenance markers** (`scope:global`, `proj:N`, `ws:N`, `loop:*`, `chatsession:*`, `task:N`, `call:tool:*`) — the typed `scope` field now exists, so scoping no longer needs them as keywords; (2) **kind/event tags** (`tool_call`, `sensor-tick`, `run-span`, `no-emotion-update`, `task_failure`, `chat_turn`) — that is `container_type` / a typed kind, not meaning; (3) **ingest node kinds** (`element`, `stylerule`, `link`, `field`, `scriptref`, `uidocument_ingest` — 862 EU McpEntity rows); (4) **meaning** (the only thing a content search should match). Searchable tags in (1)–(3) are noise for a content search and a flood for common words. Recommended end state: tags live in typed fields, readers read the typed field, `keywords` holds meaning only. Until readers are migrated they stay (operator ruling pending, §17 options A/B/C).
+### 18.2 Aggregations (content containers; local 1,545 containers / 17,300 slots / 8,594 distinct; EU 1,302 / 5,627 / 1,446)
+| aggregation | finding |
+|---|---|
+| shape (local Methodology) | phrase-2 61%, phrase-3 26%, single-word 10%, identifier 2.5%, sentence-like 0.5% — healthy, phrase-dominated |
+| source (local, all content) | **expansion 11,186 (82%)**, verbatim 952, extracted 782, rollup 364, legacy blank 240, identifier 122 |
+| distinct vs singleton | 73% (local) / 78% (EU) of terms occur in ONE container — expected for meaning terms; the top-20 terms are 12% of slots locally (no content dominance); on the EU 58% (the McpEntity ingest tags) |
+| generic inside a type (≥10% of containers) | local: `task`/`failure`/`no-emotion-update` (Experience kind tags), `data` (89% of JurisdictionRuleSet); EU: ingest tags |
+| redundancy | keyword already in the NAME: Category 96%, Modality 100%, Pipeline 67%, FileReference 51%, Blueprint 34–42%; case/stem duplicates: Pipeline 59/59, Blueprint 33, Methodology 25–33 |
+| size | Methodology mean 29.0 (local, median 25, max **500** = one model response of 499 near-variants of "software architecture") / 10.4 (EU); 13 of 294 ≥ 60 keywords |
+| validation | local expansion: 5 of 11,186 validated-yes; extracted 114 of 782; verbatim 251 of 952 |
+### 18.3 Hit yield by source (does a term earn its place?)
+| source | local terms | with any hit | returned | kept | | EU terms | with any hit | returned | kept | applied |
+|---|---|---|---|---|---|---|---|---|---|---|
+| expansion | 11,186 | **0.7%** | 744 | 11 | | 611 | **11.6%** | 278 | 4 | 4 |
+| extracted | 782 | **18.0%** | 1,656 | 62 | | 157 | 16.6% | 367 | 3 | 3 |
+| verbatim | 952 | 4.8% | 206 | 0 | | 77 | 0% | 0 | 0 | 0 |
+| legacy blank | 240 | 100% | 2,845 | 0 | | 334 | 100% | 3,399 | 26 | 3 |
+`packed` is 0 everywhere: no real walk has reached context packing yet (the first EU walk stopped after Stage 6), so hotness cannot exist until one does.
+### 18.4 Is it an improvement over 2026-11-08 (§1)? (same-store comparisons marked; the EU is a different store)
+| measure | before | now | verdict |
+|---|---|---|---|
+| substring flood, `code` | 1,345 hits vs 77 exact (17×) | EU: token 30 / scan 68 / exact 20 (K1: token < scan, 100% of exact kept) | **better** (EU numbers, not same-store) |
+| Project / Workspace with no keywords | 27/29, 26/26 | 0/37, 0/34 | **fixed** |
+| ModalityGraph with no keywords | 68/314 (21.7%) | local 20.5% (old binary, backfill not run) / EU 4.5% | fixed on the new binary |
+| typed scope on containers | 0 | local 1,494/5,983, EU 2,209/3,102 (71%, backfilling) | **built** |
+| sentence-like keywords | 64/19,606 (0.33%) | 66/32,354 (0.20%) / 18/11,073 (0.16%) | slightly better |
+| filler stored as keywords (the/you/a) | the 4, you 17 | local you 15; EU the 5, a 6, and 3 | **not improved** (Pass C unanimity never passed, §17 N7) |
+| Methodology keywords per container | 3.1 | local 29.0 / EU 10.4 | **more, mostly unvalidated expansion** — recall up, noise up, value unproven (0.7% hit yield locally) |
+| hit capture / ranking evidence | none | hit log 605 lines, 4 applied events, deterministic v0 key + trained candidate cycling | **built** |
+### 18.5 How to improve further (ranked by evidence; none is a cap or a word list)
+1. **Provenance as a rank fact.** Expansion terms match exactly like verbatim ones today although they hit 0.7%–11.6% vs 17–18%. Add `via` (extracted/verbatim vs expansion-only) to the match facts and the search hit event, so the v0 key can place expansion-only matches below verified/extracted matches and the ranker can LEARN the value per source. No term is removed.
+2. **Log which term matched and its source on every search event**, so training can measure per-source yield instead of inferring it (today only returned ids are logged).
+3. **Move tags out of `keywords`** (18.1) — removes the flood at its source; needs reader migration + backfill.
+4. **Normalize at write time:** case-fold and stem-collapse duplicates (Pipeline 59/59, Blueprint 33), and do not store a keyword identical to the container's own name (searches already match the NAME). Deterministic, language-neutral, no cap.
+5. **Expansion call shape:** one response returned 499 near-variants. Ask for DISTINCT concepts (not rewordings), and treat a variant that adds no new whole token as lower value than one that does (a structural, language-neutral test) — measure before changing.
+6. **Let hits settle the rest:** unvalidated expansion terms stay until a re-judge sees negative evidence (Pass D); the 0/60 unanimous-drop result (§17 N7) means they are never removed today — the vote-tally log decides whether the gate or the question is the problem.
+7. **Fixture noise:** local Workspace/Project keywords are test names (`e2e workspace`, `mr proj`, `decoy code`) — clean the fixtures, not the algorithm.
+### 18.6 EU config change (not in the repo): `[models.fallback].order = []` and `[models.meta_fallback].order = []` (backup `config.toml.bak-20261109215208`): with the primary model exhausted there is no fallback attempt and the task pauses (resumable) — the intended behaviour; the EU has no local BitNet model, so the old chain ended in a hard failure. Local config unchanged.

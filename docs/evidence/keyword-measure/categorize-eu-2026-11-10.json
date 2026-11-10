@@ -1,0 +1,2315 @@
+{
+ "label": "eu",
+ "date": "2026-11-10T01:48:42.564Z",
+ "containers": 3123,
+ "content": {
+  "containers": 1302,
+  "slots": 5627,
+  "distinct_terms": 1446,
+  "singleton_terms": 1122,
+  "singleton_pct": 77.6,
+  "top20_terms_share_of_slots_pct": 58.3,
+  "generic_terms_in_10pct_or_more_of_containers": [
+   [
+    "uidocument_ingest",
+    862
+   ],
+   [
+    "proj:1",
+    862
+   ],
+   [
+    "element",
+    417
+   ],
+   [
+    "stylerule",
+    175
+   ]
+  ]
+ },
+ "by_type": [
+  {
+   "type": "CoordinationEvent",
+   "bookkeeping": true,
+   "containers": 1331,
+   "slots": 3993,
+   "mean": 3,
+   "median": 3,
+   "max": 3,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "identifier": 2626,
+    "marker": 1331,
+    "single-word": 36
+   },
+   "sources": {
+    "": 1320,
+    "(no meta)": 2673
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 3993
+   },
+   "terms_with_any_hit": 1320,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 0.4,
+   "top": [
+    [
+     "scope:global",
+     1331
+    ],
+    [
+     "tool_call",
+     1315
+    ],
+    [
+     "sensor-tick",
+     1267
+    ],
+    [
+     "zcode",
+     36
+    ],
+    [
+     "i_loop_reflection",
+     16
+    ],
+    [
+     "i-loop",
+     16
+    ],
+    [
+     "cc-deploy-verify",
+     4
+    ],
+    [
+     "claude-code",
+     3
+    ],
+    [
+     "cc-review",
+     3
+    ],
+    [
+     "zcode-verify",
+     2
+    ]
+   ]
+  },
+  {
+   "type": "McpEntity",
+   "bookkeeping": false,
+   "containers": 862,
+   "slots": 2872,
+   "mean": 3.33,
+   "median": 3,
+   "max": 29,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "identifier": 863,
+    "single-word": 875,
+    "marker": 862,
+    "phrase-3": 103,
+    "phrase-2": 169
+   },
+   "sources": {
+    "(no meta)": 2510,
+    "verbatim": 76,
+    "expansion": 286
+   },
+   "validated": {
+    "yes": 36,
+    "no": 0,
+    "unknown": 2836
+   },
+   "terms_with_any_hit": 26,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 2.9,
+   "top": [
+    [
+     "uidocument_ingest",
+     862
+    ],
+    [
+     "proj:1",
+     862
+    ],
+    [
+     "element",
+     416
+    ],
+    [
+     "stylerule",
+     175
+    ],
+    [
+     "link",
+     78
+    ],
+    [
+     "scriptref",
+     70
+    ],
+    [
+     "field",
+     63
+    ],
+    [
+     "mcp entity",
+     14
+    ],
+    [
+     "media",
+     14
+    ],
+    [
+     "uidocument",
+     13
+    ],
+    [
+     "style rule",
+     11
+    ],
+    [
+     "document ingestion",
+     10
+    ]
+   ]
+  },
+  {
+   "type": "Derived",
+   "bookkeeping": true,
+   "containers": 477,
+   "slots": 1495,
+   "mean": 3.13,
+   "median": 3,
+   "max": 15,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 71,
+    "identifier": 483,
+    "marker": 929,
+    "numeric-id": 7,
+    "phrase-2": 4,
+    "phrase-3": 1
+   },
+   "sources": {
+    "": 64,
+    "(no meta)": 1431
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1495
+   },
+   "terms_with_any_hit": 64,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 4.4,
+   "top": [
+    [
+     "run-span",
+     460
+    ],
+    [
+     "loop:i_loop",
+     423
+    ],
+    [
+     "loop:meta",
+     39
+    ],
+    [
+     "amt-main",
+     9
+    ],
+    [
+     "amt",
+     7
+    ],
+    [
+     "container",
+     7
+    ],
+    [
+     "scope:global",
+     4
+    ],
+    [
+     "coordinationreceived",
+     4
+    ],
+    [
+     "reexpansion",
+     4
+    ],
+    [
+     "project",
+     4
+    ],
+    [
+     "initialbuild",
+     4
+    ],
+    [
+     "class",
+     3
+    ]
+   ]
+  },
+  {
+   "type": "JurisdictionRuleSet",
+   "bookkeeping": false,
+   "containers": 132,
+   "slots": 877,
+   "mean": 6.64,
+   "median": 6,
+   "max": 12,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 869,
+    "identifier": 8
+   },
+   "sources": {
+    "": 118,
+    "(no meta)": 759
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 877
+   },
+   "terms_with_any_hit": 118,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 15.1,
+   "top": [
+    [
+     "data",
+     116
+    ],
+    [
+     "personal",
+     115
+    ],
+    [
+     "cybercrime",
+     76
+    ],
+    [
+     "consumer",
+     52
+    ],
+    [
+     "child",
+     36
+    ],
+    [
+     "money",
+     25
+    ],
+    [
+     "hate",
+     24
+    ],
+    [
+     "speech",
+     24
+    ],
+    [
+     "laundering",
+     23
+    ],
+    [
+     "artificial",
+     21
+    ],
+    [
+     "intelligence",
+     20
+    ],
+    [
+     "breach",
+     16
+    ]
+   ]
+  },
+  {
+   "type": "Methodology",
+   "bookkeeping": false,
+   "containers": 80,
+   "slots": 835,
+   "mean": 10.44,
+   "median": 9,
+   "max": 46,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 359,
+    "identifier": 79,
+    "phrase-3": 119,
+    "phrase-2": 256,
+    "phrase-4": 5,
+    "sentence-like": 17
+   },
+   "sources": {
+    "extracted": 158,
+    "expansion": 322,
+    "(no meta)": 305,
+    "": 50
+   },
+   "validated": {
+    "yes": 10,
+    "no": 0,
+    "unknown": 825
+   },
+   "terms_with_any_hit": 123,
+   "duplicate_case": 27,
+   "duplicate_stem": 28,
+   "keyword_already_in_name_pct": 40.8,
+   "top": [
+    [
+     "code",
+     9
+    ],
+    [
+     "mcp",
+     6
+    ],
+    [
+     "verification",
+     6
+    ],
+    [
+     "code_review",
+     6
+    ],
+    [
+     "a",
+     6
+    ],
+    [
+     "capability",
+     6
+    ],
+    [
+     "multi_agent",
+     5
+    ],
+    [
+     "must",
+     5
+    ],
+    [
+     "storage",
+     5
+    ],
+    [
+     "the",
+     5
+    ],
+    [
+     "re-expansion",
+     5
+    ],
+    [
+     "amt",
+     5
+    ]
+   ]
+  },
+  {
+   "type": "Pipeline",
+   "bookkeeping": false,
+   "containers": 55,
+   "slots": 323,
+   "mean": 5.87,
+   "median": 6,
+   "max": 7,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 323
+   },
+   "sources": {
+    "(no meta)": 317,
+    "": 6
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 323
+   },
+   "terms_with_any_hit": 6,
+   "duplicate_case": 59,
+   "duplicate_stem": 59,
+   "keyword_already_in_name_pct": 67.2,
+   "top": [
+    [
+     "pipeline",
+     56
+    ],
+    [
+     "core",
+     39
+    ],
+    [
+     "consciousness",
+     19
+    ],
+    [
+     "task",
+     3
+    ],
+    [
+     "tab",
+     3
+    ],
+    [
+     "voice",
+     3
+    ],
+    [
+     "package",
+     3
+    ],
+    [
+     "context",
+     3
+    ],
+    [
+     "link",
+     3
+    ],
+    [
+     "viewer",
+     3
+    ],
+    [
+     "auth",
+     2
+    ],
+    [
+     "themeloader",
+     2
+    ]
+   ]
+  },
+  {
+   "type": "Blueprint",
+   "bookkeeping": false,
+   "containers": 25,
+   "slots": 302,
+   "mean": 12.08,
+   "median": 12,
+   "max": 15,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 226,
+    "numeric-id": 5,
+    "phrase-2": 37,
+    "identifier": 19,
+    "phrase-3": 10,
+    "phrase-4": 4,
+    "sentence-like": 1
+   },
+   "sources": {
+    "": 97,
+    "(no meta)": 193,
+    "extracted": 12
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 302
+   },
+   "terms_with_any_hit": 99,
+   "duplicate_case": 34,
+   "duplicate_stem": 34,
+   "keyword_already_in_name_pct": 41.7,
+   "top": [
+    [
+     "text",
+     20
+    ],
+    [
+     "text graph",
+     13
+    ],
+    [
+     "code",
+     12
+    ],
+    [
+     "container",
+     5
+    ],
+    [
+     "audit",
+     5
+    ],
+    [
+     "data",
+     5
+    ],
+    [
+     "methodology",
+     4
+    ],
+    [
+     "coordinationreceived",
+     3
+    ],
+    [
+     "reexpansion",
+     3
+    ],
+    [
+     "review",
+     3
+    ],
+    [
+     "document",
+     3
+    ],
+    [
+     "analysis",
+     3
+    ]
+   ]
+  },
+  {
+   "type": "Experience",
+   "bookkeeping": false,
+   "containers": 54,
+   "slots": 215,
+   "mean": 3.98,
+   "median": 4,
+   "max": 4,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 108,
+    "identifier": 107
+   },
+   "sources": {
+    "(no meta)": 215
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 215
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 0,
+   "top": [
+    [
+     "task",
+     54
+    ],
+    [
+     "no-emotion-update",
+     53
+    ],
+    [
+     "task_failure",
+     44
+    ],
+    [
+     "failure",
+     44
+    ],
+    [
+     "task_success",
+     10
+    ],
+    [
+     "success",
+     10
+    ]
+   ]
+  },
+  {
+   "type": "ModalityGraph",
+   "bookkeeping": false,
+   "containers": 22,
+   "slots": 93,
+   "mean": 4.23,
+   "median": 3,
+   "max": 12,
+   "no_keywords_pct": 4.5,
+   "shapes": {
+    "single-word": 68,
+    "phrase-2": 10,
+    "numeric-id": 6,
+    "identifier": 6,
+    "phrase-3": 3
+   },
+   "sources": {
+    "(no meta)": 24,
+    "identifier": 6,
+    "verbatim": 1,
+    "expansion": 3,
+    "": 59
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 93
+   },
+   "terms_with_any_hit": 60,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 14,
+   "top": [
+    [
+     "image",
+     12
+    ],
+    [
+     "container",
+     6
+    ],
+    [
+     "coordinationreceived",
+     4
+    ],
+    [
+     "failed",
+     4
+    ],
+    [
+     "reexpansion",
+     4
+    ],
+    [
+     "amt",
+     4
+    ],
+    [
+     "re-expansion",
+     4
+    ],
+    [
+     "initialbuild",
+     4
+    ],
+    [
+     "background",
+     3
+    ],
+    [
+     "text",
+     3
+    ],
+    [
+     "project",
+     3
+    ],
+    [
+     "class",
+     2
+    ]
+   ]
+  },
+  {
+   "type": "ChatTurn",
+   "bookkeeping": false,
+   "containers": 9,
+   "slots": 43,
+   "mean": 4.78,
+   "median": 5,
+   "max": 5,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 18,
+    "identifier": 9,
+    "marker": 16
+   },
+   "sources": {
+    "(no meta)": 43
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 43
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 0,
+   "top": [
+    [
+     "chat",
+     9
+    ],
+    [
+     "chat_turn",
+     9
+    ],
+    [
+     "chatsession:global",
+     9
+    ],
+    [
+     "global",
+     9
+    ],
+    [
+     "task:13",
+     1
+    ],
+    [
+     "task:22",
+     1
+    ],
+    [
+     "task:32",
+     1
+    ],
+    [
+     "task:35",
+     1
+    ],
+    [
+     "task:40",
+     1
+    ],
+    [
+     "task:49",
+     1
+    ],
+    [
+     "task:56",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "McpResult",
+   "bookkeeping": true,
+   "containers": 13,
+   "slots": 39,
+   "mean": 3,
+   "median": 3,
+   "max": 3,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "identifier": 26,
+    "marker": 13
+   },
+   "sources": {
+    "(no meta)": 39
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 39
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 33.3,
+   "top": [
+    [
+     "uidocument_ingest",
+     13
+    ],
+    [
+     "mcp_result",
+     13
+    ],
+    [
+     "proj:1",
+     13
+    ]
+   ]
+  },
+  {
+   "type": "Category",
+   "bookkeeping": false,
+   "containers": 11,
+   "slots": 11,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "phrase-2": 7,
+    "single-word": 2,
+    "phrase-3": 2
+   },
+   "sources": {
+    "": 11
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 11
+   },
+   "terms_with_any_hit": 11,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "amt re-expansion",
+     1
+    ],
+    [
+     "main amt",
+     1
+    ],
+    [
+     "initial build",
+     1
+    ],
+    [
+     "container",
+     1
+    ],
+    [
+     "graph databases",
+     1
+    ],
+    [
+     "suitability",
+     1
+    ],
+    [
+     "highly connected data",
+     1
+    ],
+    [
+     "mcp tool execution",
+     1
+    ],
+    [
+     "error handling",
+     1
+    ],
+    [
+     "data validation",
+     1
+    ],
+    [
+     "project setup",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "Modality",
+   "bookkeeping": false,
+   "containers": 9,
+   "slots": 9,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 9
+   },
+   "sources": {
+    "(no meta)": 8,
+    "": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 9
+   },
+   "terms_with_any_hit": 1,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "text",
+     1
+    ],
+    [
+     "code",
+     1
+    ],
+    [
+     "image",
+     1
+    ],
+    [
+     "audio",
+     1
+    ],
+    [
+     "video",
+     1
+    ],
+    [
+     "math",
+     1
+    ],
+    [
+     "chemistry",
+     1
+    ],
+    [
+     "dna",
+     1
+    ],
+    [
+     "eeg",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ChatSession",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 4,
+   "mean": 4,
+   "median": 4,
+   "max": 4,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 2,
+    "identifier": 1,
+    "marker": 1
+   },
+   "sources": {
+    "(no meta)": 4
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 4
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 50,
+   "top": [
+    [
+     "chat",
+     1
+    ],
+    [
+     "chat_session",
+     1
+    ],
+    [
+     "chatsession:global",
+     1
+    ],
+    [
+     "global",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "MethodologyRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 2,
+   "mean": 2,
+   "median": 2,
+   "max": 2,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 2
+   },
+   "sources": {
+    "(no meta)": 2
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 2
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 1,
+   "keyword_already_in_name_pct": 50,
+   "top": [
+    [
+     "methodology",
+     1
+    ],
+    [
+     "methodologies",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "BlueprintRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 2,
+   "mean": 2,
+   "median": 2,
+   "max": 2,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 2
+   },
+   "sources": {
+    "(no meta)": 2
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 2
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 1,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "blueprint",
+     1
+    ],
+    [
+     "blueprints",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ModalityRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "modality",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ThreeDRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "numeric-id": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "3d",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "SoundReconstructionRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "sound",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "BiologyRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "biology",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ProteomicsRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "proteomics",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "HapticRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "haptic",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ThermalRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "thermal",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "DepthRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "depth",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "IMURoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "imu",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "GeospatialRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "geospatial",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ElectromagneticRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "electromagnetic",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "BCIRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "bci",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ParametricCADRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "parametriccad",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "KinematicsRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "kinematics",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ControlSystemsRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "controlsystems",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "NetworkTopologyRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "networktopology",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ActiveRadarRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "radar",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ActiveSonarRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "sonar",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "HyperspectralRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "hyperspectral",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "UiDocumentRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "uidocument",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "PipelineRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "pipeline",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ConsciousnessRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "consciousness",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ExperienceMemory",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "experiencememory",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "CoreMemoryRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "corememories",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "EmotionalRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "emotionalcontext",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "IdentityRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "identity",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "MetaCognitionRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "metacognition",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "RelationshipRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "relationships",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "EthicsRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "ethics",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "NarrativeRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "narratives",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "CollectiveRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "collective",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ExternalRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "external",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "JurisdictionRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "jurisdiction",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "PackageRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "packages",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "URLRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "urls",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "ChunkGraphRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "chunkgraphs",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "FileGraphRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "filegraphs",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "CrossModalIndexRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "crossmodalindex",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "SharedContextRoot",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 1,
+   "mean": 1,
+   "median": 1,
+   "max": 1,
+   "no_keywords_pct": 0,
+   "shapes": {
+    "single-word": 1
+   },
+   "sources": {
+    "(no meta)": 1
+   },
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 1
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 100,
+   "top": [
+    [
+     "sharedcontext",
+     1
+    ]
+   ]
+  },
+  {
+   "type": "Root",
+   "bookkeeping": false,
+   "containers": 1,
+   "slots": 0,
+   "mean": 0,
+   "median": 0,
+   "max": 0,
+   "no_keywords_pct": 100,
+   "shapes": {},
+   "sources": {},
+   "validated": {
+    "yes": 0,
+    "no": 0,
+    "unknown": 0
+   },
+   "terms_with_any_hit": 0,
+   "duplicate_case": 0,
+   "duplicate_stem": 0,
+   "keyword_already_in_name_pct": 0,
+   "top": []
+  }
+ ]
+}
