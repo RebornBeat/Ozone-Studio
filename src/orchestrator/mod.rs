@@ -2530,8 +2530,9 @@ impl PromptOrchestrator {
         // guarantees terms; this adds intelligence first. A rich extraction never triggers it.
         if request_terms::sanitize_keywords("", all_keywords.iter().cloned().collect()).len() < 3 {
             let ask = format!(
-                "REQUEST:\n{}\n\nList 3 to 8 SEARCH KEYWORDS for finding methodologies and tools relevant to this request: single words or short noun phrases (at most 3 words each), no pronouns or filler words, no whole sentences. Return ONLY a JSON array of strings.",
-                state.cleaned_prompt
+                "REQUEST:\n{}\n\nList 3 to 8 SEARCH KEYWORDS for finding methodologies and tools relevant to this request. {}\nReturn ONLY a JSON array of strings.",
+                state.cleaned_prompt,
+                crate::shared_contracts::keyword_model::KEYWORD_RULES
             );
             let input = serde_json::json!({
                 "prompt": ask, "max_tokens": 120, "temperature": 0.0,

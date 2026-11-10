@@ -79,10 +79,23 @@ pub fn require_validated_keywords() -> bool {
 /// The keywords a search may match: all of them, or (strict) only markers and validated terms. Markers are scope/provenance data, never
 /// sent through the model gate, so strict mode keeps them.
 pub fn searchable_keywords(keywords: &[String], meta: &BTreeMap<String, TermMeta>, strict: bool) -> Vec<String> {
-    if !strict {
+    // ABLATION (`OZONE_KEYWORD_IGNORE_EXPANSION=1`, default off): run the same queries without zero-shot expansion terms, to measure what they
+    // add on the same store (docs §19). Nothing is deleted — the terms are only left out of matching.
+    let ignore_expansion = matches!(std::env::var("OZONE_KEYWORD_IGNORE_EXPANSION").ok().as_deref(), Some("1") | Some("true"));
+    filter_keywords(keywords, meta, strict, ignore_expansion)
+}
+
+/// The pure filter behind `searchable_keywords` (markers always pass; strict keeps only validated terms; ablation drops expansion-sourced ones).
+pub fn filter_keywords(keywords: &[String], meta: &BTreeMap<String, TermMeta>, strict: bool, ignore_expansion: bool) -> Vec<String> {
+    if !strict && !ignore_expansion {
         return keywords.to_vec();
     }
-    keywords.iter().filter(|k| km::is_marker(k) || term_is_validated(meta.get(k.as_str()).or_else(|| meta.get(&k.to_lowercase())))).cloned().collect()
+    let m_of = |k: &String| meta.get(k.as_str()).or_else(|| meta.get(&k.to_lowercase()));
+    keywords
+        .iter()
+        .filter(|k| km::is_marker(k) || ((!strict || term_is_validated(m_of(k))) && !(ignore_expansion && m_of(k).map(|m| m.source == "expansion").unwrap_or(false))))
+        .cloned()
+        .collect()
 }
 
 
@@ -1106,6 +1119,9 @@ mod tests {
         assert_eq!(searchable_keywords(&kws, &meta, false), kws, "non-strict = everything");
         assert_eq!(searchable_keywords(&kws, &meta, true), vec!["api", "src/main.rs", "scope:global"], "strict = validated + deterministic facts + markers");
         assert!(!term_is_validated(None) && term_is_validated(meta.get("api")) && !term_is_validated(meta.get("rejected")));
+        // ablation: expansion-sourced terms ("guess", "rejected") are left out of matching, nothing else changes
+        assert_eq!(filter_keywords(&kws, &meta, false, true), vec!["api", "src/main.rs", "scope:global", "no-meta"]);
+        assert_eq!(filter_keywords(&kws, &meta, true, true), vec!["api", "src/main.rs", "scope:global"]);
     }
 
     #[test]

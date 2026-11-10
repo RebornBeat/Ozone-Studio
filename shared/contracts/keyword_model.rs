@@ -59,6 +59,11 @@ pub fn is_marker(term: &str) -> bool {
     !rest.is_empty() && !rest.starts_with(':') && !rest.starts_with("//")
 }
 
+/// THE DEFINITION OF A KEYWORD — one text, used by EVERY call site that asks a model for keywords (request extraction, re-ask, methodology
+/// drafting, capability drafting, settlement expansion, validation), so they all ask for the same thing and the validation gate judges
+/// against the same standard. Shape only + meaning; no word list.
+pub const KEYWORD_RULES: &str = "A KEYWORD is a single word or a short phrase of AT MOST 3 words that names something the content is actually about, in the content's own language, such that a person searching for it should be shown this content. NEVER a whole sentence, a pronoun or filler word, an id or a number, a system or tool tag, markup, or a term for subject matter the content does not cover. Prefer DISTINCT concepts over rewordings of one concept. Every keyword is individually validated before it is stored: a short list of true keywords beats a long list of guesses.";
+
 /// A sentence-like item (more than 4 whitespace-separated words) is not a keyword — it is a sentence the extractor returned whole.
 pub fn is_sentence_like(term: &str) -> bool {
     term.split_whitespace().count() > 4

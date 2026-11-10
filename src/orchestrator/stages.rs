@@ -933,9 +933,10 @@ impl PromptOrchestrator {
             .collect::<Vec<_>>()
             .join("\n");
         let prompt = format!(
-            "{}\n\nA plan for the request below needs the capability \"{capability}\", which is not installed.\n\nREQUEST (whole):\n{}\n\nREGISTERED PROVIDERS / TOOLS:\n{tool_lines}\n\nDraft ONE real methodology: concrete, actionable guidance for achieving this capability for requests like this one using ONLY the registered providers/tools above and ordinary model reasoning. A decision rule that needs a provider must declare it under \"requires\" (kind \"provider\", name, purpose). If it truly cannot be achieved without installing something not listed, include a rule whose requires names that provider.\n\nReturn ONLY valid JSON: {{\"name\": \"...\", \"description\": \"...\", \"principles\": [{{\"name\": \"...\", \"description\": \"...\", \"priority\": 5}}], \"heuristics\": [{{\"condition\": \"...\", \"action\": \"...\"}}], \"decision_rules\": [{{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": []}}], \"keywords\": [\"...\"], \"topics\": [\"...\"]}}",
+            "{}\n\nA plan for the request below needs the capability \"{capability}\", which is not installed.\n\nREQUEST (whole):\n{}\n\nREGISTERED PROVIDERS / TOOLS:\n{tool_lines}\n\nDraft ONE real methodology: concrete, actionable guidance for achieving this capability for requests like this one using ONLY the registered providers/tools above and ordinary model reasoning. A decision rule that needs a provider must declare it under \"requires\" (kind \"provider\", name, purpose). If it truly cannot be achieved without installing something not listed, include a rule whose requires names that provider.\n\nKEYWORD RULES (the \"keywords\" you give are validated one by one before they are stored): {}\n\nReturn ONLY valid JSON: {{\"name\": \"...\", \"description\": \"...\", \"principles\": [{{\"name\": \"...\", \"description\": \"...\", \"priority\": 5}}], \"heuristics\": [{{\"condition\": \"...\", \"action\": \"...\"}}], \"decision_rules\": [{{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": []}}], \"keywords\": [\"...\"], \"topics\": [\"...\"]}}",
             crate::orchestrator::run_spans::now_line(),
-            state.request.prompt
+            state.request.prompt,
+            crate::shared_contracts::keyword_model::KEYWORD_RULES
         );
         let input = serde_json::json!({
             "prompt": prompt, "max_tokens": 800, "temperature": 0.3,
@@ -953,7 +954,6 @@ impl PromptOrchestrator {
             return None; // a placeholder shell is not a methodology
         }
         let mut keywords: Vec<String> = parsed.get("keywords").and_then(|k| serde_json::from_value(k.clone()).ok()).unwrap_or_default();
-        keywords.push("capability".to_string());
         keywords.extend(capability.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 2).map(|w| w.to_lowercase()));
         keywords.sort();
         keywords.dedup();

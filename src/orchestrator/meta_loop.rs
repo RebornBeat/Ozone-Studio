@@ -426,6 +426,11 @@ async fn modify_methodology_for_gap(
             crate::context_budget::ContextSection::new("why", 0, format!("\n\nWHAT IS MISSING: {reason}\n\nEXISTING METHODOLOGY {target}: {name}\nkeywords: {}\n", kws.join(", "))),
             crate::context_budget::ContextSection::new("body", 3, body),
             crate::context_budget::ContextSection::new(
+                "keyword-rules",
+                0,
+                format!("\n\nKEYWORD RULES (any \"add_keywords\" you give are validated one by one before they are stored): {}", crate::shared_contracts::keyword_model::KEYWORD_RULES),
+            ),
+            crate::context_budget::ContextSection::new(
                 "tail",
                 0,
                 "\n\nReturn ONE JSON object with ONLY the additions (existing content is kept as is): {\"skip\": false, \"add_principles\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": 5}], \"add_heuristics\": [{\"condition\": \"...\", \"action\": \"...\"}], \"add_decision_rules\": [{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": [{\"kind\": \"provider\", \"name\": \"<mcp provider id>\", \"purpose\": \"...\"}]}], \"add_keywords\": [\"...\"]}. Add only real, specific content. If nothing should be added: {\"skip\": true}.",
@@ -691,6 +696,11 @@ async fn review_methodology_gaps_once(
                     } else {
                         String::new()
                     },
+                ),
+                crate::context_budget::ContextSection::new(
+                    "keyword-rules",
+                    0,
+                    format!("\n\nKEYWORD RULES (the \"keywords\" you give are validated one by one before they are stored): {}", crate::shared_contracts::keyword_model::KEYWORD_RULES),
                 ),
                 crate::context_budget::ContextSection::new(
                     "scaffold-tail",

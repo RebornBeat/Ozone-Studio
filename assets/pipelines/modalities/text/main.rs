@@ -4343,14 +4343,14 @@ Return ONLY a valid JSON array:
     }
     async fn extract_keywords_attempt(&self, text: &str, override_json: Option<&serde_json::Value>) -> Result<Vec<String>, String> {
         let prompt = format!(
-            r#"Extract all important keywords and key phrases from this text.
-Return as a JSON array of strings. Focus on: topics, concepts, named entities, technical terms.
-Each keyword is a single word or a short phrase of AT MOST 3 words that appears in, or is directly implied by, the text. NEVER return the whole text or a whole sentence as a keyword, and do not return pronouns or filler words.
+            r#"Extract the important keywords and key phrases from this text. Focus on: topics, concepts, named entities, technical terms that appear in, or are directly implied by, the text.
+{}
 
 TEXT:
 {}
 
 RESPOND ONLY WITH JSON ARRAY: ["keyword1", "keyword2", ...]"#,
+            keyword_model::KEYWORD_RULES,
             text
         );
 

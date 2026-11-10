@@ -364,7 +364,7 @@ async fn validate_terms(
                     for (i, t) in chunk.iter().enumerate() {
                         let n = i + 1;
                         if no.contains(&n) {
-                            crate::keyword_program::record_judgment("keyword_validation", Some(container_id), t, label, QUESTION, false, strength);
+                            crate::keyword_program::record_judgment("keyword_validation", Some(container_id), t, label, &format!("{QUESTION} [NO in round {round} of {strength}]"), false, strength);
                             out.rejected.push(t.clone());
                         } else if yes.contains(&n) {
                             next.push(t.clone());
@@ -378,10 +378,45 @@ async fn validate_terms(
         alive = next;
     }
     for t in alive {
-        crate::keyword_program::record_judgment("keyword_validation", Some(container_id), &t, label, QUESTION, true, strength);
+        crate::keyword_program::record_judgment("keyword_validation", Some(container_id), &t, label, &format!("{QUESTION} [YES in all {strength} rounds]"), true, strength);
         out.validated.push(t);
     }
     out
+}
+
+/// Types whose keywords have been OBSERVED to produce search hits — the only ones worth a zero-shot expansion call. (Project / Workspace /
+/// ModalityGraph keywords are deterministic roll-ups / graph identifiers and never produced a hit in any source; Category / FileReference
+/// keywords are the name / the extension.) Revisit when the hit log shows hits on another type.
+fn expandable(ctype: &str) -> bool {
+    matches!(ctype, "Methodology" | "Blueprint" | "Pipeline" | "JurisdictionRuleSet" | "McpEntity")
+}
+
+/// Write a validation outcome into the container: passed terms are stored (new) / marked validated (existing); failed terms are removed
+/// (existing) / never stored (new) and REMEMBERED as rejected so they are never proposed or stored again; unresolved terms are left alone.
+fn apply_validation(c: &mut Container, outcome: &Validation, new_candidates: &[String], ctype: &str, changed: &mut bool) {
+    for t in &outcome.validated {
+        let is_new = new_candidates.iter().any(|x| x.eq_ignore_ascii_case(t));
+        if is_new {
+            push_unique(&mut c.local_state.context.keywords, t); // stored only now, after it passed
+        }
+        let key = c.local_state.context.keywords.iter().find(|k| k.trim().eq_ignore_ascii_case(t)).cloned().unwrap_or_else(|| t.clone());
+        let e = c.local_state.context.keyword_meta.entry(key).or_default();
+        e.validated = Some(true);
+        if e.source.is_empty() {
+            e.source = if is_new { "expansion".to_string() } else { legacy_source(ctype).to_string() };
+        }
+        *changed = true;
+    }
+    for t in &outcome.rejected {
+        let was_stored = c.local_state.context.keywords.iter().any(|k| k.trim().eq_ignore_ascii_case(t));
+        c.local_state.context.keywords.retain(|k| !k.trim().eq_ignore_ascii_case(t));
+        let e = c.local_state.context.keyword_meta.entry(t.clone()).or_default();
+        e.validated = Some(false);
+        if e.source.is_empty() {
+            e.source = if was_stored { legacy_source(ctype).to_string() } else { "expansion".to_string() };
+        }
+        *changed = true;
+    }
 }
 
 /// Settle ONE container. Returns Ok(true) when something was written.
@@ -421,101 +456,82 @@ async fn settle_container(
         }
     }
 
-    // ---- Pass B (one call): expansion + proposed non-keywords
-    let current: Vec<String> = km::meaning_terms(&c.local_state.context.keywords);
     let topics = c.local_state.context.topics.clone();
     let body = if ctype == "Methodology" { methodology_whole(store, id).await.map(|(_, _, b)| b).unwrap_or_default() } else { String::new() };
-    let (window, window_source) = reader_window(available_models, meta_fallback);
-    let want_output = 800usize;
-    let budget = run_spans::input_budget_tokens(window, want_output);
-    let head = format!(
-        "{}\n\nA container in a graph store needs good SEARCH keywords. Search matches whole words/phrases (no stemming), so the keywords must include the words a person would actually use to ask for this thing.\n\nCONTAINER: {label}\nCURRENT KEYWORDS: {}\nTOPICS: {}\n",
-        run_spans::now_line(),
-        current.join(", "),
-        topics.join(", ")
-    );
-    let tail = "\nReturn ONLY JSON: {\"expansion\": [\"...\"]}\n- expansion: DISTINCT alternative ways someone might REQUEST this — synonyms, aliases, and translations in the content's own language(s). NOT rewordings of a term already listed or already in your own list. Single words or short phrases (at most 3 words). NEVER sentences. Only terms that genuinely fit. Every term you return is individually validated before it is stored.";
-    let mut sections = vec![crate::context_budget::ContextSection::new("scaffold-head", 0, head)];
-    if !body.is_empty() {
-        sections.push(crate::context_budget::ContextSection::new("body", 3, format!("\nCONTENT (whole):\n{body}\n")));
-    }
-    sections.push(crate::context_budget::ContextSection::new("scaffold-tail", 0, tail.to_string()));
-    let assembled = crate::context_budget::assemble(sections, budget);
-    run_spans::record_view_trims("keyword_settle", "", window, window_source, want_output, &assembled);
-    let prompt = assembled.text;
-    let input = serde_json::json!({
-        "prompt": prompt, "max_tokens": want_output, "temperature": 0.1,
-        "system_prompt": "You improve search keywords for graph containers. Return only valid JSON."
-    });
-    stats.calls_made += 1;
-    let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
-    PromptOrchestrator::capture_loop_model_call("keyword_settle", &prompt, &res);
-    let parsed: Option<serde_json::Value> = match &res {
-        Ok(r) => {
-            let text = r.get("response").and_then(|x| x.as_str()).unwrap_or("");
-            if text.trim().is_empty() {
-                None
-            } else {
-                serde_json::from_str(PromptOrchestrator::extract_json_object_shared(text).trim()).ok()
-            }
-        }
-        Err(_) => None,
-    };
-    let model_ok = parsed.is_some();
-    let strs = |v: &serde_json::Value, k: &str| -> Vec<String> {
-        v.get(k).and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).collect()).unwrap_or_default()
-    };
-    let expansion: Vec<String> = match &parsed {
-        Some(p) => strs(p, "expansion"),
-        None => Vec::new(),
-    };
-    // ---- Pass V — THE VALIDATION GATE (operator 2026-11-10: every stored keyword must be validated; false positives are cleared BEFORE
-    // they are stored). Nothing a model proposes is stored until it passes: every EXISTING meaning term not yet validated, plus every new
-    // expansion candidate, goes through `validate_terms` (strength-N batched yes/no rounds; survivors continue, any NO ends that term). A
-    // term that fails is REMOVED (existing) or never stored (new); a model failure leaves it pending for the next pass.
-    let mut new_candidates: Vec<String> = Vec::new();
-    for term in expansion {
-        let t = term.trim().to_string();
-        if t.is_empty() || t.split_whitespace().count() > 3 || km::is_marker(&t) || km::is_sentence_like(&t) {
-            continue;
-        }
-        let kws = &c.local_state.context;
-        let already = kws.keywords.iter().any(|k| k.trim().eq_ignore_ascii_case(&t));
-        let rejected_before = kws.keyword_meta.get(&t).or_else(|| kws.keyword_meta.get(&t.to_lowercase())).map(|m| m.validated == Some(false)).unwrap_or(false);
-        if already || rejected_before || new_candidates.iter().any(|x| x.eq_ignore_ascii_case(&t)) {
-            continue;
-        }
-        new_candidates.push(t);
-    }
-    let mut to_validate: Vec<String> = km::meaning_terms(&c.local_state.context.keywords)
+    let mut model_ok = true;
+
+    // ---- Pass V1 — THE VALIDATION GATE for what is ALREADY stored (operator 2026-11-10: every stored keyword must be validated). Nothing
+    // unvalidated may seed the expansion below, so the existing terms are judged first. A term that fails any strength-N round is REMOVED;
+    // a model failure leaves it pending (the container stays unsettled and is retried next pass).
+    let pending: Vec<String> = km::meaning_terms(&c.local_state.context.keywords)
         .into_iter()
         .filter(|k| !crate::keyword_program::term_is_validated(c.local_state.context.keyword_meta.get(k)))
         .collect();
-    to_validate.extend(new_candidates.iter().cloned());
-    if !to_validate.is_empty() {
-        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, to_validate, stats).await;
-        for t in &outcome.validated {
-            let is_new = new_candidates.iter().any(|x| x.eq_ignore_ascii_case(t));
-            if is_new {
-                push_unique(&mut c.local_state.context.keywords, t); // stored only now, after it passed
-            }
-            let key = c.local_state.context.keywords.iter().find(|k| k.trim().eq_ignore_ascii_case(t)).cloned().unwrap_or_else(|| t.clone());
-            let e = c.local_state.context.keyword_meta.entry(key).or_default();
-            e.validated = Some(true);
-            if e.source.is_empty() {
-                e.source = if is_new { "expansion".to_string() } else { legacy_source(ctype).to_string() };
-            }
-            changed = true;
+    if !pending.is_empty() {
+        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, pending, stats).await;
+        apply_validation(&mut c, &outcome, &[], ctype, &mut changed);
+        if !outcome.unresolved.is_empty() {
+            model_ok = false;
         }
-        for t in &outcome.rejected {
-            let was_stored = c.local_state.context.keywords.iter().any(|k| k.trim().eq_ignore_ascii_case(t));
-            c.local_state.context.keywords.retain(|k| !k.trim().eq_ignore_ascii_case(t));
-            let e = c.local_state.context.keyword_meta.entry(t.clone()).or_default();
-            e.validated = Some(false); // remembered, so it is never proposed or stored again
-            if e.source.is_empty() {
-                e.source = if was_stored { legacy_source(ctype).to_string() } else { "expansion".to_string() };
+    }
+
+    // ---- Pass B — EXPANSION (one call), seeded with VALIDATED terms only, and only for the types where keyword search has been observed to
+    // hit (measured 2026-11-10: Project / Workspace / ModalityGraph expansion terms — 3,597 of 11,186 locally — never produced one hit).
+    // Candidates are NOT stored here: they go to Pass V2 first.
+    let mut new_candidates: Vec<String> = Vec::new();
+    if expandable(ctype) && model_ok {
+        let seeds: Vec<String> = km::meaning_terms(&c.local_state.context.keywords);
+        let (window, window_source) = reader_window(available_models, meta_fallback);
+        let want_output = 800usize;
+        let budget = run_spans::input_budget_tokens(window, want_output);
+        let head = format!(
+            "{}\n\nA container in a graph store needs good SEARCH keywords. {}\n\nSearch matches whole words/phrases (no stemming), so think of how a person would actually ASK for this thing.\n\nCONTAINER: {label}\nVALIDATED KEYWORDS: {}\nTOPICS: {}\n",
+            run_spans::now_line(),
+            km::KEYWORD_RULES,
+            seeds.join(", "),
+            topics.join(", ")
+        );
+        let tail = "\nReturn ONLY JSON: {\"expansion\": [\"...\"]}\n- expansion: alternative request phrasings, synonyms, aliases and translations in the content's own language(s) that are NOT already listed and NOT trivial rewordings of a listed term. An empty list is correct when there is nothing genuinely new.";
+        let mut sections = vec![crate::context_budget::ContextSection::new("scaffold-head", 0, head)];
+        if !body.is_empty() {
+            sections.push(crate::context_budget::ContextSection::new("body", 3, format!("\nCONTENT (whole):\n{body}\n")));
+        }
+        sections.push(crate::context_budget::ContextSection::new("scaffold-tail", 0, tail.to_string()));
+        let assembled = crate::context_budget::assemble(sections, budget);
+        run_spans::record_view_trims("keyword_settle", "", window, window_source, want_output, &assembled);
+        let prompt = assembled.text;
+        let input = serde_json::json!({
+            "prompt": prompt, "max_tokens": want_output, "temperature": 0.1,
+            "system_prompt": "You improve search keywords for graph containers. Return only valid JSON."
+        });
+        stats.calls_made += 1;
+        let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
+        PromptOrchestrator::capture_loop_model_call("keyword_settle", &prompt, &res);
+        match model_json(&res) {
+            None => model_ok = false,
+            Some(p) => {
+                let expansion: Vec<String> = p.get("expansion").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).collect()).unwrap_or_default();
+                for t in expansion {
+                    if t.is_empty() || t.split_whitespace().count() > 3 || km::is_marker(&t) || km::is_sentence_like(&t) {
+                        continue;
+                    }
+                    let ctx = &c.local_state.context;
+                    let already = ctx.keywords.iter().any(|k| k.trim().eq_ignore_ascii_case(&t));
+                    let rejected_before = ctx.keyword_meta.get(&t).or_else(|| ctx.keyword_meta.get(&t.to_lowercase())).map(|m| m.validated == Some(false)).unwrap_or(false);
+                    if !already && !rejected_before && !new_candidates.iter().any(|x| x.eq_ignore_ascii_case(&t)) {
+                        new_candidates.push(t);
+                    }
+                }
             }
-            changed = true;
+        }
+    }
+
+    // ---- Pass V2 — the SAME gate for the new candidates: stored only if they pass every round; never stored otherwise
+    if !new_candidates.is_empty() {
+        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, new_candidates.clone(), stats).await;
+        apply_validation(&mut c, &outcome, &new_candidates, ctype, &mut changed);
+        if !outcome.unresolved.is_empty() {
+            model_ok = false;
         }
     }
 
