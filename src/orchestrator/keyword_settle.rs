@@ -307,10 +307,44 @@ fn model_json<E>(res: &Result<serde_json::Value, E>) -> Option<serde_json::Value
     }
 }
 
-/// THE GATE. `configured_strength()` rounds; each round is BATCHED (one call carries many terms, chunked to the reading model's window),
-/// asks "is this a true keyword for this container?" per numbered term, and only the round's YES terms continue to the next round — so a
-/// false positive costs one round and a true keyword costs `strength`. Each round presents the terms in a different rotation so the votes
-/// are not the same prompt repeated. Every outcome is logged as a labelled sample.
+/// What one round did to one chunk of terms. Pure (no model, no store) so both modes are unit-tested.
+#[derive(Debug, Default, PartialEq)]
+pub struct RoundStep {
+    /// terms that go on to the next round
+    pub next: Vec<String>,
+    pub validated: Vec<String>,
+    pub rejected: Vec<String>,
+    pub unresolved: Vec<String>,
+}
+
+/// Apply one round's answers to a chunk. The two modes are deliberately ASYMMETRIC (operator doctrine: a drop needs unanimity):
+/// * `existing` (a term ALREADY stored): a YES from any round KEEPS and VALIDATES it (dissent from "drop" is enough); a NO only sends it to
+///   the next round — it is REMOVED only if EVERY round said NO.
+/// * new candidate (not stored yet): a NO REJECTS it at once; a YES only sends it to the next round — it is STORED only if EVERY round
+///   said YES.
+/// A term the reply did not answer (absent / contradictory / the call failed) is `unresolved`: neither kept nor dropped, retried next pass.
+pub fn step_round(existing: bool, chunk: &[String], yes: &std::collections::BTreeSet<usize>, no: &std::collections::BTreeSet<usize>) -> RoundStep {
+    let mut out = RoundStep::default();
+    for (i, t) in chunk.iter().enumerate() {
+        let n = i + 1;
+        let (is_yes, is_no) = (yes.contains(&n), no.contains(&n));
+        match (existing, is_yes, is_no) {
+            (true, true, _) => out.validated.push(t.clone()),
+            (true, false, true) => out.next.push(t.clone()),
+            (false, _, true) => out.rejected.push(t.clone()),
+            (false, true, false) => out.next.push(t.clone()),
+            _ => out.unresolved.push(t.clone()),
+        }
+    }
+    out
+}
+
+/// THE GATE. `configured_strength()` rounds; each round is BATCHED (one call carries many terms, chunked to the reading model's window) and
+/// asks "is this a true keyword for this container?" per numbered term; only the terms still undecided continue (see `step_round` for the
+/// two modes). A STORED term costs ONE round when the model affirms it and N rounds only when it keeps saying NO; a NEW candidate costs one
+/// round when refused and N when it is accepted. Each round presents the terms in a different rotation so the votes are not the same
+/// prompt repeated. A stored term is NEVER removed when `evidence` is false (no readable content). Every outcome is logged as a labelled
+/// sample, with the round it was decided in.
 #[allow(clippy::too_many_arguments)]
 async fn validate_terms(
     executor: &Arc<dyn PipelineExecutor>,
@@ -321,6 +355,8 @@ async fn validate_terms(
     body: &str,
     topics: &[String],
     terms: Vec<String>,
+    existing: bool,
+    evidence: bool,
     stats: &mut PassStats,
 ) -> Validation {
     const QUESTION: &str = "is this a true, content-bearing keyword for the container?";
@@ -341,12 +377,15 @@ async fn validate_terms(
             chunk.rotate_left(rot);
             let list = chunk.iter().enumerate().map(|(i, t)| format!("{}. {}", i + 1, t)).collect::<Vec<_>>().join("\n");
             let head = format!("{}\n\nCONTAINER: {label}\nTOPICS: {}\n\nCANDIDATE KEYWORDS (numbered):\n{list}\n", run_spans::now_line(), topics.join(", "));
-            let tail = "\nQUESTION: For EACH numbered candidate, is it a TRUE, content-bearing SEARCH keyword for THIS container — a word or short phrase that genuinely names something this container is about, so a person searching for it should be shown this container? Answer NO for filler words, pronouns, fragments, markup, system tags, generic words that do not describe this container, and phrases for subject matter it does not cover. When in doubt, NO.\nReturn ONLY JSON: {\"yes\": [numbers], \"no\": [numbers]} — every number in exactly one list.";
+            let tail = format!(
+                "\n{}\n\nQUESTION: For EACH numbered candidate, is it a TRUE keyword for THIS container — does it name something this container is genuinely about, so that a person searching for it should be shown this container? Answer NO for filler words, pronouns, fragments, markup, the system's own bookkeeping labels, and terms for subject matter the container does not cover. Judge each candidate on its own merit.\nReturn ONLY JSON: {{\"yes\": [numbers], \"no\": [numbers]}} — every number in exactly one list.",
+                km::KEYWORD_RULES
+            );
             let mut sections = vec![crate::context_budget::ContextSection::new("scaffold-head", 0, head)];
             if !body.is_empty() {
                 sections.push(crate::context_budget::ContextSection::new("body", 3, format!("\nCONTENT (whole):\n{body}\n")));
             }
-            sections.push(crate::context_budget::ContextSection::new("scaffold-tail", 0, tail.to_string()));
+            sections.push(crate::context_budget::ContextSection::new("scaffold-tail", 0, tail));
             let assembled = crate::context_budget::assemble(sections, budget);
             run_spans::record_view_trims("keyword_validate", "", window, window_source, want_output, &assembled);
             let prompt = assembled.text;
@@ -361,25 +400,36 @@ async fn validate_terms(
                 None => out.unresolved.extend(chunk),
                 Some(v) => {
                     let (yes, no) = parse_round(&v, chunk.len());
-                    for (i, t) in chunk.iter().enumerate() {
-                        let n = i + 1;
-                        if no.contains(&n) {
-                            crate::keyword_program::record_judgment("keyword_validation", Some(container_id), t, label, &format!("{QUESTION} [NO in round {round} of {strength}]"), false, strength);
-                            out.rejected.push(t.clone());
-                        } else if yes.contains(&n) {
-                            next.push(t.clone());
-                        } else {
-                            out.unresolved.push(t.clone());
-                        }
+                    let step = step_round(existing, &chunk, &yes, &no);
+                    for t in &step.validated {
+                        crate::keyword_program::record_judgment("keyword_validation", Some(container_id), t, label, &format!("{QUESTION} [YES in round {round} of {strength}; stored term kept]"), true, strength);
                     }
+                    for t in &step.rejected {
+                        crate::keyword_program::record_judgment("keyword_validation", Some(container_id), t, label, &format!("{QUESTION} [NO in round {round} of {strength}; new candidate refused]"), false, strength);
+                    }
+                    out.validated.extend(step.validated);
+                    out.rejected.extend(step.rejected);
+                    out.unresolved.extend(step.unresolved);
+                    next.extend(step.next);
                 }
             }
         }
         alive = next;
     }
+    // what is left after every round: a NEW candidate said YES every time (store it); a STORED term said NO every time (remove it)
     for t in alive {
-        crate::keyword_program::record_judgment("keyword_validation", Some(container_id), &t, label, &format!("{QUESTION} [YES in all {strength} rounds]"), true, strength);
-        out.validated.push(t);
+        if existing && !evidence {
+            // NO EVIDENCE, NO REMOVAL: the model had nothing but a title to check this term against (live EU 2026-11-10: `ufw`, `fail2ban`,
+            // `loopback` were refused for a methodology whose body was never read). A stored term is removed only when the judge could see the
+            // container's content; otherwise it stays pending and is retried once the content is readable.
+            out.unresolved.push(t);
+        } else if existing {
+            crate::keyword_program::record_judgment("keyword_validation", Some(container_id), &t, label, &format!("{QUESTION} [NO in all {strength} rounds; stored term removed]"), false, strength);
+            out.rejected.push(t);
+        } else {
+            crate::keyword_program::record_judgment("keyword_validation", Some(container_id), &t, label, &format!("{QUESTION} [YES in all {strength} rounds; new candidate stored]"), true, strength);
+            out.validated.push(t);
+        }
     }
     out
 }
@@ -468,7 +518,7 @@ async fn settle_container(
         .filter(|k| !crate::keyword_program::term_is_validated(c.local_state.context.keyword_meta.get(k)))
         .collect();
     if !pending.is_empty() {
-        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, pending, stats).await;
+        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, pending, true, !body.is_empty(), stats).await;
         apply_validation(&mut c, &outcome, &[], ctype, &mut changed);
         if !outcome.unresolved.is_empty() {
             model_ok = false;
@@ -528,7 +578,7 @@ async fn settle_container(
 
     // ---- Pass V2 — the SAME gate for the new candidates: stored only if they pass every round; never stored otherwise
     if !new_candidates.is_empty() {
-        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, new_candidates.clone(), stats).await;
+        let outcome = validate_terms(executor, available_models, meta_fallback, id, &label, &body, &topics, new_candidates.clone(), false, !body.is_empty(), stats).await;
         apply_validation(&mut c, &outcome, &new_candidates, ctype, &mut changed);
         if !outcome.unresolved.is_empty() {
             model_ok = false;
@@ -829,5 +879,24 @@ mod tests {
         let flat: Vec<String> = by_tokens.into_iter().flatten().collect();
         assert_eq!(flat, terms, "order preserved, nothing lost");
         assert_eq!(chunk_terms(&["x".to_string()], 0, 0).len(), 1, "a single term always fits somewhere");
+    }
+
+    #[test]
+    fn a_stored_term_is_removed_only_if_every_round_says_no_and_a_new_one_is_stored_only_if_every_round_says_yes() {
+        use std::collections::BTreeSet;
+        let chunk: Vec<String> = ["ufw", "fail2ban", "noise"].iter().map(|s| s.to_string()).collect();
+        let set = |v: &[usize]| v.iter().copied().collect::<BTreeSet<usize>>();
+        // EXISTING: round 1 says NO to ufw and noise, YES to fail2ban
+        let r1 = step_round(true, &chunk, &set(&[2]), &set(&[1, 3]));
+        assert_eq!(r1.validated, vec!["fail2ban"], "one YES keeps and validates a stored term");
+        assert_eq!(r1.next, vec!["ufw", "noise"], "a NO alone only sends it to the next round — it is NOT removed");
+        assert!(r1.rejected.is_empty() && r1.unresolved.is_empty());
+        // NEW candidate: the same answers
+        let n1 = step_round(false, &chunk, &set(&[2]), &set(&[1, 3]));
+        assert_eq!(n1.rejected, vec!["ufw", "noise"], "a NO refuses a new candidate at once");
+        assert_eq!(n1.next, vec!["fail2ban"], "a YES alone only sends it to the next round");
+        // an unanswered term is neither kept nor dropped
+        let u = step_round(true, &chunk, &set(&[]), &set(&[1]));
+        assert_eq!(u.unresolved, vec!["fail2ban", "noise"]);
     }
 }

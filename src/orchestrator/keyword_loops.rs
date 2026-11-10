@@ -77,6 +77,13 @@ pub async fn run_keyword_settlement_loop(
     tracing::info!(idle_secs = idle, "keyword settlement loop: started");
     tokio::time::sleep(Duration::from_secs(60)).await;
     loop {
+        // KILL SWITCH (2026-11-10): `OZONE_KEYWORD_SETTLE=off` pauses settlement (the validation gate writes to stored keywords) without a
+        // rollback; it is read every cycle, so it takes effect on the next sweep after the environment is changed and the host restarted.
+        if matches!(std::env::var("OZONE_KEYWORD_SETTLE").ok().as_deref(), Some("off") | Some("0") | Some("false")) {
+            tracing::warn!("keyword settlement: paused by OZONE_KEYWORD_SETTLE");
+            tokio::time::sleep(Duration::from_secs(idle)).await;
+            continue;
+        }
         let ctx = crate::trace::TraceCtx::new_root("loop-pass");
         let (executor, store, models, fallback) = (executor.clone(), store.clone(), available_models.clone(), meta_fallback.clone());
         let did = crate::trace::with_trace(
