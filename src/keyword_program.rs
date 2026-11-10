@@ -32,8 +32,11 @@ pub const CONTAINER_TOTALS_KEY: &str = "*";
 /// The container types whose keywords are MEANING (a content search is meant to match them) — the ones the validation gate covers, in the
 /// order settlement validates them (most-searched first). Bookkeeping types (CoordinationEvent, Derived, McpResult, Experience, chat rows)
 /// carry system tags, not meaning; they are not gated.
-pub const GATED_TYPES: &[&str] =
-    &["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "JurisdictionRuleSet", "FileReference", "Category", "McpEntity"];
+pub const GATED_TYPES: &[&str] = &["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "FileReference", "Category", "McpEntity"];
+// NOT gated, on purpose: `JurisdictionRuleSet`. Its keywords are ROUTING KEYS — the region / scope code the jurisdiction loader finds the rule
+// set by (`global`, `eu`, `us-ca`, and ISO country codes such as `is`, `no`, `do`, `it`) — plus terms copied from the rules' own conditions.
+// They are facts, not guesses: running them through the model gate or a shape rule can silently stop a region's rules from loading
+// (found live 2026-11-10: a filler-word cleanup removed `is`/`no`/`do`/`it` — Iceland, Norway, the Dominican Republic, Italy).
 
 /// THE WRITE-TIME GATE — called from the ONE place every container is created or updated (`zsei/query.rs`, which host writers and pipelines
 /// both go through), so no writer can bypass it. It cannot call a model, so it does the two things that are deterministic: (1) the SHAPE
@@ -1089,6 +1092,15 @@ mod tests {
         assert!(creation_pair_eligible(&ev("Blueprint", &["x"])));
         assert!(!creation_pair_eligible(&ev("Methodology", &[])), "no request terms (created outside a request) = no pair");
         assert!(!creation_pair_eligible(&ev("CoordinationEvent", &["x"])));
+    }
+
+    #[test]
+    fn jurisdiction_rule_sets_are_never_gated_their_keywords_are_routing_keys() {
+        assert!(!GATED_TYPES.contains(&"JurisdictionRuleSet"));
+        let mut ctx = Context { keywords: vec!["is".into(), "Is".into(), "personal".into()], ..Default::default() };
+        gate_keywords_on_write("JurisdictionRuleSet", &mut ctx);
+        assert_eq!(ctx.keywords, vec!["is", "Is", "personal"], "untouched: not even the duplicate is dropped");
+        assert!(ctx.keyword_meta.is_empty(), "no pending registration either");
     }
 
     #[test]

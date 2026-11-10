@@ -15,7 +15,8 @@ import { fileURLToPath } from "node:url";
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith("--") ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith("--") ? all[i + 1] : true]] : a), []));
 const label = args.label ?? "local";
 const apply = args.apply === true;
-const GATED = new Set(["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "JurisdictionRuleSet", "FileReference", "Category", "McpEntity"]);
+// NOT JurisdictionRuleSet: its keywords are routing keys (region / ISO country codes such as is, no, do, it) the jurisdiction loader searches by.
+const GATED = new Set(["Methodology", "Project", "Workspace", "ModalityGraph", "Blueprint", "Pipeline", "FileReference", "Category", "McpEntity"]);
 // REVIEWED 2026-11-10 from the actual stores (both): unambiguous English function words only. Acronyms (qa, tdd, ssh, mcp, ufw, llm, git …) and content words are NOT here.
 const FILLER = new Set(["a", "an", "the", "and", "or", "is", "are", "it", "you", "to", "of", "i", "not", "no", "do", "why"]);
 const isMarker = (t) => { const i = t.indexOf(":"); return !/\s/.test(t) && i >= 1 && i < t.length - 1; };

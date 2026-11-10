@@ -1,11 +1,11 @@
 {
  "label": "local",
- "date": "2026-11-10T10:19:23.865Z",
+ "date": "2026-11-10T10:26:45.219Z",
  "apply": false,
- "total": 238,
+ "total": 232,
  "by_rule": {
   "R3-duplicate": 117,
-  "R5-filler": 29,
+  "R5-filler": 23,
   "R2-sentence": 59,
   "R1-empty": 2,
   "R4-digit-only": 31
@@ -764,80 +764,6 @@
     {
      "term": "conversion of carbon dioxide and water",
      "rule": "R2-sentence",
-     "validated": null,
-     "meta": null
-    }
-   ]
-  },
-  {
-   "id": 1102,
-   "type": "JurisdictionRuleSet",
-   "name": "Norway Jurisdiction Rules (Personal Data Act 2018)",
-   "remove": [
-    {
-     "term": "no",
-     "rule": "R5-filler",
-     "validated": null,
-     "meta": null
-    }
-   ]
-  },
-  {
-   "id": 1115,
-   "type": "JurisdictionRuleSet",
-   "name": "Dominican Republic Jurisdiction Rules (verified web search, ",
-   "remove": [
-    {
-     "term": "do",
-     "rule": "R5-filler",
-     "validated": null,
-     "meta": {
-      "source": "",
-      "validated": null,
-      "hits": {
-       "returned": 80,
-       "packed": 0,
-       "kept": 0,
-       "dropped": 0,
-       "applied": 0,
-       "human": 0
-      }
-     }
-    }
-   ]
-  },
-  {
-   "id": 1144,
-   "type": "JurisdictionRuleSet",
-   "name": "Jurisdiction: do",
-   "remove": [
-    {
-     "term": "do",
-     "rule": "R5-filler",
-     "validated": null,
-     "meta": {
-      "source": "",
-      "validated": null,
-      "hits": {
-       "returned": 80,
-       "packed": 0,
-       "kept": 0,
-       "dropped": 0,
-       "applied": 0,
-       "human": 0
-      }
-     }
-    }
-   ]
-  },
-  {
-   "id": 1150,
-   "type": "JurisdictionRuleSet",
-   "name": "Jurisdiction: no",
-   "remove": [
-    {
-     "term": "no",
-     "rule": "R5-filler",
      "validated": null,
      "meta": null
     }
@@ -2743,32 +2669,6 @@
     {
      "term": "42169",
      "rule": "R4-digit-only",
-     "validated": null,
-     "meta": null
-    }
-   ]
-  },
-  {
-   "id": 42927,
-   "type": "JurisdictionRuleSet",
-   "name": "Jurisdiction: it",
-   "remove": [
-    {
-     "term": "it",
-     "rule": "R5-filler",
-     "validated": null,
-     "meta": null
-    }
-   ]
-  },
-  {
-   "id": 42930,
-   "type": "JurisdictionRuleSet",
-   "name": "Jurisdiction: is",
-   "remove": [
-    {
-     "term": "is",
-     "rule": "R5-filler",
      "validated": null,
      "meta": null
     }
