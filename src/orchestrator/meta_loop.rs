@@ -83,6 +83,8 @@ pub async fn run_methodology_meta_loop(
                 }
                 // 1b) QUALITY AUDIT (E18): thin methodologies raise `modify` gaps that the drafting pass below acts on.
                 audit_methodology_quality_once(&store, &mut stats).await;
+                // 1c) REFINEMENT REPORT (E26, deterministic): aggregates what the rule gate recorded — no model call, nothing changed
+                summarize_refinement_candidates();
                 let gaps_result = review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await;
                 // (the keyword program — rollup, continuous training, settlement — runs in its OWN actors: orchestrator/keyword_loops.rs. It used
                 //  to run here and starved this pass for hours: no pass completed after 07:23 UTC on 2026-11-08.)
@@ -161,6 +163,46 @@ pub(crate) fn record_refinement_candidate(methodology_id: u64, name: &str, rules
     .to_string();
     if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| writeln!(f, "{line}")) {
         tracing::warn!(error = %e, "could not record a methodology refinement candidate");
+    }
+}
+
+/// REFINEMENT REPORT (E26, operator 2026-11-10: a sound methodology has no optional rules). Deterministic and read-only toward methodologies:
+/// aggregates `methodology_refinement_candidates.jsonl` into `methodology_refinement_report.json` — per methodology, how many walks flagged
+/// it, which rules were judged clearly-not-applicable (with counts), which applicable rules no step cited (with counts). No threshold decides
+/// anything and no methodology is split / changed here: the report is the evidence a refinement (split / rewrite) works from, and the UI /
+/// operator can read it. Rewritten whole each pass (the jsonl is the durable record), so it is always consistent with the log. Best-effort.
+pub(crate) fn summarize_refinement_candidates() {
+    use std::collections::BTreeMap;
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let Ok(text) = std::fs::read_to_string(format!("{}/methodology_refinement_candidates.jsonl", data_dir)) else { return };
+    // methodology id -> (name, walks flagged, rule text -> count)
+    let mut inapplicable: BTreeMap<u64, (String, u64, BTreeMap<String, u64>)> = BTreeMap::new();
+    let mut uncovered: BTreeMap<String, u64> = BTreeMap::new();
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        if v.get("kind").and_then(|k| k.as_str()) == Some("uncovered_rules") {
+            for r in v.get("rule_refs").and_then(|a| a.as_array()).into_iter().flatten().filter_map(|x| x.as_str()) {
+                *uncovered.entry(r.to_string()).or_insert(0) += 1;
+            }
+            continue;
+        }
+        let Some(id) = v.get("methodology_id").and_then(|x| x.as_u64()) else { continue };
+        let e = inapplicable.entry(id).or_insert_with(|| (v.get("methodology").and_then(|x| x.as_str()).unwrap_or("").to_string(), 0, BTreeMap::new()));
+        e.1 += 1;
+        for r in v.get("rules_not_applicable").and_then(|a| a.as_array()).into_iter().flatten() {
+            let key = format!("{}: {}", r.get("rule").and_then(|x| x.as_str()).unwrap_or("?"), r.get("text").and_then(|x| x.as_str()).unwrap_or(""));
+            *e.2.entry(key).or_insert(0) += 1;
+        }
+    }
+    let report = serde_json::json!({
+        "methodologies_with_inapplicable_rules": inapplicable.iter().map(|(id, (name, walks, rules))| serde_json::json!({
+            "methodology_id": id, "methodology": name, "walks_flagged": walks, "rules_not_applicable": rules,
+        })).collect::<Vec<_>>(),
+        "uncovered_rule_refs": uncovered,
+        "note": "evidence only — no methodology is changed by this report; a sound methodology has no optional rules",
+    });
+    if let Err(e) = std::fs::write(format!("{}/methodology_refinement_report.json", data_dir), serde_json::to_string_pretty(&report).unwrap_or_default()) {
+        tracing::warn!(error = %e, "could not write the methodology refinement report");
     }
 }
 
