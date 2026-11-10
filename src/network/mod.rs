@@ -90,6 +90,10 @@ pub fn body_hash(bytes: &[u8]) -> String {
     format!("{h:016x}")
 }
 
+/// The ONE shared topic every instance subscribes to. A marketplace publication is a SINGLE publish here — never a message per peer. The push
+/// carries NO names or keywords (a shared topic reaches every subscriber, paired or not); details are pulled by PAIRED peers only.
+pub const MARKETPLACE_TOPIC: &str = "ozone/marketplace";
+
 /// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
 /// reviewed fetch can ask for exactly this item; it is never used as an identity.
 pub fn announce_envelope(item_type: &SyncItemType, name: &str, hash: &str, keywords: &[String], source_container_id: ContainerID) -> Vec<u8> {
@@ -470,6 +474,17 @@ impl NetworkManager {
             }
         }
 
+        // the shared marketplace topic: one publish reaches every connected instance (operator 2026-11-10: announcements go through the
+        // marketplace, not to each user one by one)
+        {
+            let topic = libp2p::gossipsub::IdentTopic::new(MARKETPLACE_TOPIC);
+            let mut swarm = self.swarm.lock().await;
+            match swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+                Ok(_) => tracing::info!("P2P: subscribed to the shared marketplace topic {}", MARKETPLACE_TOPIC),
+                Err(e) => tracing::error!("P2P: failed to subscribe to the marketplace topic: {}", e),
+            }
+        }
+
         // Drive the libp2p Swarm's own event loop (2026-10-20, found live
         // right after the listen_on fix above: `Swarm` is a `Stream` — none
         // of its pending work (dials, inbound handshakes, protocol
@@ -758,7 +773,8 @@ impl NetworkManager {
         Ok(())
     }
 
-    /// Notify of new methodology (ALWAYS syncs)
+    /// SUPERSEDED 2026-11-10 (no caller): methodology announcements are a marketplace publish (`on_item_announced`). Kept only so the
+    /// public API does not change; it still queues a per-peer send if something ever calls it.
     pub async fn on_methodology_created(
         &self,
         container_id: ContainerID,
@@ -786,8 +802,9 @@ impl NetworkManager {
         Ok(())
     }
 
-    /// ANNOUNCE one allowed item (methodology, jurisdiction rule set, pipeline, tool) to paired peers as a manifest. Nothing is applied on the
-    /// other side: the receiver records an offer and gates it.
+    /// PUBLISH one allowed item (methodology, jurisdiction rule set, pipeline, tool) to MY marketplace listing and push ONE notification to
+    /// every connected instance (a single publish on the shared marketplace topic). Nothing is applied anywhere: a paired peer pulls the
+    /// listing and gates what it sees.
     pub async fn on_item_announced(
         &self,
         container_id: ContainerID,
@@ -795,19 +812,51 @@ impl NetworkManager {
         manifest: Vec<u8>,
     ) -> OzoneResult<()> {
         if matches!(item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
-            return Ok(()); // not an announceable kind
+            return Ok(()); // not a publishable kind
         }
+        let Ok(m) = serde_json::from_slice::<serde_json::Value>(&manifest) else { return Ok(()) };
+        // observability hooks only; priority Never = nothing is queued for per-peer sending
         let item = SyncItem {
             container_id,
-            item_type,
-            priority: SyncPriority::High,
+            item_type: item_type.clone(),
+            priority: SyncPriority::Never,
             data: manifest,
             timestamp: chrono::Utc::now().timestamp() as u64,
         };
-        self.trigger_hooks("on_item_announced", item).await
+        self.trigger_hooks("on_item_announced", item).await?;
+        match self.publish_to_marketplace(&item_type, &m).await {
+            Ok(n) => tracing::info!("P2P: marketplace updated; one notification pushed to {} connected peer(s)", n),
+            Err(e) => tracing::debug!("P2P: marketplace updated locally; no push ({})", e),
+        }
+        Ok(())
     }
 
-    /// Notify of new container finding (ALWAYS syncs, batched)
+    fn data_dir_of(&self) -> std::path::PathBuf {
+        self.paired_peers_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."))
+    }
+
+    /// Add `manifest` to MY marketplace listing (`marketplace_published.json`, keyed by type + name, so a re-publish replaces) and push ONE
+    /// notification on the shared topic. The notification names nothing — only the listing version and how many items there are.
+    pub async fn publish_to_marketplace(&self, item_type: &SyncItemType, manifest: &serde_json::Value) -> OzoneResult<usize> {
+        let path = self.data_dir_of().join("marketplace_published.json");
+        let mut listing: serde_json::Map<String, serde_json::Value> =
+            std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        listing.insert(format!("{}|{}", item_type.as_str(), manifest["name"].as_str().unwrap_or("")), manifest.clone());
+        let version = body_hash(serde_json::to_string(&listing).unwrap_or_default().as_bytes());
+        if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&listing).unwrap_or_default()) {
+            tracing::warn!("P2P: could not write the marketplace listing: {}", e);
+        }
+        let notify = serde_json::to_vec(&serde_json::json!({
+            "kind": "marketplace_notify",
+            "listing_version": version,
+            "count": listing.len(),
+            "item_type": item_type.as_str(),
+        }))
+        .unwrap_or_default();
+        self.broadcast(MARKETPLACE_TOPIC, &notify).await
+    }
+
+    /// SUPERSEDED 2026-11-10 (no caller): the bridge no longer sends findings or any other container to peers. Kept for API stability.
     pub async fn on_container_created(
         &self,
         container_id: ContainerID,
@@ -1226,6 +1275,70 @@ pub struct PeerDialogueTurn {
     pub part: u32,
     #[serde(default)]
     pub parts: u32,
+}
+
+/// MARKETPLACE EXCHANGE (pull, paired peers only). Reads what the swarm recorded from PAIRED peers (`peer_sync_candidates.jsonl`):
+/// * a `marketplace_notify` whose listing version we have not seen → ask that peer for its listing (`catalog_request`, a direct message —
+///   `send_to_peer` itself refuses unpaired peers);
+/// * a `catalog_request` → answer with MY listing (`marketplace_published.json`) — manifests only, no bodies;
+/// * a `catalog` is recorded by the swarm like any message and listed by the marketplace as offers (`peer_offers`), where the gate decides.
+/// Progress is an offset file; only COMPLETE lines are processed. Nothing is downloaded or applied.
+pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<NetworkManager>>, data_dir: String) {
+    tokio::spawn(async move {
+        let dir = std::path::PathBuf::from(&data_dir);
+        let log = dir.join("peer_sync_candidates.jsonl");
+        let offset_path = dir.join("marketplace_exchange.offset");
+        let versions_path = dir.join("peer_listing_versions.json");
+        let published_path = dir.join("marketplace_published.json");
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            let offset: usize = std::fs::read_to_string(&offset_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let Ok(content) = std::fs::read_to_string(&log) else { continue };
+            if content.len() <= offset || !content.is_char_boundary(offset) {
+                continue;
+            }
+            let fresh = &content[offset..];
+            let upto = fresh.rfind('\n').map(|i| i + 1).unwrap_or(0); // complete lines only
+            if upto == 0 {
+                continue;
+            }
+            let mut versions: serde_json::Map<String, serde_json::Value> =
+                std::fs::read_to_string(&versions_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            for line in fresh[..upto].lines() {
+                let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+                let env = &row["envelope"];
+                let Some(from) = row["from_peer"].as_str() else { continue };
+                let Ok(peer) = from.parse::<PeerId>() else { continue };
+                match env["kind"].as_str() {
+                    Some("marketplace_notify") => {
+                        let v = env["listing_version"].as_str().unwrap_or("");
+                        if v.is_empty() || versions.get(from).and_then(|x| x.as_str()) == Some(v) {
+                            continue;
+                        }
+                        let req = serde_json::json!({"kind": "catalog_request", "listing_version": v}).to_string();
+                        if network.read().await.send_to_peer(&peer, req.as_bytes()).await.is_ok() {
+                            versions.insert(from.to_string(), serde_json::json!(v));
+                        }
+                    }
+                    Some("catalog_request") => {
+                        let listing: serde_json::Map<String, serde_json::Value> =
+                            std::fs::read_to_string(&published_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+                        if listing.is_empty() {
+                            continue;
+                        }
+                        let items: Vec<serde_json::Value> = listing.values().cloned().collect();
+                        let msg = serde_json::json!({"kind": "catalog", "items": items}).to_string();
+                        let _ = network.read().await.send_to_peer(&peer, msg.as_bytes()).await;
+                    }
+                    _ => {}
+                }
+            }
+            let _ = std::fs::write(&versions_path, serde_json::to_string_pretty(&versions).unwrap_or_default());
+            let _ = std::fs::write(&offset_path, (offset + upto).to_string());
+        }
+    });
 }
 
 /// Derive the shared thread id for a topic: both instances hash the same

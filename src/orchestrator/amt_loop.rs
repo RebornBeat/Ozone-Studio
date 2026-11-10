@@ -1893,11 +1893,9 @@ Instruction with added constraints: IPv4 and IPv6..."#);
     }
 }
 
-/// Bridge the graph ripple to the network layer's hook system.
-/// Spawns a subscriber that converts GraphEvents into
-/// `on_container_created` / `on_blueprint_created` /
-/// `on_methodology_created` calls, finally connecting the network
-/// transport to the graph writes (it was registered but never fed).
+/// Bridge the graph ripple to the marketplace (operator 2026-11-10: NOTIFY AND GATE). Spawns a subscriber that turns `created` GraphEvents
+/// of the ALLOWED kinds (methodology, jurisdiction rule set, pipeline, tool) into a MANIFEST on this instance's marketplace listing plus one
+/// push notification (`NetworkManager::on_item_announced`). Blueprints are private and every other container is never announced.
 ///
 /// Gated by `NetworkConfig::auto_broadcast_sync` at the one real call site
 /// (src/lib.rs) — this function itself runs unconditionally once spawned,

@@ -995,11 +995,13 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
     let mut offers: std::collections::BTreeMap<String, Value> = Default::default();
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
-        let env = &row["envelope"];
-        if env["kind"].as_str() != Some("announce") {
-            continue;
-        }
         let from = row["from_peer"].as_str().unwrap_or("unknown-peer");
+        let manifests: Vec<Value> = match row["envelope"]["kind"].as_str() {
+            Some("announce") => vec![row["envelope"].clone()],
+            Some("catalog") => row["envelope"]["items"].as_array().cloned().unwrap_or_default(),
+            _ => continue,
+        };
+        for env in manifests {
         let (item_type, name, hash) = (env["item_type"].as_str().unwrap_or(""), env["name"].as_str().unwrap_or(""), env["body_hash"].as_str().unwrap_or(""));
         if name.is_empty() || item_type.is_empty() || item_type == "blueprint" {
             continue; // blueprints are private: even a peer's announcement of one is ignored
@@ -1024,6 +1026,7 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
                 "note": if local_status == "conflict" { "same name, different content — review; it is never overwritten" } else { "" },
             }),
         );
+        }
     }
     offers.into_values().collect()
 }
@@ -1185,6 +1188,12 @@ async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_
         "generated_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
         "peer_offers": peer_offers,
         "peer_offers_pending": peer_offers_pending,
+        // what THIS instance publishes to the marketplace (manifests only; blueprints never)
+        "published": std::fs::read_to_string(std::path::Path::new(&data_dir).join("marketplace_published.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Map<String, Value>>(&t).ok())
+            .map(|m| m.into_values().collect::<Vec<_>>())
+            .unwrap_or_default(),
         "tools": { "count": tools_v.len(), "providers": providers_json },
         // WANTED: capabilities that were required (methodology binding / blueprint / simulation) but are not registered —
         // to be built or downloaded after review (tool_binding.rs `record_capability_gaps`)

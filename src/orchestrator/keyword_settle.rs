@@ -5,16 +5,20 @@
 //! A meta-loop actor pass, OFF the walk's critical path, incremental per container, no cap on how many containers it settles (progress,
 //! not a count — it simply walks every unsettled container, most-searched types first):
 //!   * Pass A — deterministic verbatim capture (no model): methodology identifiers (provider/tool names, principle and rule names),
-//!     project/workspace roll-up of their children's meaning terms. Idempotent; adds only what is missing.
-//!   * Pass B — ONE model call per container returns (1) an EXPANSION (synonyms / aliases / likely request phrasings / translations — adds
-//!     only, no unanimity needed) and (2) PROPOSED non-keywords among the existing terms.
-//!   * Pass C — every proposed removal, and every term the real hit log has net-rejected (dropped > kept + applied), goes to the strength-N
-//!     yes/no vote "is X NOT a true keyword for this container?". A term is REMOVED only on a unanimous YES; any dissent keeps it and marks it
-//!     validated. Every vote is logged as a labelled sample.
-//!   * Pass D — over time: the rollup (keyword_program) makes the per-term hit counts real; Pass C re-judges terms whose real evidence turned
-//!     negative. Nothing is deleted by a counter alone.
-//! A container is SETTLED when every meaning keyword carries provenance in `keyword_meta`; a model failure leaves it unsettled (retried next
-//! pass). Markers (`ns:value`) are never sent to the model and never touched.
+//!     project/workspace roll-up of their children's meaning terms. Idempotent; adds only what is missing. Identifier / roll-up terms are
+//!     facts read from the content's own structure and count as VALIDATED by construction.
+//!   * Pass V1 — THE VALIDATION GATE for what is already stored (operator 2026-11-10: every stored keyword must be validated): batched
+//!     strength-N rounds ("is this a true keyword for THIS container?"); ASYMMETRIC (a drop needs unanimity): a stored term is REMOVED only if
+//!     EVERY round says NO, one YES keeps and validates it; a stored term is never removed when no content was readable; an unanswered term
+//!     stays pending.
+//!   * Pass B — ONE expansion call per container (only types where keyword search has been observed to hit), seeded with VALIDATED terms
+//!     only: alternative request phrasings / synonyms / translations. Candidates are NOT stored here.
+//!   * Pass V2 — the same gate for the new candidates, in the opposite polarity: a candidate is stored only if EVERY round says YES.
+//!   * Pass C/D — a term whose real hit evidence turned negative (dropped > kept + applied) and that was never affirmed gets the strength-N
+//!     "is X NOT a true keyword?" vote (unanimous YES removes). Nothing is deleted by a counter alone.
+//! A container is SETTLED when every meaning keyword is VALIDATED (`keyword_program::term_is_validated`); a model failure leaves terms pending
+//! (retried next pass). JurisdictionRuleSet and bookkeeping types are never gated (`keyword_program::GATED_TYPES`). Kill switch:
+//! `OZONE_KEYWORD_SETTLE=off`. Markers (`ns:value`) are never sent to the model and never touched.
 
 use super::meta_loop::{methodology_whole, reader_window};
 use crate::config::{AvailableModel, ModelFallbackConfig};
@@ -438,7 +442,7 @@ async fn validate_terms(
 /// ModalityGraph keywords are deterministic roll-ups / graph identifiers and never produced a hit in any source; Category / FileReference
 /// keywords are the name / the extension.) Revisit when the hit log shows hits on another type.
 fn expandable(ctype: &str) -> bool {
-    matches!(ctype, "Methodology" | "Blueprint" | "Pipeline" | "JurisdictionRuleSet" | "McpEntity")
+    matches!(ctype, "Methodology" | "Blueprint" | "Pipeline" | "McpEntity")
 }
 
 /// Write a validation outcome into the container: passed terms are stored (new) / marked validated (existing); failed terms are removed

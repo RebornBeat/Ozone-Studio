@@ -1524,17 +1524,11 @@ impl OzoneRuntime {
                 );
             }
 
-            // P2P SYNC BRIDGE (2026-10-19): the real methodology/blueprint
-            // broadcast chain (NetworkManager::on_methodology_created/etc.
-            // -> trigger_hooks -> broadcast_high_priority -> send_to_peer)
-            // was always real, but spawn_network_hook_bridge — the one
-            // piece that actually feeds it real container-creation events —
-            // was written and never called anywhere, so nothing ever
-            // reached a connected peer regardless of P2P being enabled.
-            // Opt-in only (auto_broadcast_sync defaults false): an existing
-            // deployment upgrading to this binary keeps today's exact
-            // no-outbound-sharing behavior unless an operator deliberately
-            // turns this on in config.
+            // P2P MARKETPLACE BRIDGE (operator 2026-11-10: NOTIFY AND GATE). spawn_network_hook_bridge turns real creation events of the ALLOWED
+            // kinds (methodology, jurisdiction rule set, pipeline, tool — never blueprints, never user data) into MANIFESTS on this instance's
+            // marketplace listing and ONE push notification on the shared marketplace topic (not a message per peer); spawn_marketplace_exchange
+            // lets PAIRED peers pull the listing; the receiving marketplace lists offers and gates them. Nothing is downloaded or applied.
+            // Opt-in only (auto_broadcast_sync defaults false).
             if runtime.read().await.config.network.auto_broadcast_sync {
                 tracing::info!("P2P auto-broadcast sync: ENABLED (auto_broadcast_sync=true)");
                 let bridge_store: Arc<dyn crate::orchestrator::StoreAccess> =
@@ -1544,22 +1538,11 @@ impl OzoneRuntime {
                     runtime.read().await.network.clone(),
                     bridge_store,
                 );
-                // Periodic driver for the Normal-priority batch queue —
-                // process_batch_sync previously had no caller, so batched
-                // findings queued forever. Same gate as the bridge above.
-                {
-                    let batch_network = runtime.read().await.network.clone();
-                    let batch_secs = runtime.read().await.config.network.batch_sync_interval_secs.max(5);
-                    tokio::spawn(async move {
-                        let mut tick = tokio::time::interval(std::time::Duration::from_secs(batch_secs));
-                        loop {
-                            tick.tick().await;
-                            if let Err(e) = batch_network.read().await.process_batch_sync().await {
-                                tracing::warn!("P2P batch sync pass failed: {}", e);
-                            }
-                        }
-                    });
-                }
+                // the pull side of the marketplace exchange (paired peers only; manifests, never content)
+                let exchange_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.read().await.config.general.data_dir.clone());
+                crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir);
+                // (the old periodic batch driver is gone: nothing feeds the Normal-priority per-peer queue any more — announcements are a single
+                // marketplace publish, see network::NetworkManager::publish_to_marketplace)
             } else {
                 tracing::info!("P2P auto-broadcast sync: disabled (auto_broadcast_sync=false, default) — container creation never reaches connected peers automatically");
             }

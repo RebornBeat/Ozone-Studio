@@ -606,18 +606,11 @@ pub struct NetworkConfig {
     pub enable_mdns: bool,
     /// Sync interval in seconds for batch sync
     pub batch_sync_interval_secs: u64,
-    /// [2026-11-10: NOTIFY AND GATE — when true, only MANIFESTS (type, name, body hash, keywords; no content) of methodologies, jurisdiction
-    /// rule sets, pipelines and tools are announced to PAIRED peers; blueprints are private and never announced; the receiving side lists
-    /// them as offers and gates them (marketplace `peer_offers`). Nothing is downloaded or applied automatically.]
-    /// Whether real container-creation events (methodologies/blueprints/
-    /// findings) actually broadcast to connected P2P peers. The chain that
-    /// does this (`orchestrator::amt_loop::spawn_network_hook_bridge` →
-    /// `NetworkManager::on_methodology_created`/etc. → the real, already-
-    /// working `broadcast_high_priority()`) was built but never started at
-    /// boot — this flag is the explicit opt-in for wiring it up, so an
-    /// existing deployment upgrading to this binary keeps today's exact
-    /// behavior (no outbound sharing) unless an operator deliberately turns
-    /// it on. Default false.
+    /// NOTIFY AND GATE (operator 2026-11-10). When true, creation of a methodology, jurisdiction rule set, pipeline or tool is published as a
+    /// MANIFEST (type, name, body hash, keywords — no content) to THIS instance's marketplace listing, and ONE notification is pushed to every
+    /// connected peer on the shared marketplace topic (never a message per peer). Blueprints are private and never published. Paired peers
+    /// pull the listing; the receiving marketplace lists each item as an offer and a gate / the operator decides whether to download it.
+    /// Nothing is downloaded or applied automatically. Default false (opt-in, so an upgraded deployment shares nothing until enabled).
     #[serde(default)]
     pub auto_broadcast_sync: bool,
 }
