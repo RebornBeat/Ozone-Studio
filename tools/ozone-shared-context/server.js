@@ -521,7 +521,8 @@ async function hostEvents(limit = 10) {
       try {
         const c = (await hostQuery({ GetContainer: { container_id: id } }))?.Container;
         const kws = c?.local_state?.context?.keywords || [];
-        const kind = HOST_EVENT_KINDS.find((k) => kws.includes(k));
+        // the write chokepoint now stores the kind as the marker `kind:<kind>` (2026-11-10 tag namespacing); older rows keep the plain word — accept both
+        const kind = HOST_EVENT_KINDS.find((k) => kws.includes(k) || kws.includes(`kind:${k}`));
         if (!kind) continue;
         events.push({
           container_id: id,

@@ -414,7 +414,7 @@ async fn review_amt_candidates_once(
         inputs.insert("prompt".to_string(), serde_json::json!(task_prompt));
         inputs.insert("source".to_string(), serde_json::json!("amt-loop"));
         // WORK-ORDER TREE: an expansion of an AMT grows the tree — the expansion task hangs under the walk that produced that AMT (a graft),
-        // so the walk's completion is gated by it (docs: work_order.rs)
+        // so it shows under the walk in the work-order tree (the walk task's own lifecycle — `complete_task` — is unchanged and does not wait for it; docs: work_order.rs)
         if let Some(parent) = tasks.read().await.find_walk_for_amt_container(container_id).await {
             inputs.insert("parent_task_id".to_string(), serde_json::json!(parent));
         }
