@@ -901,7 +901,7 @@ impl BootstrapManager {
         serde_json::json!({
             "version": 2,
             "last_updated": Self::now(),
-            "methodology_count": 44,
+            "methodology_count": 50,
             "methodologies": [
                 {"methodology_id":1,"name":"Conversational Response","categories":["conversation","chat"],"file":"method_1_conversational.json"},
                 {"methodology_id":2,"name":"Contextual Awareness","categories":["context","understanding"],"file":"method_2_context.json"},
@@ -936,6 +936,7 @@ impl BootstrapManager {
                 {"methodology_id":31,"name":"Verify What's Actually Active, Not Just What's Built","categories":["configuration","debugging","cost_management","defaults"],"file":"method_31_verify_whats_actually_active.json"},
                 {"methodology_id":32,"name":"Self-Assessment Prompts Need a Calibration Bar","categories":["prompt_engineering","llm_gates","self_assessment","reliability"],"file":"method_32_self_assessment_needs_calibration_bar.json"},
                 {"methodology_id":33,"name":"Verify the Artifact, Not the Status","categories":["multi_agent","verification","resilience","coordination"],"file":"method_33_verify_the_artifact_not_the_status.json"},
+                {"methodology_id":34,"name":"Jurisdiction Source Maintenance Protocol","categories":["jurisdiction","sources","maintenance"],"file":"method_34_jurisdiction_source_maintenance_protocol.json"},
                 {"methodology_id":35,"name":"Rescue JSON From Model Noise","categories":["llm_output_parsing","local_models","extraction"],"file":"method_35_rescue_json_from_model_noise.json"},
                 {"methodology_id":36,"name":"Persist Gates Must Measure Content Depth, Not Element Count","categories":["validation","gates","no_fabrication"],"file":"method_36_persist_gates_must_measure_content_depth_not_element_count.json"},
                 {"methodology_id":37,"name":"Canonical Container Resolution Must Be Order-Independent","categories":["storage","deduplication","boot"],"file":"method_37_canonical_container_resolution_must_be_order_independent.json"},
