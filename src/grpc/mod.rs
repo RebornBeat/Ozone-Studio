@@ -991,7 +991,8 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_else(|| json!({}));
-    let Ok(text) = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_sync_candidates.jsonl")) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_marketplace_inbox.jsonl")) else { return Vec::new() };
+    let import_done: Value = std::fs::read_to_string(std::path::Path::new(data_dir).join("peer_import_done.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
     let mut offers: std::collections::BTreeMap<String, Value> = Default::default();
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<Value>(line) else { continue };
@@ -1023,6 +1024,8 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
                 "offer_key": key, "from_peer": from, "item_type": item_type, "name": name, "body_hash": hash,
                 "keywords": env["keywords"], "announced_at": env["announced_at"], "received_at": row["received_at"],
                 "local_status": local_status, "decision": decision,
+                // the outcome of an approved download: imported / have / staged / approval_only / failed / rejected (absent = not started or in flight)
+                "import": import_done.get(&key).cloned().unwrap_or(Value::Null),
                 "note": if local_status == "conflict" { "same name, different content — review; it is never overwritten" } else { "" },
             }),
         );
@@ -1043,8 +1046,17 @@ async fn marketplace_offer_decide(Json(body): Json<serde_json::Value>) -> Json<s
     let path = std::path::Path::new(&data_dir).join("peer_offer_decisions.json");
     let mut all: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
     all[&key] = json!({"decision": decision, "at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)});
+    if decision == "download" {
+        // a fresh approval clears a previous outcome (e.g. "failed") so the download loop retries it
+        let done_path = std::path::Path::new(&data_dir).join("peer_import_done.json");
+        if let Some(mut done) = std::fs::read_to_string(&done_path).ok().and_then(|t| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok()) {
+            if done.remove(&key).is_some() {
+                let _ = std::fs::write(&done_path, serde_json::to_string_pretty(&done).unwrap_or_default());
+            }
+        }
+    }
     match std::fs::write(&path, serde_json::to_string_pretty(&all).unwrap_or_default()) {
-        Ok(_) => Json(json!({"success": true, "offer_key": key, "decision": decision, "note": if decision == "download" { "approval recorded — the fetch/import step is not built yet; nothing was downloaded" } else { "recorded" }})),
+        Ok(_) => Json(json!({"success": true, "offer_key": key, "decision": decision, "note": if decision == "download" { "approval recorded — methodologies are fetched and imported, jurisdiction files are staged (never activated), tools and pipelines stay approval-only; see the offer's import status" } else { "recorded" }})),
         Err(e) => Json(json!({"success": false, "error": e.to_string()})),
     }
 }

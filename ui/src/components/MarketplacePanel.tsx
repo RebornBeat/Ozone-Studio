@@ -17,6 +17,7 @@ import {
   MarketplaceOverview,
   MarketplaceProvider,
   fetchMarketplaceOverview,
+  decidePeerOffer,
 } from "../ozoneClient";
 
 type View = "catalog" | "installed" | "relations" | "contribute";
@@ -56,6 +57,16 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<"all" | "tools" | "methodologies" | "blueprints">("all");
   const [selMeth, setSelMeth] = useState<string | null>(null);
+  const decide = async (offerKey: string, decision: "download" | "ignore") => {
+    try {
+      await decidePeerOffer(offerKey, decision);
+      const o = await fetchMarketplaceOverview();
+      setData(o);
+      setErr(null);
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -218,12 +229,28 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
       {view === "installed" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={card}>
-            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Downloaded from peers</div>
+            <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Offers and downloads from peers</div>
             <div className="oempty" style={{ textAlign: "left" }}>
-              {data.policy.installed_from_peer.length === 0
-                ? "Nothing downloaded from a peer yet — install-from-peer (fetch → quarantine → review → approve) is not built. Everything below is registered locally."
-                : `${data.policy.installed_from_peer.length} item(s)`}
+              {(data.peer_offers ?? []).length === 0
+                ? "No offers from peers yet. Items other instances publish arrive here as manifests; nothing is downloaded until you approve it. Blueprints are private and never appear."
+                : `${(data.peer_offers ?? []).length} offer(s) from connected peers — ${data.peer_offers_pending ?? 0} waiting for your decision.`}
             </div>
+            {(data.peer_offers ?? []).map((o) => (
+              <div key={o.offer_key} style={{ marginTop: 8 }}>
+                <span className="omono" style={{ color: "#e8eef6" }}>{o.name}</span>{" "}
+                <span style={chip}>{o.item_type.replace(/_/g, " ")}</span>
+                <span style={chip}>{o.local_status === "conflict" ? "same name, different content" : o.local_status}</span>
+                <span style={chip}>{o.import?.status ?? o.decision}</span>
+                {o.decision === "pending" && (
+                  <>
+                    {" "}
+                    <button style={chip} onClick={() => decide(o.offer_key, "download")}>Approve download</button>{" "}
+                    <button style={chip} onClick={() => decide(o.offer_key, "ignore")}>Ignore</button>
+                  </>
+                )}
+                {(o.import?.detail || o.note) && <div style={{ fontSize: 10.5, color: "#6f7f93" }}>{o.import?.detail ?? o.note}</div>}
+              </div>
+            ))}
           </div>
           <div className="omono" style={{ color: "#e8eef6", fontWeight: 600 }}>Registered on this host ({providers.length} providers)</div>
           <table className="otable">

@@ -1540,7 +1540,9 @@ impl OzoneRuntime {
                 );
                 // the pull side of the marketplace exchange (paired peers only; manifests, never content)
                 let exchange_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.read().await.config.general.data_dir.clone());
-                crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir);
+                crate::network::spawn_marketplace_exchange(runtime.read().await.network.clone(), exchange_dir.clone());
+                // the download half: only offers the operator decided `download` on; methodologies imported, jurisdiction files staged, tools approval-only
+                crate::orchestrator::peer_import::spawn_peer_import_loop(runtime.read().await.network.clone(), bridge_store.clone(), exchange_dir);
                 // (the old periodic batch driver is gone: nothing feeds the Normal-priority per-peer queue any more — announcements are a single
                 // marketplace publish, see network::NetworkManager::publish_to_marketplace)
             } else {

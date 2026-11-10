@@ -94,6 +94,28 @@ pub fn body_hash(bytes: &[u8]) -> String {
 /// carries NO names or keywords (a shared topic reaches every subscriber, paired or not); details are pulled by PAIRED peers only.
 pub const MARKETPLACE_TOPIC: &str = "ozone/marketplace";
 
+/// The message kinds of the marketplace exchange. They flow among CONNECTED peers (the marketplace is a catalog, not a trust relationship);
+/// every other message kind still requires an operator-approved ("paired") peer — default-deny is unchanged for everything else. Note: "paired"
+/// here is this module's approved-peer allow-list (`paired_peers.json`), NOT device pairing.
+pub const MARKETPLACE_KINDS: [&str; 6] = ["marketplace_notify", "catalog_request", "catalog", "fetch_request", "fetch_chunk", "fetch_error"];
+
+/// The `kind` of a message if it is a marketplace message.
+pub fn marketplace_kind(data: &[u8]) -> Option<String> {
+    let v = serde_json::from_slice::<serde_json::Value>(data).ok()?;
+    let k = v.get("kind")?.as_str()?;
+    MARKETPLACE_KINDS.contains(&k).then(|| k.to_string())
+}
+
+/// Append one inbound marketplace message to `peer_marketplace_inbox.jsonl` (bookkeeping; nothing is applied). Best-effort.
+fn append_marketplace_inbox(path: &std::path::Path, from: &PeerId, data: &[u8]) {
+    use std::io::Write;
+    let Ok(envelope) = serde_json::from_slice::<serde_json::Value>(data) else { return };
+    let line = serde_json::json!({"received_at": now(), "from_peer": from.to_string(), "envelope": envelope}).to_string();
+    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}")) {
+        tracing::warn!("P2P: failed to append the marketplace inbox at {:?}: {}", path, e);
+    }
+}
+
 /// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
 /// reviewed fetch can ask for exactly this item; it is never used as an identity.
 pub fn announce_envelope(item_type: &SyncItemType, name: &str, hash: &str, keywords: &[String], source_container_id: ContainerID) -> Vec<u8> {
@@ -516,6 +538,7 @@ impl NetworkManager {
                 .parent()
                 .map(|d| d.join("peer_sync_candidates.jsonl"))
                 .unwrap_or_else(|| std::path::PathBuf::from("peer_sync_candidates.jsonl"));
+            let inbox_path = self.paired_peers_path.parent().map(|d| d.join("peer_marketplace_inbox.jsonl")).unwrap_or_else(|| std::path::PathBuf::from("peer_marketplace_inbox.jsonl"));
             tokio::spawn(async move {
                 use futures::StreamExt;
                 loop {
@@ -627,7 +650,11 @@ impl NetworkManager {
                             },
                         )) => {
                             let summary = String::from_utf8_lossy(&message.data);
-                            if paired_peers.read().await.contains_key(&propagation_source) {
+                            // MARKETPLACE messages (notify / catalog / fetch) are accepted from any CONNECTED peer and kept apart from the
+                            // paired-only channel, so a stranger's catalog can never surface as a finding or be mistaken for a trusted message
+                            if marketplace_kind(&message.data).is_some() {
+                                append_marketplace_inbox(&inbox_path, &propagation_source, &message.data);
+                            } else if paired_peers.read().await.contains_key(&propagation_source) {
                                 tracing::info!(
                                     "P2P: received sync message from paired peer {}: {}",
                                     propagation_source, summary
@@ -810,11 +837,25 @@ impl NetworkManager {
         container_id: ContainerID,
         item_type: SyncItemType,
         manifest: Vec<u8>,
+        body_path: Option<String>,
     ) -> OzoneResult<()> {
         if matches!(item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
             return Ok(()); // not a publishable kind
         }
         let Ok(m) = serde_json::from_slice::<serde_json::Value>(&manifest) else { return Ok(()) };
+        // an item we just IMPORTED from a peer is not re-published (it would only echo back to where it came from)
+        let imported_key = format!("{}|{}", m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or(""));
+        let imported: serde_json::Value = std::fs::read_to_string(self.data_dir_of().join("peer_imported_items.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
+        if imported.get(&imported_key).is_some() {
+            return Ok(());
+        }
+        // LOCAL-ONLY index of where each published body lives (never sent): what a later fetch request is answered from
+        if let Some(path) = body_path.as_deref() {
+            let idx_path = self.data_dir_of().join("marketplace_published_bodies.json");
+            let mut idx: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&idx_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            idx.insert(format!("{}|{}|{}", item_type.as_str(), m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or("")), serde_json::json!(path));
+            let _ = std::fs::write(&idx_path, serde_json::to_string_pretty(&idx).unwrap_or_default());
+        }
         // observability hooks only; priority Never = nothing is queued for per-peer sending
         let item = SyncItem {
             container_id,
@@ -1098,6 +1139,28 @@ impl NetworkManager {
         }
     }
 
+    /// Send a MARKETPLACE message to a CONNECTED peer (no approval needed — the marketplace is a catalog). Refuses anything that is not a
+    /// marketplace message kind, so this can never be used to send other content to an unapproved peer.
+    pub async fn send_to_connected_peer(&self, peer_id: &PeerId, data: &[u8]) -> OzoneResult<()> {
+        if marketplace_kind(data).is_none() {
+            return Err(OzoneError::NetworkError("send_to_connected_peer only carries marketplace messages".to_string()));
+        }
+        let mut swarm = self.swarm.lock().await;
+        if !swarm.is_connected(peer_id) {
+            return Err(OzoneError::NetworkError(format!("Peer {} is not connected", peer_id)));
+        }
+        let topic = libp2p::gossipsub::IdentTopic::new(format!("direct/{}", peer_id));
+        match swarm.behaviour_mut().gossipsub.publish(topic, data.to_vec()) {
+            Ok(_) => {
+                let mut stats = self.stats.lock().await;
+                stats.messages_sent += 1;
+                stats.bytes_sent += data.len() as u64;
+                Ok(())
+            }
+            Err(e) => Err(OzoneError::NetworkError(format!("Send failed: {:?}", e))),
+        }
+    }
+
     /// Broadcast data to all connected peers
     pub async fn broadcast(&self, topic: &str, data: &[u8]) -> OzoneResult<usize> {
         use libp2p::gossipsub::IdentTopic;
@@ -1277,20 +1340,43 @@ pub struct PeerDialogueTurn {
     pub parts: u32,
 }
 
-/// MARKETPLACE EXCHANGE (pull, paired peers only). Reads what the swarm recorded from PAIRED peers (`peer_sync_candidates.jsonl`):
-/// * a `marketplace_notify` whose listing version we have not seen → ask that peer for its listing (`catalog_request`, a direct message —
-///   `send_to_peer` itself refuses unpaired peers);
+/// Size of one fetched-body chunk (gossipsub's default maximum message is 64 KiB, so a body is SPLIT, never refused for size).
+pub const FETCH_CHUNK_BYTES: usize = 30_000;
+
+/// Split `body` into chunks of at most `max_bytes`, on char boundaries (a body is never cut inside a character). Never returns zero chunks.
+pub fn split_chunks(body: &str, max_bytes: usize) -> Vec<String> {
+    let max = max_bytes.max(4);
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for ch in body.chars() {
+        if cur.len() + ch.len_utf8() > max {
+            out.push(std::mem::take(&mut cur));
+        }
+        cur.push(ch);
+    }
+    if !cur.is_empty() || out.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// MARKETPLACE EXCHANGE (connected peers; operator 2026-11-10). Reads the marketplace INBOX (`peer_marketplace_inbox.jsonl`, written by the
+/// swarm from any connected peer) and:
+/// * a `marketplace_notify` whose listing version we have not seen → `catalog_request` to that peer;
 /// * a `catalog_request` → answer with MY listing (`marketplace_published.json`) — manifests only, no bodies;
-/// * a `catalog` is recorded by the swarm like any message and listed by the marketplace as offers (`peer_offers`), where the gate decides.
-/// Progress is an offset file; only COMPLETE lines are processed. Nothing is downloaded or applied.
+/// * a `fetch_request` → serve ONLY an item that is in my published index, only if its body still hashes to the requested hash, in chunks
+///   (`fetch_chunk`, `FETCH_CHUNK_BYTES` each; blueprints and anything unpublished can never be served); otherwise a `fetch_error`.
+/// A `catalog` / `fetch_chunk` / `fetch_error` is only recorded here — the marketplace lists offers and `orchestrator::peer_import` handles
+/// the chunks of requests WE made. Progress is an offset file; only COMPLETE lines are processed.
 pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<NetworkManager>>, data_dir: String) {
     tokio::spawn(async move {
         let dir = std::path::PathBuf::from(&data_dir);
-        let log = dir.join("peer_sync_candidates.jsonl");
+        let log = dir.join("peer_marketplace_inbox.jsonl");
         let offset_path = dir.join("marketplace_exchange.offset");
         let versions_path = dir.join("peer_listing_versions.json");
         let published_path = dir.join("marketplace_published.json");
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+        let bodies_path = dir.join("marketplace_published_bodies.json");
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
         tick.tick().await;
         loop {
             tick.tick().await;
@@ -1318,7 +1404,7 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                             continue;
                         }
                         let req = serde_json::json!({"kind": "catalog_request", "listing_version": v}).to_string();
-                        if network.read().await.send_to_peer(&peer, req.as_bytes()).await.is_ok() {
+                        if network.read().await.send_to_connected_peer(&peer, req.as_bytes()).await.is_ok() {
                             versions.insert(from.to_string(), serde_json::json!(v));
                         }
                     }
@@ -1330,7 +1416,44 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                         }
                         let items: Vec<serde_json::Value> = listing.values().cloned().collect();
                         let msg = serde_json::json!({"kind": "catalog", "items": items}).to_string();
-                        let _ = network.read().await.send_to_peer(&peer, msg.as_bytes()).await;
+                        let _ = network.read().await.send_to_connected_peer(&peer, msg.as_bytes()).await;
+                    }
+                    Some("fetch_request") => {
+                        let (item_type, name, hash) = (env["item_type"].as_str().unwrap_or(""), env["name"].as_str().unwrap_or(""), env["body_hash"].as_str().unwrap_or(""));
+                        let idx: serde_json::Map<String, serde_json::Value> =
+                            std::fs::read_to_string(&bodies_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+                        let body = idx
+                            .get(&format!("{item_type}|{name}|{hash}"))
+                            .and_then(|v| v.as_str())
+                            .and_then(crate::orchestrator::tool_binding::read_object_file)
+                            .filter(|b| body_hash(b.as_bytes()) == hash);
+                        let net = network.read().await;
+                        match body {
+                            Some(body) => {
+                                let listing: serde_json::Map<String, serde_json::Value> =
+                                    std::fs::read_to_string(&published_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+                                let keywords = listing.get(&format!("{item_type}|{name}")).and_then(|m| m.get("keywords")).cloned().unwrap_or_else(|| serde_json::json!([]));
+                                let chunks = split_chunks(&body, FETCH_CHUNK_BYTES);
+                                let total = chunks.len();
+                                for (seq, data) in chunks.into_iter().enumerate() {
+                                    let msg = serde_json::json!({
+                                        "kind": "fetch_chunk", "item_type": item_type, "name": name, "body_hash": hash,
+                                        "seq": seq, "total": total, "data": data,
+                                        "keywords": if seq == 0 { keywords.clone() } else { serde_json::Value::Null },
+                                    })
+                                    .to_string();
+                                    if net.send_to_connected_peer(&peer, msg.as_bytes()).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                            None => {
+                                let msg = serde_json::json!({"kind": "fetch_error", "item_type": item_type, "name": name, "body_hash": hash,
+                                    "reason": "not published here, or its content changed since it was announced"})
+                                .to_string();
+                                let _ = net.send_to_connected_peer(&peer, msg.as_bytes()).await;
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -1448,5 +1571,27 @@ impl NetworkManager {
             self.send_to_peer(peer_id, &data).await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod marketplace_tests {
+    #[test]
+    fn split_chunks_never_cuts_a_character_and_reassembles_exactly() {
+        let body = "héllo wörld — ünïcode ✓ ".repeat(500);
+        let chunks = super::split_chunks(&body, 97);
+        assert!(chunks.iter().all(|c| c.len() <= 97) && chunks.len() > 1);
+        assert_eq!(chunks.concat(), body, "reassembly is exact, nothing lost");
+        assert_eq!(super::split_chunks("", 10), vec![String::new()], "never zero chunks");
+        assert_eq!(super::split_chunks("short", 1000), vec!["short".to_string()]);
+    }
+
+    #[test]
+    fn marketplace_kind_recognizes_only_marketplace_messages_and_body_hash_is_stable() {
+        assert_eq!(super::marketplace_kind(br#"{"kind":"fetch_request"}"#).as_deref(), Some("fetch_request"));
+        assert!(super::marketplace_kind(br#"{"kind":"announce"}"#).is_none(), "a plain announce is not a marketplace exchange message");
+        assert!(super::marketplace_kind(b"not json").is_none());
+        assert_eq!(super::body_hash(b"abc"), super::body_hash(b"abc"));
+        assert_ne!(super::body_hash(b"abc"), super::body_hash(b"abd"));
     }
 }

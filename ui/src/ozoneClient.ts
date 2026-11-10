@@ -585,6 +585,23 @@ export interface MarketplaceWanted {
 export interface MarketplaceProviderHealth { calls: number; failures: number; degraded: boolean; last_error: string | null }
 export interface MarketplaceBindingProposal { methodology_id: number; provider?: string; tool: string; successes: number; status: string; example_step: string; last_seen: number }
 
+export interface MarketplacePeerOffer {
+  offer_key: string;
+  from_peer: string;
+  item_type: string;
+  name: string;
+  body_hash: string;
+  keywords: string[];
+  announced_at?: number;
+  received_at?: number;
+  /** have = same name + same content already here · conflict = same name, different content (kept as a separate version, never overwritten) · new */
+  local_status: "have" | "conflict" | "new" | "not_checked";
+  decision: "pending" | "download" | "ignore" | "not_needed";
+  note: string;
+  /** outcome of an approved download: imported / have / staged / approval_only / failed / rejected (null = not started or in flight) */
+  import: null | { status: string; detail?: string; local_name?: string; local_id?: number; path?: string; at?: number };
+}
+
 export interface MarketplaceOverview {
   success: boolean;
   generated_at: number;
@@ -593,7 +610,12 @@ export interface MarketplaceOverview {
   wanted: MarketplaceWanted[];
   provider_health: Record<string, MarketplaceProviderHealth>;
   binding_proposals: MarketplaceBindingProposal[];
-  peers: { paired: string[]; catalog_exchange: "not_implemented" | "active"; note: string };
+  peers: { paired: string[]; catalog_exchange: string; note: string };
+  /** offers published by connected peers (manifests only) — gated here; nothing is downloaded until the operator approves */
+  peer_offers?: MarketplacePeerOffer[];
+  peer_offers_pending?: number;
+  /** what THIS instance publishes to the marketplace (manifests only; blueprints are never published) */
+  published?: unknown[];
   methodologies: MarketplaceMethodology[];
   blueprints: MarketplaceBlueprint[];
   policy: { auto_broadcast_sync: boolean; downloads_require_review: boolean; executables_require_human_approval: boolean; installed_from_peer: unknown[] };
@@ -601,4 +623,10 @@ export interface MarketplaceOverview {
 
 export function fetchMarketplaceOverview(): Promise<MarketplaceOverview> {
   return hostGet<MarketplaceOverview>("/marketplace/overview");
+}
+
+/** Record the operator's decision on a peer offer. `download` approves it (methodologies are fetched + imported, jurisdiction files are staged — never
+ *  activated — and tools / pipelines stay approval-only); `ignore` dismisses it. */
+export function decidePeerOffer(offerKey: string, decision: "download" | "ignore" | "pending"): Promise<{ success: boolean; note?: string; error?: string }> {
+  return hostPost("/marketplace/offers/decide", { offer_key: offerKey, decision });
 }

@@ -1943,15 +1943,15 @@ pub fn spawn_network_hook_bridge(
                         .filter(|k| !crate::shared_contracts::keyword_model::is_marker(k)) // scope markers can carry project ids — never announced
                         .collect();
                     // the body hash is the item's identity on the other side; an item with no readable body is announced without one
-                    let hash = c
-                        .pointer("/local_state/storage/object_store_path")
-                        .and_then(|v| v.as_str())
+                    let body_path = c.pointer("/local_state/storage/object_store_path").and_then(|v| v.as_str()).map(String::from);
+                    let hash = body_path
+                        .as_deref()
                         .and_then(crate::orchestrator::tool_binding::read_object_file)
                         .map(|body| crate::network::body_hash(body.as_bytes()))
                         .unwrap_or_default();
                     let manifest = crate::network::announce_envelope(&item_type, &name, &hash, &keywords, evt.container_id);
                     let net = network.read().await;
-                    let _ = net.on_item_announced(evt.container_id, item_type, manifest).await;
+                    let _ = net.on_item_announced(evt.container_id, item_type, manifest, body_path).await;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!(lagged = n, "Network hook bridge: missed graph events");
