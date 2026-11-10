@@ -140,6 +140,29 @@ pub fn namespace_bookkeeping_tags(container_type: &str, ctx: &mut Context) {
                 set(&mut ctx.keywords, 1, "node");
             }
         }
+        // FOLLOW-UP (2026-11-10): chat containers — `chat_store.rs` writes `[chat, chat_session|chat_turn, chatsession:…, proj:/ws:/global, task:N]`
+        // (the session / scope / task terms are already markers; `global` becomes the `scope:global` marker every other writer uses)
+        "ChatSession" | "ChatTurn" => rename_literals(
+            &mut ctx.keywords,
+            &[("chat", "kind:chat"), ("chat_session", "kind:chat_session"), ("chat_turn", "kind:chat_turn"), ("global", "scope:global")],
+            &mut renamed,
+        ),
+        // `consciousness/store.rs::build_experience_container` writes `tags ++ categories ++ [experience_type]` — a fixed, small set of literals
+        // (`task`, `no-emotion-update`, `migrated`, `task_success`, `task_failure`, `success`, `failure`); the Experience record itself keeps its
+        // plain fields (readers use the struct, not the container's keywords)
+        "Experience" => rename_literals(
+            &mut ctx.keywords,
+            &[
+                ("task", "kind:task"),
+                ("no-emotion-update", "flag:no-emotion-update"),
+                ("migrated", "flag:migrated"),
+                ("task_success", "outcome:task_success"),
+                ("task_failure", "outcome:task_failure"),
+                ("success", "outcome:success"),
+                ("failure", "outcome:failure"),
+            ],
+            &mut renamed,
+        ),
         _ => return,
     }
     if renamed.is_empty() {
@@ -154,6 +177,18 @@ pub fn namespace_bookkeeping_tags(container_type: &str, ctx: &mut Context) {
         let pending_only = ctx.keyword_meta.get(old.as_str()).map(|m| m.validated.is_none() && m.source.starts_with("created:") && m.hits == TermHits::default()).unwrap_or(false);
         if pending_only {
             ctx.keyword_meta.remove(old.as_str());
+        }
+    }
+}
+
+/// Exact-literal renames (case-sensitive, whole term): every occurrence of `plain` becomes `marker`; each is recorded in `renamed`.
+fn rename_literals(keywords: &mut [String], map: &[(&str, &str)], renamed: &mut Vec<(String, String)>) {
+    for (plain_tag, marker) in map {
+        for k in keywords.iter_mut() {
+            if k == plain_tag {
+                *k = (*marker).to_string();
+                renamed.push((plain_tag.to_string(), (*marker).to_string()));
+            }
         }
     }
 }
@@ -1246,6 +1281,23 @@ mod tests {
         assert_eq!(n.keywords, vec!["tool:uidocument_ingest", "node:stylerule", "call:tool:x"]);
         assert!(!n.keyword_meta.contains_key("uidocument_ingest"), "a pending-only registration goes with the renamed tag");
         assert!(n.keyword_meta.contains_key("StyleRule"), "a verdict is kept");
+        // chat + experience containers (follow-up): exact literals only
+        let mut ct = mk(&["chat", "chat_turn", "chatsession:proj:3", "proj:3", "task:77"]);
+        namespace_bookkeeping_tags("ChatTurn", &mut ct);
+        assert_eq!(ct.keywords, vec!["kind:chat", "kind:chat_turn", "chatsession:proj:3", "proj:3", "task:77"]);
+        let mut cs = mk(&["chat", "chat_session", "chatsession:global", "global"]);
+        namespace_bookkeeping_tags("ChatSession", &mut cs);
+        assert_eq!(cs.keywords, vec!["kind:chat", "kind:chat_session", "chatsession:global", "scope:global"]);
+        assert!(crate::types::container::ContainerScope::from_markers(&cs.keywords).global, "the typed scope reads the namespaced global");
+        let mut ex = mk(&["task", "no-emotion-update", "task_failure", "failure"]);
+        namespace_bookkeeping_tags("Experience", &mut ex);
+        assert_eq!(ex.keywords, vec!["kind:task", "flag:no-emotion-update", "outcome:task_failure", "outcome:failure"]);
+        let once = ex.keywords.clone();
+        namespace_bookkeeping_tags("Experience", &mut ex);
+        assert_eq!(ex.keywords, once, "idempotent");
+        let mut other = mk(&["task", "success"]);
+        namespace_bookkeeping_tags("Methodology", &mut other);
+        assert_eq!(other.keywords, vec!["task", "success"], "content types keep their words");
         // any other type: untouched, including content words that look like tags
         let mut m = mk(&["tool_call", "Link", "image"]);
         namespace_bookkeeping_tags("Methodology", &mut m);

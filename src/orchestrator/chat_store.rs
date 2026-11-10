@@ -56,7 +56,8 @@ impl ChatScope {
             _ => "chatsession:global".to_string(),
         }
     }
-    /// Scope keywords in the convention the ripple/actors already use.
+    /// Scope keywords in the convention the ripple/actors already use (`proj:N`, `ws:N`, `scope:global` — the marker `ContainerScope::from_markers`
+    /// and `graph_events` read; the plain word `global` was never recognised by either).
     pub fn scope_keywords(&self) -> Vec<String> {
         let mut kw = Vec::new();
         if let Some(p) = self.project_id {
@@ -66,7 +67,7 @@ impl ChatScope {
             kw.push(format!("ws:{w}"));
         }
         if self.project_id.is_none() && self.workspace_id.is_none() {
-            kw.push("global".to_string());
+            kw.push("scope:global".to_string());
         }
         kw
     }
@@ -188,7 +189,7 @@ impl PromptOrchestrator {
                 return Ok(*id);
             }
         }
-        let mut keywords = vec!["chat".to_string(), "chat_session".to_string(), kw.clone()];
+        let mut keywords = vec!["kind:chat".to_string(), "kind:chat_session".to_string(), kw.clone()];
         keywords.extend(scope.scope_keywords());
         let name = match (scope.project_id, scope.workspace_id) {
             (Some(p), _) => format!("Chat — project {p}"),
@@ -294,7 +295,7 @@ impl PromptOrchestrator {
             // No session container could be created; the content file stands.
         }
 
-        let mut keywords = vec!["chat".to_string(), "chat_turn".to_string(), scope.session_keyword()];
+        let mut keywords = vec!["kind:chat".to_string(), "kind:chat_turn".to_string(), scope.session_keyword()];
         keywords.extend(scope.scope_keywords());
         if let Some(t) = response.task_id {
             keywords.push(format!("task:{t}"));
@@ -498,7 +499,7 @@ mod tests {
         assert_eq!(w.parent_id(), 7);
         assert_eq!(p.parent_id(), 3);
         assert_eq!(p.scope_keywords(), vec!["proj:3".to_string(), "ws:7".to_string()]);
-        assert_eq!(g.scope_keywords(), vec!["global".to_string()]);
+        assert_eq!(g.scope_keywords(), vec!["scope:global".to_string()]);
     }
 
     #[test]

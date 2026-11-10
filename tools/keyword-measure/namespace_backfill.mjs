@@ -7,6 +7,10 @@
 //   Derived            run-span → span:run, run-root → span:root (every other Derived tag is content and is left alone)
 //   McpResult          [tool, mcp_result, …]            position 0 → tool:<x>, mcp_result → kind:mcp_result
 //   McpEntity          [tool, node kind, call:…, …]     position 0 → tool:<x>, position 1 → node:<x>   (only when position 0 became the tool)
+// FOLLOW-UP (2026-11-10, STATUS §N) — exact literals only:
+//   ChatSession / ChatTurn  [chat, chat_session|chat_turn, chatsession:…, proj:/ws:/global, task:N]   chat → kind:chat, chat_session → kind:chat_session, chat_turn → kind:chat_turn, global → scope:global
+//   Experience              tags ++ categories ++ [type]   task → kind:task, no-emotion-update / migrated → flag:…, task_success / task_failure / success / failure → outcome:…
+//   --only ChatSession,ChatTurn,Experience limits a run (and the record) to those types (the follow-up dry run).
 // Markers, content terms and every other container type are never touched. Idempotent: a second run finds nothing.
 // A renamed term's PENDING-ONLY registration in keyword_meta (validated null, source created:*, no hits) is dropped with it (a marker is never
 // judged); a term with a verdict or hit history keeps its record.
@@ -41,6 +45,14 @@ const tagMarker = (ns, raw) => {
   return v && isMarker(m) ? m : null;
 };
 
+const CHAT = [["chat", "kind:chat"], ["chat_session", "kind:chat_session"], ["chat_turn", "kind:chat_turn"], ["global", "scope:global"]];
+const LITERALS = {
+  ChatSession: CHAT,
+  ChatTurn: CHAT,
+  Experience: [["task", "kind:task"], ["no-emotion-update", "flag:no-emotion-update"], ["migrated", "flag:migrated"], ["task_success", "outcome:task_success"], ["task_failure", "outcome:task_failure"], ["success", "outcome:success"], ["failure", "outcome:failure"]],
+};
+const only = typeof args.only === "string" ? new Set(args.only.split(",")) : null;
+
 /** Returns { keywords, renamed: [[old,new]] } — the same rewrite as keyword_program::namespace_bookkeeping_tags (before its de-dup). */
 export function namespace(type, keywords) {
   const kws = [...keywords];
@@ -64,6 +76,8 @@ export function namespace(type, keywords) {
   } else if (type === "McpEntity") {
     set(0, "tool");
     if (kws[0]?.startsWith("tool:")) set(1, "node");
+  } else if (LITERALS[type]) {
+    for (const [p, m] of LITERALS[type]) for (let i = 0; i < kws.length; i++) if (kws[i] === p) { kws[i] = m; renamed.push([p, m]); }
   } else {
     return { keywords: [...keywords], renamed: [] };
   }
@@ -75,6 +89,9 @@ export function namespace(type, keywords) {
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 if (!eq(namespace("CoordinationEvent", ["tool_call", "sensor-tick", "file:a.rs", "scope:global"]).keywords, ["kind:tool_call", "agent:sensor-tick", "file:a.rs", "scope:global"])) throw new Error("self-check: CoordinationEvent");
 if (!eq(namespace("McpEntity", ["uidocument_ingest", "StyleRule", "call:tool:x"]).keywords, ["tool:uidocument_ingest", "node:stylerule", "call:tool:x"])) throw new Error("self-check: McpEntity");
+if (!eq(namespace("ChatTurn", ["chat", "chat_turn", "chatsession:proj:3", "proj:3", "task:7"]).keywords, ["kind:chat", "kind:chat_turn", "chatsession:proj:3", "proj:3", "task:7"])) throw new Error("self-check: ChatTurn");
+if (!eq(namespace("ChatSession", ["chat", "chat_session", "chatsession:global", "global"]).keywords, ["kind:chat", "kind:chat_session", "chatsession:global", "scope:global"])) throw new Error("self-check: ChatSession");
+if (!eq(namespace("Experience", ["task", "no-emotion-update", "task_failure", "failure"]).keywords, ["kind:task", "flag:no-emotion-update", "outcome:task_failure", "outcome:failure"])) throw new Error("self-check: Experience");
 if (!eq(namespace("Methodology", ["tool_call", "Link"]).keywords, ["tool_call", "Link"])) throw new Error("self-check: other types untouched");
 if (namespace("CoordinationEvent", ["kind:tool_call", "agent:sensor-tick"]).renamed.length !== 0) throw new Error("self-check: idempotent");
 
@@ -85,6 +102,7 @@ if (args.data) {
     let c; try { c = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch { continue; }
     const md = c.metadata ?? c.local_state?.metadata ?? {}, ctx = c.context ?? c.local_state?.context ?? {};
     const kws = Array.isArray(ctx.keywords) ? ctx.keywords.map(String) : [];
+    if (only && !only.has(md.container_type)) continue;
     const { keywords, renamed } = namespace(md.container_type, kws);
     if (!renamed.length) continue;
     const meta = ctx.keyword_meta ?? {};

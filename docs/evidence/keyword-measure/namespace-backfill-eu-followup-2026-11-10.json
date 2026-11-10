@@ -1,0 +1,2656 @@
+{
+ "label": "eu-followup",
+ "date": "2026-11-10T21:21:46.464Z",
+ "apply": false,
+ "containers_changed": 74,
+ "by_type": {
+  "Experience": 63,
+  "ChatSession": 1,
+  "ChatTurn": 10
+ },
+ "by_tag": {
+  "Experience: task → kind:": 63,
+  "Experience: no-emotion-update → flag:": 62,
+  "Experience: task_failure → outcome:": 44,
+  "Experience: failure → outcome:": 44,
+  "Experience: task_success → outcome:": 19,
+  "Experience: success → outcome:": 19,
+  "ChatSession: chat → kind:": 1,
+  "ChatSession: chat_session → kind:": 1,
+  "ChatSession: global → scope:": 1,
+  "ChatTurn: chat → kind:": 10,
+  "ChatTurn: chat_turn → kind:": 10,
+  "ChatTurn: global → scope:": 10
+ },
+ "dropped_pending_meta": 0,
+ "containers": [
+  {
+   "id": 2491,
+   "type": "Experience",
+   "name": "Experience 1",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 2504,
+   "type": "Experience",
+   "name": "Experience 2",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 2507,
+   "type": "Experience",
+   "name": "Experience 3",
+   "before": [
+    "task",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 2512,
+   "type": "Experience",
+   "name": "Experience 4",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40021,
+   "type": "Experience",
+   "name": "Experience 5",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40022,
+   "type": "Experience",
+   "name": "Experience 6",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40023,
+   "type": "Experience",
+   "name": "Experience 7",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40028,
+   "type": "Experience",
+   "name": "Experience 8",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40041,
+   "type": "Experience",
+   "name": "Experience 9",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40042,
+   "type": "Experience",
+   "name": "Experience 10",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40044,
+   "type": "Experience",
+   "name": "Experience 11",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40045,
+   "type": "Experience",
+   "name": "Experience 12",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40049,
+   "type": "ChatSession",
+   "name": "Chat — global",
+   "before": [
+    "chat",
+    "chat_session",
+    "chatsession:global",
+    "global"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_session",
+    "chatsession:global",
+    "scope:global"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_session",
+     "kind:chat_session"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40050,
+   "type": "ChatTurn",
+   "name": "Turn 13",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:13"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:13"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40051,
+   "type": "ChatTurn",
+   "name": "Turn notask-1794207460721551570",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40052,
+   "type": "ChatTurn",
+   "name": "Turn notask-1794207491336910616",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40054,
+   "type": "Experience",
+   "name": "Experience 13",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40056,
+   "type": "Experience",
+   "name": "Experience 14",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40057,
+   "type": "Experience",
+   "name": "Experience 15",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40062,
+   "type": "Experience",
+   "name": "Experience 16",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40065,
+   "type": "Experience",
+   "name": "Experience 17",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40080,
+   "type": "Experience",
+   "name": "Experience 18",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40081,
+   "type": "Experience",
+   "name": "Experience 19",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40082,
+   "type": "Experience",
+   "name": "Experience 20",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40095,
+   "type": "ChatTurn",
+   "name": "Turn 22",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:22"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:22"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40096,
+   "type": "Experience",
+   "name": "Experience 21",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40097,
+   "type": "Experience",
+   "name": "Experience 22",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40099,
+   "type": "Experience",
+   "name": "Experience 23",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40105,
+   "type": "Experience",
+   "name": "Experience 24",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40114,
+   "type": "Experience",
+   "name": "Experience 25",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40115,
+   "type": "Experience",
+   "name": "Experience 26",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40116,
+   "type": "Experience",
+   "name": "Experience 27",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40122,
+   "type": "Experience",
+   "name": "Experience 28",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40134,
+   "type": "Experience",
+   "name": "Experience 29",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40135,
+   "type": "ChatTurn",
+   "name": "Turn 32",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:32"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:32"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40150,
+   "type": "Experience",
+   "name": "Experience 30",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40158,
+   "type": "Experience",
+   "name": "Experience 31",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40161,
+   "type": "ChatTurn",
+   "name": "Turn 35",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:35"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:35"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40163,
+   "type": "Experience",
+   "name": "Experience 32",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40166,
+   "type": "Experience",
+   "name": "Experience 33",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40167,
+   "type": "Experience",
+   "name": "Experience 34",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40173,
+   "type": "Experience",
+   "name": "Experience 35",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40188,
+   "type": "ChatTurn",
+   "name": "Turn 40",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:40"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:40"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40189,
+   "type": "Experience",
+   "name": "Experience 36",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40190,
+   "type": "Experience",
+   "name": "Experience 37",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40191,
+   "type": "Experience",
+   "name": "Experience 38",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40213,
+   "type": "Experience",
+   "name": "Experience 39",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40217,
+   "type": "Experience",
+   "name": "Experience 40",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40218,
+   "type": "Experience",
+   "name": "Experience 41",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40219,
+   "type": "Experience",
+   "name": "Experience 42",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40229,
+   "type": "ChatTurn",
+   "name": "Turn 49",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:49"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:49"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40230,
+   "type": "Experience",
+   "name": "Experience 43",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40238,
+   "type": "Experience",
+   "name": "Experience 44",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40239,
+   "type": "Experience",
+   "name": "Experience 45",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40256,
+   "type": "Experience",
+   "name": "Experience 46",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40258,
+   "type": "Experience",
+   "name": "Experience 47",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40259,
+   "type": "Experience",
+   "name": "Experience 48",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40260,
+   "type": "Experience",
+   "name": "Experience 49",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40269,
+   "type": "ChatTurn",
+   "name": "Turn 56",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global",
+    "task:56"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global",
+    "task:56"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40284,
+   "type": "Experience",
+   "name": "Experience 50",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40295,
+   "type": "Experience",
+   "name": "Experience 51",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40296,
+   "type": "Experience",
+   "name": "Experience 52",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_failure",
+    "failure"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_failure",
+    "outcome:failure"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_failure",
+     "outcome:task_failure"
+    ],
+    [
+     "failure",
+     "outcome:failure"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40298,
+   "type": "Experience",
+   "name": "Experience 53",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40310,
+   "type": "Experience",
+   "name": "Experience 54",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40333,
+   "type": "Experience",
+   "name": "Experience 55",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40343,
+   "type": "Experience",
+   "name": "Experience 56",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40344,
+   "type": "Experience",
+   "name": "Experience 57",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40368,
+   "type": "Experience",
+   "name": "Experience 58",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40377,
+   "type": "Experience",
+   "name": "Experience 59",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40378,
+   "type": "Experience",
+   "name": "Experience 60",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40380,
+   "type": "Experience",
+   "name": "Experience 61",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40398,
+   "type": "Experience",
+   "name": "Experience 62",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40400,
+   "type": "Experience",
+   "name": "Experience 63",
+   "before": [
+    "task",
+    "no-emotion-update",
+    "task_success",
+    "success"
+   ],
+   "after": [
+    "kind:task",
+    "flag:no-emotion-update",
+    "outcome:task_success",
+    "outcome:success"
+   ],
+   "renamed": [
+    [
+     "task",
+     "kind:task"
+    ],
+    [
+     "no-emotion-update",
+     "flag:no-emotion-update"
+    ],
+    [
+     "task_success",
+     "outcome:task_success"
+    ],
+    [
+     "success",
+     "outcome:success"
+    ]
+   ],
+   "dropped_meta": []
+  },
+  {
+   "id": 40401,
+   "type": "ChatTurn",
+   "name": "Turn notask-1794298639002047148",
+   "before": [
+    "chat",
+    "chat_turn",
+    "chatsession:global",
+    "global"
+   ],
+   "after": [
+    "kind:chat",
+    "kind:chat_turn",
+    "chatsession:global",
+    "scope:global"
+   ],
+   "renamed": [
+    [
+     "chat",
+     "kind:chat"
+    ],
+    [
+     "chat_turn",
+     "kind:chat_turn"
+    ],
+    [
+     "global",
+     "scope:global"
+    ]
+   ],
+   "dropped_meta": []
+  }
+ ]
+}
