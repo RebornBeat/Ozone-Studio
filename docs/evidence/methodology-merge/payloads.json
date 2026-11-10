@@ -1,0 +1,31 @@
+{
+ "40305": {
+  "add_decision_rules": [
+   {"name": "baseline_before_change", "condition": "a change to configuration is about to be made", "outcome": "record the current approved configuration as a baseline first so the change can be compared with it and undone", "requires": []},
+   {"name": "link_state_to_version", "condition": "a configuration state is deployed or reported", "outcome": "link that state to the exact version and the change that produced it", "requires": []}
+  ],
+  "add_heuristics": [
+   {"condition": "the same configuration step is repeated by hand more than once", "action": "automate that step so it is applied identically every time"},
+   {"condition": "deployed configuration differs from the recorded baseline", "action": "treat the difference as drift and either reconcile it to the baseline or record it as a controlled change"}
+  ],
+  "add_principles": [
+   {"name": "Baseline Establishment", "description": "Record the approved configuration as a baseline before changing it, so every change can be compared with it and undone.", "priority": 5},
+   {"name": "Automation", "description": "Apply repeated configuration steps through automation so they are identical every time.", "priority": 5}
+  ],
+  "add_keywords": ["baseline management", "configuration control", "system baseline", "system configuration", "traceability", "automation"]
+ },
+ "40350": {
+  "add_decision_rules": [
+   {"name": "orchestrate_not_manual", "condition": "containers are deployed or scaled", "outcome": "use orchestration or scripts rather than manual commands", "requires": []},
+   {"name": "least_privilege_container", "condition": "a container is run", "outcome": "limit its privileges, resources, and network access to what it needs", "requires": []},
+   {"name": "design_scaling_recovery", "condition": "a containerized service is designed", "outcome": "define how it scales and how it recovers when a container stops", "requires": []}
+  ],
+  "add_heuristics": [
+   {"condition": "a container runs as a privileged user", "action": "reduce its privileges"}
+  ],
+  "add_principles": [
+   {"name": "Scalability and resilience", "description": "Design containerized services to scale and to recover when a container stops.", "priority": 5}
+  ],
+  "add_keywords": ["container automation", "container deployment", "container orchestration", "container scalability", "container security"]
+ }
+}

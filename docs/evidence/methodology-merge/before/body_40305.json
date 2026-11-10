@@ -1,0 +1,77 @@
+{
+  "decision_rules": [
+    {
+      "action": "keep it under version control with a recorded history",
+      "condition": "a configuration item is created or changed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record and approve the change before it is applied",
+      "condition": "a configuration change is requested",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "update the register of configuration items to match",
+      "condition": "a system component is added, moved, or retired",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "start from the established standard configuration and record any deviation",
+      "condition": "a new system of an existing type is configured",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "retain who changed it, when, and what the previous value was",
+      "condition": "a configuration changes",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Configuration Management",
+  "heuristics": [
+    {
+      "description": "investigate its origin and either register it or remove it",
+      "examples": [],
+      "name": "configuration is found that is not in the register",
+      "when_to_apply": "configuration is found that is not in the register"
+    },
+    {
+      "description": "consider updating the standard to include it",
+      "examples": [],
+      "name": "the same deviation is recorded repeatedly",
+      "when_to_apply": "the same deviation is recorded repeatedly"
+    }
+  ],
+  "storage": {
+    "category": "IT Service Management",
+    "description": "A methodology focused on tracking, controlling, and maintaining the state of an organization's assets (hardware, software, documentation) to ensure consistency, reliability, and compliance throughout their lifecycle.",
+    "keywords": [
+      "Configuration Item (CI)",
+      "Change Management",
+      "Release Management",
+      "Baseline",
+      "CMDB",
+      "Version Control",
+      "Compliance",
+      "Automation"
+    ],
+    "name": "Configuration Management",
+    "principles": [
+      "Version Control",
+      "Change Control",
+      "Asset Tracking",
+      "Standardization",
+      "Auditability",
+      "Continuous Improvement"
+    ]
+  }
+}

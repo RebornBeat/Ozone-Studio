@@ -1,0 +1,592 @@
+{
+  "metadata": {
+    "container_type": "Methodology",
+    "modality": "Unknown",
+    "created_at": 1794282227,
+    "updated_at": 1794339531,
+    "provenance": "orchestrator_layer_crossref",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Container Management",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "container management",
+      "container management CI/CD",
+      "container management DevOps",
+      "container management Docker",
+      "container management Kubernetes",
+      "container management automation",
+      "container management deployment",
+      "container management lifecycle",
+      "container management networking",
+      "container management observability",
+      "container management orchestration",
+      "container management scaling",
+      "container management security",
+      "container management self-healing"
+    ],
+    "topics": [
+      "container management"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null,
+    "keyword_meta": {
+      "*": {
+        "source": "",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management": {
+        "source": "extracted",
+        "validated": true,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management CI/CD": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management DevOps": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management Docker": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management Kubernetes": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management administration": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management approach": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management architecture": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management automation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management deployment": {
+        "source": "expansion",
+        "validated": true,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management design": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management development": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management framework": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management governance": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management guide": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management implementation": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management lifecycle": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management methodology": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management namespace": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management networking": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management observability": {
+        "source": "expansion",
+        "validated": true,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management operations": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management orchestration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management pod": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management practices": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management process": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management production": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management registry": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management scaling": {
+        "source": "expansion",
+        "validated": true,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management security": {
+        "source": "expansion",
+        "validated": true,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management self-healing": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management service": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management strategy": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management system": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management techniques": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management tool": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "container management workflow": {
+        "source": "expansion",
+        "validated": false,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      }
+    }
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "methodologies_created/methodology_1794315134_40350.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 3,
+    "hotness_score": 0.0,
+    "last_accessed": 1794298398,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

@@ -1,0 +1,70 @@
+{
+  "decision_rules": [
+    {
+      "action": "build and deploy a new image instead of changing the running container",
+      "condition": "a running container needs a change",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "describe the desired state in a configuration file kept in version control",
+      "condition": "a container deployment is defined",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "set resource limits and isolation boundaries",
+      "condition": "a container is run",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "expose logs and health information so failures can be seen",
+      "condition": "a container is deployed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Container Management",
+  "heuristics": [
+    {
+      "description": "rebuild from the declared configuration",
+      "examples": [],
+      "name": "a container is changed by hand",
+      "when_to_apply": "a container is changed by hand"
+    },
+    {
+      "description": "fix that before scaling it",
+      "examples": [],
+      "name": "a container cannot be restarted safely",
+      "when_to_apply": "a container cannot be restarted safely"
+    }
+  ],
+  "storage": {
+    "category": "Cloud Native / DevOps",
+    "description": "Covers the end-to-end lifecycle of containerized workloads, including image building, registry storage, orchestration, deployment, scaling, networking, security, and observability across development and production environments.",
+    "keywords": [
+      "Docker",
+      "Kubernetes",
+      "container orchestration",
+      "image registry",
+      "CI/CD",
+      "namespace",
+      "pod",
+      "scaling",
+      "container security"
+    ],
+    "name": "Container Management",
+    "principles": [
+      "Immutable infrastructure",
+      "Declarative configuration",
+      "Isolation and resource governance",
+      "Automated orchestration and self-healing",
+      "Observability and security by design"
+    ]
+  }
+}
