@@ -109,6 +109,7 @@ impl Origin {
             global: workspace_id.is_none() && project_id.is_none(),
             request_terms: Arc::new(Mutex::new(Vec::new())),
             request_hash: format!("{h:016x}"),
+            internal: false,
             files: Arc::new(Mutex::new(Vec::new())),
         }
     }
