@@ -8,7 +8,7 @@
     {
       "step_index": 0,
       "action": "audit",
-      "description": "Enumerate every LLM call site; assert each walks a fallback chain (or needs none, like deterministic extractors)",
+      "description": "Enumerate every LLM call site and assert each walks a fallback chain (or needs none, like deterministic extractors). Hands on a coverage map.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,12 +25,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "audit_call_sites"
     },
     {
       "step_index": 1,
       "action": "test",
-      "description": "Drive pipeline 9 forced to BitNet across each call site's real prompt shape; run the balanced-scan extractor on every response",
+      "description": "Plan the forced-failure run: drive pipeline 9 forced to BitNet across each call site's real prompt shape and run the balanced-scan extractor on every response. Hands on the capture report plan and expected results. Running it needs a test capability that is not registered.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -49,12 +53,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "force_capture"
     },
     {
       "step_index": 2,
       "action": "verify",
-      "description": "Feed shell/placeholder drafts through the persist gates; verify honest discard with reasons",
+      "description": "Feed shell and placeholder drafts through the persist gates and verify an honest discard with reasons. Hands on the gate report.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -73,10 +81,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "gate_verification"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "run a test or fresh-process verification against the host (e.g. QueryGraph from a new process, a regression test run)"
+  ],
   "methodology_ids": [
     30019,
     30035,
@@ -84,27 +98,34 @@
     30043,
     30038
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "audit_call_sites",
+      "pipeline_id": 9,
       "outputs": [
         "coverage_map"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Enumerate every LLM call site; assert each walks a fallback chain (or needs none, like deterministic extractors)",
+      "legacy_action": "audit"
     },
-    "1": {
+    "2": {
       "name": "force_capture",
+      "pipeline_id": 9,
       "outputs": [
         "capture_report"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Drive pipeline 9 forced to BitNet across each call site's real prompt shape; run the balanced-scan extractor on every response",
+      "legacy_action": "test"
     },
-    "2": {
+    "3": {
       "name": "gate_verification",
+      "pipeline_id": 33,
       "outputs": [
         "gate_report"
       ],
-      "legacy_pipeline_id": 33
+      "legacy_description": "Feed shell/placeholder drafts through the persist gates; verify honest discard with reasons",
+      "legacy_action": "verify"
     }
   },
   "legacy_methodology_config": {

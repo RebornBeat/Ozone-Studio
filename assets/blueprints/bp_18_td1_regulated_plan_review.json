@@ -8,7 +8,7 @@
     {
       "step_index": 0,
       "action": "submit",
-      "description": "Submit a real /orchestrate request whose prompt matches an existing RequireConfirmation rule in assets/jurisdiction/global.json (a real, already-loaded ruleset — no fabricated rule content), through the full 14-stage pipeline.",
+      "description": "Submit a real /orchestrate request whose prompt matches an existing RequireConfirmation rule in assets/jurisdiction/global.json (a real, already-loaded ruleset; no fabricated rule content) through the full pipeline. Hands on the task id and the generated blueprint id. Submitting needs an orchestrate-call capability that is not registered.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,12 +25,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "submit_regulated_prompt"
     },
     {
       "step_index": 1,
       "action": "read_capture",
-      "description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the confirmation review line(s) this request produced (by timestamp proximity to step 1).",
+      "description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the confirmation review line(s) this request produced, by timestamp proximity. Hands on the capture lines.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -49,12 +53,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "read_capture_store"
     },
     {
       "step_index": 2,
       "action": "assert",
-      "description": "Assert the review's reasoning_preview references concrete content from the request's own generated blueprint steps (action/description text), not generic boilerplate — the real proof of top-down traversal per the doctrine's core claim.",
+      "description": "Assert that the review's reasoning_preview cites concrete content from the request's own generated blueprint steps (action/description text), not generic boilerplate - the proof the review traversed the real plan. Hands on the assertion result.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -73,38 +81,52 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "assert_plan_citation"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "read files from the repository or data dir (CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md, model_calls/decision_review.jsonl)",
+    "submit a request to /orchestrate (optionally with a model_config override) and read back its task and capture-store entries"
+  ],
   "methodology_ids": [
     30035,
     30036,
     30043,
     30021
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "submit_regulated_prompt",
+      "pipeline_id": 9,
       "outputs": [
         "task_id",
         "blueprint_id_generated"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Submit a real /orchestrate request whose prompt matches an existing RequireConfirmation rule in assets/jurisdiction/global.json (a real, already-loaded ruleset — no fabricated rule content), through the full 14-stage pipeline.",
+      "legacy_action": "submit"
     },
-    "1": {
+    "2": {
       "name": "read_capture_store",
+      "pipeline_id": 9,
       "outputs": [
         "capture_lines"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the confirmation review line(s) this request produced (by timestamp proximity to step 1).",
+      "legacy_action": "read_capture"
     },
-    "2": {
+    "3": {
       "name": "assert_plan_citation",
+      "pipeline_id": 9,
       "outputs": [
         "assertion_result"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Assert the review's reasoning_preview references concrete content from the request's own generated blueprint steps (action/description text), not generic boilerplate — the real proof of top-down traversal per the doctrine's core claim.",
+      "legacy_action": "assert"
     }
   },
   "legacy_methodology_config": {

@@ -8,7 +8,7 @@
     {
       "step_index": 0,
       "action": "submit",
-      "description": "Submit a real RequireConfirmation-matching prompt through /orchestrate using the host's default configured model (no override) — establishes the baseline real decision + reasoning.",
+      "description": "Submit a real RequireConfirmation-matching prompt through /orchestrate on the default configured model (no override) to establish the baseline decision and reasoning. Hands on task_id_primary. Submitting needs an orchestrate-call capability that is not registered.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,19 +25,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "submit_with_primary_model"
     },
     {
       "step_index": 1,
       "action": "submit",
-      "description": "Submit the identical prompt again, this time with a model_config override forcing the local BitNet-class fallback model for the review call specifically (mirrors this session's real forced-model BitNet coherency sweep methodology, now scoped to the decision-review call site).",
+      "description": "Submit the identical prompt again with a model_config override forcing the local BitNet-class fallback for the review call. Hands on task_id_fallback.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
-      "depends_on": [
-        0
-      ],
+      "depends_on": [],
       "wait_for_graph_update": false,
       "max_retries": 1,
       "timeout_ms": null,
@@ -49,17 +51,22 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "submit_with_forced_fallback"
     },
     {
       "step_index": 2,
       "action": "assert",
-      "description": "Read both real capture-store lines ({data_dir}/model_calls/decision_review.jsonl) and compare decision agreement + whether the fallback model's reasoning still cites the same real traversed context markers as the primary model's — the real, measurable definition of 'switch coherence' this session's doctrine calls for.",
+      "description": "Read both capture-store lines ({data_dir}/model_calls/decision_review.jsonl) and compare decision agreement and whether the fallback's reasoning still cites the same traversed-context markers as the primary's. Hands on a coherence report.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
+        0,
         1
       ],
       "wait_for_graph_update": false,
@@ -73,37 +80,51 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "compare_capture_entries"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "read files from the repository or data dir (CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md, model_calls/decision_review.jsonl)",
+    "submit a request to /orchestrate (optionally with a model_config override) and read back its task and capture-store entries"
+  ],
   "methodology_ids": [
     30035,
     30036,
     30038,
     30043
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "submit_with_primary_model",
+      "pipeline_id": 9,
       "outputs": [
         "task_id_primary"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Submit a real RequireConfirmation-matching prompt through /orchestrate using the host's default configured model (no override) — establishes the baseline real decision + reasoning.",
+      "legacy_action": "submit"
     },
-    "1": {
+    "2": {
       "name": "submit_with_forced_fallback",
+      "pipeline_id": 9,
       "outputs": [
         "task_id_fallback"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Submit the identical prompt again, this time with a model_config override forcing the local BitNet-class fallback model for the review call specifically (mirrors this session's real forced-model BitNet coherency sweep methodology, now scoped to the decision-review call site).",
+      "legacy_action": "submit"
     },
-    "2": {
+    "3": {
       "name": "compare_capture_entries",
+      "pipeline_id": 9,
       "outputs": [
         "coherence_report"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Read both real capture-store lines ({data_dir}/model_calls/decision_review.jsonl) and compare decision agreement + whether the fallback model's reasoning still cites the same real traversed context markers as the primary model's — the real, measurable definition of 'switch coherence' this session's doctrine calls for.",
+      "legacy_action": "assert"
     }
   },
   "legacy_methodology_config": {

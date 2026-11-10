@@ -8,7 +8,7 @@
     {
       "step_index": 0,
       "action": "draft",
-      "description": "Draft principles + heuristics + decision rules; every rule must be concrete 'if X then do Y' with real text (no placeholders)",
+      "description": "Draft the methodology: principles, heuristics and decision rules. Every rule must be a concrete 'if X then do Y' with real text, no placeholders. Hands on the draft as JSON.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,12 +25,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "draft_content"
     },
     {
       "step_index": 1,
       "action": "gate",
-      "description": "Content-depth gate: at least one rule/heuristic with real text; reject ellipsis shells and prompt-example echoes",
+      "description": "Content-depth gate: the draft must have at least one rule or heuristic with real text; reject ellipsis shells and prompt-example echoes, and say why. Hands on the validated draft or the rejection reasons.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -49,13 +53,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "depth_gate"
     },
     {
       "step_index": 2,
       "action": "register",
-      "description": "Persist to assets/methodologies + both stores; register in the index (bootstrap default + zsei_data)",
-      "pipeline_id": 12,
+      "description": "Specify persisting the validated methodology to assets/methodologies and both stores and registering it in the index (bootstrap default and zsei_data). Hands on the methodology body and index entry. Registration is done through the MethodologyCreate pipeline, which a blueprint step cannot name; the capability is recorded.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -73,36 +81,49 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "persist_and_register"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "methodology registration as a callable action (MethodologyCreate pipeline 12 cannot be named by a blueprint step)"
+  ],
   "methodology_ids": [
     30036,
     30043,
     30032
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "draft_content",
+      "pipeline_id": 9,
       "outputs": [
         "draft_json"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Draft principles + heuristics + decision rules; every rule must be concrete 'if X then do Y' with real text (no placeholders)",
+      "legacy_action": "draft"
     },
-    "1": {
+    "2": {
       "name": "depth_gate",
+      "pipeline_id": 33,
       "outputs": [
         "valid_draft"
       ],
-      "legacy_pipeline_id": 33
+      "legacy_description": "Content-depth gate: at least one rule/heuristic with real text; reject ellipsis shells and prompt-example echoes",
+      "legacy_action": "gate"
     },
-    "2": {
+    "3": {
       "name": "persist_and_register",
+      "pipeline_id": 33,
       "outputs": [
         "methodology_id"
       ],
-      "legacy_pipeline_id": 33
+      "legacy_description": "Persist to assets/methodologies + both stores; register in the index (bootstrap default + zsei_data)",
+      "legacy_action": "register"
     }
   },
   "legacy_methodology_config": {

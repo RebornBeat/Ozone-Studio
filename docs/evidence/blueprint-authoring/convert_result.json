@@ -2,330 +2,193 @@
  [
   1,
   "bp_1_general_assistant.json",
-  6,
-  [
-   9,
-   21
-  ],
-  [
-   30001,
-   30002
-  ],
-  [
-   "step 2 (process_modalities): legacy pipeline_id 'dynamic' (per-modality, chosen at run time) -> 9 (prompt); NEEDS-OPERATOR"
-  ]
+  3,
+  3,
+  0,
+  0,
+  3,
+  []
  ],
  [
   2,
   "bp_2_code_review.json",
-  10,
-  [
-   9,
-   11,
-   21,
-   101
-  ],
-  [
-   30003,
-   30005,
-   30004,
-   30006,
-   30010
-  ],
-  [
-   "step 4 (semantic_analysis): legacy 10 (TriggerHook) has no current pipeline -> 9 (prompt); confirm"
-  ]
+  4,
+  4,
+  0,
+  0,
+  6,
+  []
  ],
  [
   3,
   "bp_3_documentation.json",
-  15,
-  [
-   9,
-   11,
-   21,
-   100,
-   101
-  ],
-  [
-   30002,
-   30011,
-   30001,
-   30012
-  ],
-  [
-   "step 13 (write_output): legacy 11 (CreateFile) has no current pipeline -> 9 (prompt); confirm"
-  ]
+  9,
+  8,
+  1,
+  1,
+  7,
+  []
  ],
  [
   4,
   "bp_4_code_creation.json",
-  15,
-  [
-   4,
-   9,
-   11,
-   21,
-   39,
-   100,
-   101
-  ],
-  [
-   30003,
-   30005,
-   30010,
-   30004,
-   30006,
-   30007,
-   30008
-  ],
-  [
-   "step 11 (write_files): legacy 11 (CreateFile) has no current pipeline -> 9 (prompt); confirm",
-   "step 13 (trigger_semantic_analysis): legacy 10 (TriggerHook) has no current pipeline -> 9 (prompt); confirm",
-   "step 14 (update_project_index): legacy 7 (IndexFiles) -> 4 ZSEIWrite: closest, confirm"
-  ]
+  8,
+  8,
+  0,
+  2,
+  7,
+  []
  ],
  [
   6,
   "bp_6_data_analysis.json",
-  15,
-  [
-   9,
-   21,
-   100,
-   101,
-   105
-  ],
-  [
-   30009,
-   30003,
-   30005,
-   30013
-  ],
-  [
-   "step 2 (create_data_graphs): legacy pipeline_id 'dynamic' (per-modality, chosen at run time) -> 9 (prompt); NEEDS-OPERATOR",
-   "step 9 (link_all_graphs): legacy 10 (TriggerHook) has no current pipeline -> 9 (prompt); confirm",
-   "step 14 (write_outputs): legacy 11 (CreateFile) has no current pipeline -> 9 (prompt); confirm"
-  ]
+  10,
+  10,
+  0,
+  2,
+  5,
+  []
  ],
  [
   7,
   "bp_7_math_proof_verification.json",
-  14,
-  [
-   9,
-   21,
-   101,
-   105
-  ],
-  [
-   30014,
-   30015,
-   30009
-  ],
-  [
-   "step 5 (semantic_enrichment): legacy 10 (TriggerHook) has no current pipeline -> 9 (prompt); confirm"
-  ]
+  10,
+  10,
+  0,
+  0,
+  4,
+  []
  ],
  [
   8,
   "bp_8_modality_pipeline_onboarding.json",
   4,
-  [
-   101
-  ],
-  [
-   30040,
-   30019,
-   30037,
-   30038
-  ],
+  4,
+  0,
+  2,
+  0,
   []
  ],
  [
   9,
   "bp_9_jurisdiction_expansion.json",
-  4,
+  5,
+  5,
+  0,
+  3,
+  0,
   [
-   9
-  ],
-  [
-   30021,
-   30043
-  ],
-  [
-   "methodology asset ids with no container: [34]"
+   34
   ]
  ],
  [
   10,
   "bp_10_methodology_creation_and_registration.json",
   3,
-  [
-   9,
-   12
-  ],
-  [
-   30036,
-   30043,
-   30032
-  ],
+  3,
+  0,
+  1,
+  0,
   []
  ],
  [
   11,
   "bp_11_living-graph_linking_audit.json",
   3,
-  [
-   9,
-   101
-  ],
-  [
-   30041,
-   30038,
-   30036,
-   30037
-  ],
+  3,
+  0,
+  0,
+  0,
   []
  ],
  [
   12,
   "bp_12_cross-process_retrieval_hardening.json",
   3,
-  [
-   101
-  ],
-  [
-   30040,
-   30025,
-   30023,
-   30029
-  ],
+  3,
+  0,
+  2,
+  0,
   []
  ],
  [
   13,
   "bp_13_text_document_analysis.json",
   4,
-  [
-   9,
-   100
-  ],
-  [
-   30019,
-   30035,
-   30038
-  ],
+  3,
+  1,
+  1,
+  1,
   []
  ],
  [
   14,
   "bp_14_incident_postmortem_to_methodology.json",
   3,
-  [
-   9,
-   12,
-   101
-  ],
-  [
-   30043,
-   30036,
-   30029,
-   30028,
-   30030
-  ],
+  3,
+  0,
+  2,
+  0,
   []
  ],
  [
   15,
   "bp_15_agent_onboarding_protocol.json",
   3,
-  [
-   9
-  ],
-  [
-   30020,
-   30026,
-   30033,
-   30043,
-   30038,
-   30039
-  ],
+  3,
+  0,
+  2,
+  0,
   []
  ],
  [
   16,
   "bp_16_data_integrity_audit_and_repair.json",
   4,
-  [
-   101
-  ],
-  [
-   30037,
-   30036,
-   30043,
-   30023
-  ],
+  4,
+  0,
+  2,
+  0,
   []
  ],
  [
   17,
   "bp_17_fallback_and_capture_verification.json",
   3,
-  [
-   9
-  ],
-  [
-   30019,
-   30035,
-   30036,
-   30043,
-   30038
-  ],
+  3,
+  0,
+  1,
+  0,
   []
  ],
  [
   18,
   "bp_18_td1_regulated_plan_review.json",
   3,
-  [
-   9
-  ],
-  [
-   30035,
-   30036,
-   30043,
-   30021
-  ],
+  3,
+  0,
+  2,
+  0,
   []
  ],
  [
   19,
   "bp_19_td2_consciousness_full_context.json",
   3,
-  [
-   9
-  ],
-  [
-   30035,
-   30036,
-   30043
-  ],
+  3,
+  0,
+  2,
+  0,
   []
  ],
  [
   20,
   "bp_20_td3_switch_coherence.json",
   3,
-  [
-   9
-  ],
-  [
-   30035,
-   30036,
-   30038,
-   30043
-  ],
+  3,
+  0,
+  2,
+  0,
   []
  ]
 ]

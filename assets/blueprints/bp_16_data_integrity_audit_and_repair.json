@@ -8,8 +8,8 @@
     {
       "step_index": 0,
       "action": "enumerate",
-      "description": "Enumerate the subtree, group by logical identity, count duplicates (full accounting before any change)",
-      "pipeline_id": 101,
+      "description": "Enumerate the subtree, group by logical identity and count duplicates - full accounting before any change. Hands on the duplicate report.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -25,13 +25,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "enumerate_and_group"
     },
     {
       "step_index": 1,
       "action": "resolve",
-      "description": "Resolve canonical by min id (order-independent); verify wiring/consumers target canonicals",
-      "pipeline_id": 101,
+      "description": "Resolve the canonical by min id (order-independent) and verify wiring and consumers target the canonicals. Hands on the canonical set.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -49,13 +53,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "canonical_resolve"
     },
     {
       "step_index": 2,
       "action": "repair",
-      "description": "Delete/annotate non-canonical copies with the approved plan; log deleted/kept counts and zero-failure check",
-      "pipeline_id": 101,
+      "description": "Propose the repair: delete or annotate the non-canonical copies per the approved plan, logging deleted/kept counts and a zero-failure check; never drop silently. Hands on the accounting. Applying the repair needs a data-repair capability that is not registered.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -73,13 +81,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "repair_with_accounting"
     },
     {
       "step_index": 3,
       "action": "verify",
-      "description": "Re-run the consumer that drifted (e.g. boot wiring) and verify the convergence count is 0",
-      "pipeline_id": 101,
+      "description": "State how to re-run the consumer that drifted (e.g. boot wiring) and verify the convergence count is 0. Hands on the convergence check. Running it needs a fresh-process test capability that is not registered.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -97,44 +109,60 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        4
+      ],
+      "name": "verify_convergence"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "repair stored data: delete or annotate non-canonical containers with full accounting",
+    "run a test or fresh-process verification against the host (e.g. QueryGraph from a new process, a regression test run)"
+  ],
   "methodology_ids": [
     30037,
     30036,
     30043,
     30023
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "enumerate_and_group",
+      "pipeline_id": 101,
       "outputs": [
         "dup_report"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Enumerate the subtree, group by logical identity, count duplicates (full accounting before any change)",
+      "legacy_action": "enumerate"
     },
-    "1": {
+    "2": {
       "name": "canonical_resolve",
+      "pipeline_id": 101,
       "outputs": [
         "canonical_set"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Resolve canonical by min id (order-independent); verify wiring/consumers target canonicals",
+      "legacy_action": "resolve"
     },
-    "2": {
+    "3": {
       "name": "repair_with_accounting",
+      "pipeline_id": 101,
       "outputs": [
         "accounting"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Delete/annotate non-canonical copies with the approved plan; log deleted/kept counts and zero-failure check",
+      "legacy_action": "repair"
     },
-    "3": {
+    "4": {
       "name": "verify_convergence",
+      "pipeline_id": 101,
       "outputs": [
         "converged"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Re-run the consumer that drifted (e.g. boot wiring) and verify the convergence count is 0",
+      "legacy_action": "verify"
     }
   },
   "legacy_methodology_config": {

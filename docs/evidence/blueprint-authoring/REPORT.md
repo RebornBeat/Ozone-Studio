@@ -1,31 +1,72 @@
-# Built-in blueprint bodies (19) — 2026-11-10 — NOTHING COMPILED OR RUN
+# Built-in blueprint bodies (19) — REPORT v2 (corrected) — 2026-11-10 — NOTHING COMPILED OR RUN
 
-**Finding:** the bodies were NOT missing — they were authored earlier and live UNTRACKED at `zsei_data/local/blueprints/bp_*.json` (also under `target/*/zsei_data/blueprints`). `bootstrap.rs::copy_blueprints` copies `assets/blueprints/` (absent), so a fresh data dir never received them, and the 19 legacy bodies also use an OLD step schema (`step_id/name/outputs`, no `step_index`) that the current `BlueprintStep` reader cannot load. So I did not invent plans: `convert.py` converts them LOSSLESSLY into the current body shape and writes `assets/blueprints/bp_*.json` (19 files). Everything not representable is kept under `legacy_step_fields` / `legacy_methodology_config`.
+## What was wrong in v1, and what v2 does
+v1 (first conversion) remapped legacy pipeline ids to 4/11/12/21/39/100/101/105. **That cannot run:** `stages.rs` (~1695-1725) coerces every non-provider step whose `pipeline_id` is not 9 or 56 to pipeline 9 (warning), and strips a consciousness-category pipeline such as 39 as a SECURITY violation. A blueprint step is therefore exactly one of:
+- a **zero-shot step on pipeline 9** (the model gets the step description + the gathered methodology rules + tool results; `action` is only a label), or
+- a **provider step** (`step_type: "provider"`, `pipeline_id: 0`, provider id from the registry) that calls a **registered MCP tool** through the gated MCP path.
 
-**Pipeline renumbering hazard (important):** the legacy designs use an older pipeline numbering. Run as-is, legacy `1`, `7`, `10`, `11`, `12`, `16`, `33`, `40` would now call Auth / LibraryTab / Voice / MethodologyFetch / MethodologyCreate / ZeroShotSimulation / Sync / ExperienceCategorization. Each step was remapped by (legacy id, action) to the pipeline that does the job today: 1→9, 12→21 ContextAggregation, 16→11 MethodologyFetch, 40→39 ConsciousnessDecisionGate, 7→4 ZSEIWrite, 33 register/codify→12 MethodologyCreate else 9; 100/101/105/9 unchanged. `methodology_ids` = asset id N → container `30000+N` (all exist on the EU except asset 34, no container).
+Graph create/query/link/update, provisional nodes, conflict checks, methodology loading, context aggregation, hook firing and the consciousness check are done by the **walk's own stages** (3 methodology gather, 4 graph creation, 5 AMT, 6 blueprint, 10 execution; consciousness gate internal) — a blueprint step cannot call them.
 
-| bp | steps | pipelines used | methodology container ids | status |
-|---|---|---|---|---|
-| 1 General Assistant | 6 | 9, 21 | 30001, 30002 | NEEDS-OPERATOR: step 2 legacy `dynamic` (per-modality) → 9 |
-| 2 Code Review | 10 | 9, 11, 21, 101 | 30003–30006, 30010 | confirm: step 4 TriggerHook → 9 |
-| 3 Documentation | 15 | 9, 11, 21, 100, 101 | 30001, 30002, 30011, 30012 | confirm: step 13 CreateFile → 9 |
-| 4 Code Creation | 15 | 4, 9, 11, 21, 39, 100, 101 | 30003–30008, 30010 | confirm: CreateFile/TriggerHook → 9, IndexFiles → 4 |
-| 6 Data Analysis | 15 | 9, 21, 100, 101, 105 | 30003, 30005, 30009, 30013 | NEEDS-OPERATOR: step 2 `dynamic`; confirm hook/file steps |
-| 7 Math Proof | 14 | 9, 21, 101, 105 | 30009, 30014, 30015 | confirm: step 5 hook → 9 |
-| 8 Modality Pipeline Onboarding | 4 | 101 | 30019, 30037, 30038, 30040 | procedural dev blueprint; 101 kept (graph actions) — confirm |
-| 9 Jurisdiction Expansion | 4 | 9 | 30021, 30043 | asset methodology 34 has no container |
-| 10 Methodology Creation | 3 | 9, 12 | 30032, 30036, 30043 | ok |
-| 11 Linking Audit | 3 | 9, 101 | 30036–30038, 30041 | ok |
-| 12 Cross-Process Retrieval | 3 | 101 | 30023, 30025, 30029, 30040 | ok |
-| 13 Text Document Analysis | 4 | 9, 100 | 30019, 30035, 30038 | ok |
-| 14 Incident Postmortem | 3 | 9, 12, 101 | 30028–30030, 30036, 30043 | ok |
-| 15 Agent Onboarding | 3 | 9 | 30020, 30026, 30033, 30038, 30039, 30043 | ok |
-| 16 Data Integrity Audit | 4 | 101 | 30023, 30036, 30037, 30043 | ok |
-| 17 Fallback & Capture Verification | 3 | 9 | 30019, 30035, 30036, 30038, 30043 | ok |
-| 18 TD-1 | 3 | 9 | 30021, 30035, 30036, 30043 | the capture-assertion mechanism does not exist yet (disclosed in its own text) |
-| 19 TD-2 | 3 | 9 | 30035, 30036, 30043 | same |
-| 20 TD-3 | 3 | 9 | 30035, 30036, 30038, 30043 | same |
+v2 (`convert.py`, hand-written SPEC, re-run from the untracked legacy bodies in `zsei_data/local/blueprints/`): every legacy step is mapped explicitly —
+- **KEEP**: becomes a pipeline-9 step whose description carries the legacy name, inputs, outputs, config, conditional / on_failure / critical / comment meaning in plain words (what it consumes, what it hands on).
+- **WALK**: a pure walk-internal operation; removed from `steps`, recorded in body `walk_covered` with the walk stage that covers it (step indices renumbered contiguously, `depends_on` rebuilt).
+- **CAP**: a real-world action with no registered provider (write file, run sandbox/script/test, index, submit to /orchestrate, read repo files, repair data, register a methodology): stays a pipeline-9 step that delivers the content/decision, AND the capability is listed in body `missing_capabilities` (plain strings — the exact shape `stages.rs` reads, `Vec<String>`; capability closure captures them to `capability_gaps.json`).
+- **PROVIDER**: only where a REGISTERED provider truly fits: `document-mcp` (EU registry port 3282: document_extract / document_info / document_images / document_formats), as an **optional** step (bp 3 existing docs, bp 13 document text). Legacy-only fields are kept verbatim in `legacy_step_fields` keyed by LEGACY step id. `rule_refs` stay empty everywhere (not verified against the regenerated rule bodies — none cited rather than guess); `methodology_ids` unchanged (container ids 30000+N).
 
-Dropped-in-shape (kept verbatim under `legacy_step_fields`): per-step `name`, `inputs`, `outputs`, `config`, `conditional`, `conditional_next`, legacy `loop_config` (different schema from `LoopConfig`), `triggers_hooks`, `critical`, `comment`, `on_failure`. `depends_on` was derived from outputs→inputs (else previous step); `rule_refs` empty (none invented).
+## Per blueprint (steps = pipeline-9 + provider; missing_capabilities; walk-covered legacy steps)
+| bp | name | steps | pipeline | provider | missing_capabilities | legacy steps covered by the walk |
+|---|---|---|---|---|---|---|
+| 1 | General Assistant | 3 | 3 | 0 | 0 | 3 |
+| 2 | Code Review | 4 | 4 | 0 | 0 | 6 |
+| 3 | Documentation | 9 | 8 | 1 | 1 | 7 |
+| 4 | Code Creation | 8 | 8 | 0 | 2 | 7 |
+| 6 | Data Analysis | 10 | 10 | 0 | 2 | 5 |
+| 7 | Mathematical Proof Verification | 10 | 10 | 0 | 0 | 4 |
+| 8 | Modality Pipeline Onboarding | 4 | 4 | 0 | 2 | 0 |
+| 9 | Jurisdiction Expansion | 5 | 5 | 0 | 3 | 0 |
+| 10 | Methodology Creation and Registration | 3 | 3 | 0 | 1 | 0 |
+| 11 | Living-Graph Linking Audit | 3 | 3 | 0 | 0 | 0 |
+| 12 | Cross-Process Retrieval Hardening | 3 | 3 | 0 | 2 | 0 |
+| 13 | Text Document Analysis | 4 | 3 | 1 | 1 | 1 |
+| 14 | Incident Postmortem to Methodology | 3 | 3 | 0 | 2 | 0 |
+| 15 | Agent Onboarding Protocol | 3 | 3 | 0 | 2 | 0 |
+| 16 | Data Integrity Audit and Repair | 4 | 4 | 0 | 2 | 0 |
+| 17 | Fallback and Capture Verification | 3 | 3 | 0 | 1 | 0 |
+| 18 | TD-1 Regulated Plan Review | 3 | 3 | 0 | 2 | 0 |
+| 19 | TD-2 Consciousness Full-Context | 3 | 3 | 0 | 2 | 0 |
+| 20 | TD-3 Switch Coherence | 3 | 3 | 0 | 2 | 0 |
+| **total** | | 88 | 86 | 2 | 27 (distinct per blueprint) | 33 |
 
-**Verification (no build):** all 19 parse as JSON; a python check of every step against the `BlueprintStep` fields/types (required: step_index, action, description, pipeline_id; defaults for the rest), contiguous step_index, depends_on only to earlier steps, every pipeline_id in the real registry, every methodology id a real EU container. NOT verified: serde deserialization by the compiled binary, behavior of any step. Not touched: the existing EU data (`zsei_data/blueprints/` has only index + walks; the next bootstrap copy is what would place these files; the 19 containers' `object_store_path` `blueprints/bp_*.json` resolves there).
+Per-step walk coverage (which legacy step went to which stage) is in each body's `walk_covered`; per-step legacy names/ids in each step's `name` / `legacy_step_ids`.
+
+## Answers to the operator's questions
+### bp 8 — Modality Pipeline Onboarding
+**What it is:** a developer procedure, not a user task: the exact arc the text/code/math modality pipelines followed — implement the pipeline binary (Analyze / CreateGraph / QueryGraph with real ZSEI persistence), persist a real ModalityGraph container keyed by container id, link to existing graphs (hop-ordered, uncapped, bidirectional SimilarTo with provenance), and prove retrieval from a fresh process. Its methodologies are 30019, 30037, 30038, 30040 (the persistence / retrieval / linking rules).
+**Why a request walk cannot do it:** every legacy step was `101` (the code-analysis pipeline used as a build/graph tool). A walk step is a model prompt or a registered-MCP call; nothing registered builds a Rust pipeline binary or runs a fresh-process retrieval test. So v2 keeps the four steps as pipeline-9 steps that produce the design, the persistence/link specification and the pass condition for the person doing the work, and records two missing capabilities (build-and-run a modality pipeline; fresh-process test). It will NOT make a pipeline.
+**Recommendation:** keep it as a guidance blueprint (a request like 'onboard a new modality' gets the correct checklist and methodology rules), or retire it — nothing is lost either way because the arc is also carried by methodologies 30037/30038/30040. Operator decision; low cost to keep.
+
+### bp 18-20 (TD-1 / TD-2 / TD-3) — what 'capture-assertion' means
+Source: `docs/TOP_DOWN_REVIEW_GUIDE.md` §4. These are **test blueprints**, not user tasks: each runs a REAL `/orchestrate` request end to end and then asserts, **from the capture store** (`{data_dir}/model_calls/decision_review.jsonl`, written by `src/orchestrator/decision_review.rs`), that the reviewing model really received the context the doctrine claims:
+- **TD-1:** a prompt matching a RequireConfirmation jurisdiction rule → the confirmation review's `reasoning_preview` must cite the blueprint's own step content (proof the plan was traversed, not a summary).
+- **TD-2:** a consciousness-enabled run → the stage-8 review must reference BOTH AMT branch content and zero-shot-simulation risk/feasibility content.
+- **TD-3:** the same regulated prompt twice (primary model vs a `model_config` override forcing the local BitNet-class fallback) → compare the two capture lines for decision agreement and for the fallback still citing the same context markers ('switch coherence').
+**The 'mechanism' they presume (and say does not exist yet):** an automated *assertion step* — something that (1) submits `/orchestrate` (with an optional model override), (2) reads and locates the right capture-store line by timestamp/task, and (3) asserts that `reasoning_preview` contains concrete step / AMT / simulation text (and, for TD-3, compares two lines). In the legacy bodies those were prompt-pipeline steps (`submit`, `read_capture`, `assert`) — a model cannot truly read the file or call the host, so the assertion would be asserted from nothing.
+**What exists today that could serve:** the capture store itself (real, written per review); `tools/e2e/lib.mjs` (`suite`, `http`, `pipeline`, `sessionToken`) and the existing e2e scripts (`jurisdiction.mjs`, `walk-completion.mjs`, `span-walk.mjs`, `fanout.mjs`, ...) which already drive real walks against a real host and read results; `decision_review.rs::read_jsonl` and the `/decision-review`-style readers in `grpc/mod.rs`.
+**What building it would involve:** a small e2e script per case under `tools/e2e/` (e.g. `top-down.mjs`: TD-1/TD-2/TD-3 as `s.check(...)` rows): submit the request through `/orchestrate`, poll the task, read `decision_review.jsonl` filtered by task/timestamp, then assert deterministically that `reasoning_preview` contains substrings taken from the run's own blueprint steps / AMT branches / simulation risks (and, for TD-3, run twice with `model_config` override and compare decision + marker overlap). That is deterministic code, no model judge — the honest way to assert capture. It is NOT a blueprint step. Until then v2 keeps TD-1..3 as pipeline-9 procedure steps and records the missing capabilities (orchestrate-call, read repository/data files); they read as a documented procedure, they assert nothing by themselves.
+**Options:** (a) keep as documented procedure blueprints (v2 state); (b) retire them from the built-in index and track the three cases as e2e scripts; (c) build the e2e script (recommended — it makes the doctrine's claim checkable). Operator decision.
+
+### bp 9 — Jurisdiction Expansion, methodology asset 34
+Asset **34 = 'Jurisdiction Source Maintenance Protocol'** (`assets/methodologies/method_34_jurisdiction_source_maintenance_protocol.json`; also on the EU at `/opt/ozone-studio/methodologies/`). The blueprint's `required_methodologies` are [21, 34]: 21 is the real-sourcing standard for jurisdiction content, 34 is the maintenance protocol — jurisdiction content is real external law that changes, so a **generated** `SOURCE_REGISTRY.md/.json` (via `tools/generate_jurisdiction_registry.py`, walking every file under `assets/jurisdiction/`) beats a hand-maintained summary; regenerate it after any content change; and a heuristic 'check the registry before an independent new search' (an already-approved source for the same country is a signal for the regulator domains/citation conventions to reuse).
+**Why it has no container:** the file exists, but the bootstrap default methodology index in `src/bootstrap.rs` lists 49 of the 50 asset files — **34 is the one entry missing from the index** — so no container is ever created and `30034` does not exist on the EU. v2 therefore keeps it out of `methodology_ids` and records it under `methodology_assets_without_container: [34]`. Once the main session registers it (container `30034`), add `30034` to bp 9's `methodology_ids`. bp 9's step texts already follow its protocol (check the registry first; regenerate it).
+**Also in bp 9:** register-scope / regenerate-registry / wire steps need file-write, script-run and wiring capabilities that are not registered → recorded in `missing_capabilities`.
+
+## Verification (no build)
+All 19 bodies: parse as JSON; every step has `step_index/action/description/pipeline_id` with correct types; `step_index` contiguous from 0; `depends_on` only earlier indices; non-provider `pipeline_id ∈ {9,56}` (all are 9 — no 56 used); provider steps: `provider = document-mcp`, `pipeline_id = 0`, `optional = true`, pinned tool ∈ {document_extract…} all present in the EU registry (`/opt/ozone-studio/zsei_data/mcp_tool_registry.json`, port 3282 → `mcp_supervisor::facts_for_port` = `document-mcp`); `missing_capabilities` are strings; every `methodology_ids` entry is a real EU container id; every legacy step id is accounted for (kept or walk-covered). Extra step keys (`name`, `legacy_step_ids`) are ignored by serde (`BlueprintStep` has no `deny_unknown_fields`).
+**NOT verified:** deserialization by the compiled binary; any runtime behaviour; whether the provider call can derive the `path` argument for `document_extract` from the step text (args are null → the call is `{"query": <step text>}` and the tool requires `{path}`; the steps are `optional`, so if it cannot, they are skipped — NEEDS-OPERATOR to confirm or to pin real `args` per request); whether capturing 1-3 `missing_capabilities` per walk of these blueprints creates repeated tool requests (the capture dedupes by name, not checked).
+
+## NEEDS-OPERATOR
+- bp 1 / bp 6 legacy `dynamic` (per-modality) step: now walk-covered (Stage 4 builds the per-modality graphs); no per-modality blueprint step remains.
+- Steps that were pure file/hook/index actions now deliver content in text and list a capability (FW / IDX / SBX / SCR / TST ...): confirm that is what you want captured as 'missing' on every walk (the alternative is to drop them from the blueprint).
+- bp 8 and bp 18-20 options above.
+- bp 9 option: step 'research_sources' could be the web-search pipeline 56, but 56 uses the whole step description as the search query and fails the step when search is unavailable — not used.
+- `rule_refs` empty on all steps (not verified against the 38 regenerated bodies).

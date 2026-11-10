@@ -8,7 +8,7 @@
     {
       "step_index": 0,
       "action": "capture",
-      "description": "Record the real finding with live evidence (log lines, container ids, measured numbers) — no folklore",
+      "description": "Record the real finding with live evidence: log lines, container ids, measured numbers. No folklore; anything not evidenced is labelled as unverified. Hands on the finding.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,13 +25,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "capture_finding"
     },
     {
       "step_index": 1,
       "action": "codify",
-      "description": "Draft the methodology with content-depth-gated rules (bp 10 flow)",
-      "pipeline_id": 12,
+      "description": "Draft the methodology with content-depth-gated rules (the flow of blueprint 10): concrete if-X-then-Y rules with real text. Hands on the methodology draft. Registration is done through the MethodologyCreate pipeline, which a blueprint step cannot name; the capability is recorded.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -49,18 +53,22 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "codify_methodology"
     },
     {
       "step_index": 2,
       "action": "test",
-      "description": "Write the regression test that fails on the old behavior and passes on the fix",
-      "pipeline_id": 101,
+      "description": "Write the regression test that fails on the old behavior and passes on the fix. Hands on the test code. Running it needs a test-run capability that is not registered.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        1
+        0
       ],
       "wait_for_graph_update": false,
       "max_retries": 1,
@@ -73,10 +81,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "pin_regression"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "methodology registration as a callable action (MethodologyCreate pipeline 12 cannot be named by a blueprint step)",
+    "run a test or fresh-process verification against the host (e.g. QueryGraph from a new process, a regression test run)"
+  ],
   "methodology_ids": [
     30043,
     30036,
@@ -84,27 +99,34 @@
     30028,
     30030
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "capture_finding",
+      "pipeline_id": 9,
       "outputs": [
         "finding"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Record the real finding with live evidence (log lines, container ids, measured numbers) — no folklore",
+      "legacy_action": "capture"
     },
-    "1": {
+    "2": {
       "name": "codify_methodology",
+      "pipeline_id": 33,
       "outputs": [
         "methodology_id"
       ],
-      "legacy_pipeline_id": 33
+      "legacy_description": "Draft the methodology with content-depth-gated rules (bp 10 flow)",
+      "legacy_action": "codify"
     },
-    "2": {
+    "3": {
       "name": "pin_regression",
+      "pipeline_id": 101,
       "outputs": [
         "test"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Write the regression test that fails on the old behavior and passes on the fix",
+      "legacy_action": "test"
     }
   },
   "legacy_methodology_config": {

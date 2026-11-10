@@ -7,8 +7,8 @@
   "steps": [
     {
       "step_index": 0,
-      "action": "receive_task",
-      "description": "Receive code files for review",
+      "action": "ComputeDependencies",
+      "description": "Analyze the dependency relationships among the submitted code (module/function/data dependencies, circular or missing ones) from the structural graph the walk built. Consumes the code and its graph context; hands on a dependency map.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,13 +25,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        4
+      ],
+      "name": "compute_dependencies"
     },
     {
       "step_index": 1,
-      "action": "Analyze",
-      "description": "Create structural graph using Code Analysis Pipeline",
-      "pipeline_id": 101,
+      "action": "semantic_analysis",
+      "description": "Add a deep semantic layer to the structural view: infer relationships the structure does not show (intent of components, patterns and anti-patterns, hidden coupling). Consumes the graph context and the dependency map; hands on the enriched understanding. (Hook firing is done by the walk's graph stage; this step is the reasoning the hook stood for.)",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -49,13 +53,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        5
+      ],
+      "name": "semantic_analysis"
     },
     {
       "step_index": 2,
-      "action": "CreateGraph",
-      "description": "Build traversable code graph",
-      "pipeline_id": 101,
+      "action": "Execute",
+      "description": "Review the code using the graph context, dependency map, semantic analysis and the review context given with the request. Reference graph nodes (files, functions) by name in every finding. Hands on the raw review.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -73,142 +81,22 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        8
+      ],
+      "name": "generate_review"
     },
     {
       "step_index": 3,
-      "action": "ComputeDependencies",
-      "description": "Analyze dependency relationships",
-      "pipeline_id": 101,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        2
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 4,
-      "action": "TriggerHook",
-      "description": "ZSEI adds semantic layer to structural graph",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        2
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 5,
-      "action": "LoadMethodologies",
-      "description": "Load required code review methodologies",
-      "pipeline_id": 11,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        4
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 6,
-      "action": "AggregateForTask",
-      "description": "Build comprehensive review context",
-      "pipeline_id": 21,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        0,
-        3,
-        4,
-        5
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 7,
-      "action": "Execute",
-      "description": "Generate code review using LLM with graph context",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        6
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 8,
       "action": "structure_review",
-      "description": "Organize review findings by severity and category",
+      "description": "Organize the raw review into findings by category (security, performance, maintainability, correctness, style) and severity (critical, major, minor, suggestion), each with the graph node it refers to. Hands on the structured review. (Linking findings back onto graph nodes is done by the walk's graph update.)",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        2,
-        7
+        2
       ],
       "wait_for_graph_update": false,
       "max_retries": 1,
@@ -221,32 +109,11 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 9,
-      "action": "UpdateGraph",
-      "description": "Link review findings to graph nodes",
-      "pipeline_id": 101,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        2,
-        8
+      "optional": false,
+      "legacy_step_ids": [
+        9
       ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
+      "name": "structure_findings"
     }
   ],
   "missing_capabilities": [],
@@ -257,17 +124,52 @@
     30006,
     30010
   ],
+  "walk_covered": [
+    {
+      "legacy_step": 1,
+      "legacy_name": "receive_code",
+      "covered_by": "walk intake (Stage 0-2: request received, jurisdiction gate, text normalization)"
+    },
+    {
+      "legacy_step": 2,
+      "legacy_name": "analyze_code_structure",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    },
+    {
+      "legacy_step": 3,
+      "legacy_name": "create_code_graph",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    },
+    {
+      "legacy_step": 6,
+      "legacy_name": "load_methodologies",
+      "covered_by": "walk Stage 3 (methodology gather: the applicable methodologies and their rules are loaded and shown in every step's prompt)"
+    },
+    {
+      "legacy_step": 7,
+      "legacy_name": "aggregate_review_context",
+      "covered_by": "walk Stages 3-5 (context aggregation: methodologies, graphs and the AMT are assembled into each step's prompt)"
+    },
+    {
+      "legacy_step": 10,
+      "legacy_name": "link_to_graph",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    }
+  ],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "receive_code",
+      "pipeline_id": 1,
       "outputs": [
         "code_files",
         "review_context"
       ],
-      "legacy_pipeline_id": 1
+      "legacy_description": "Receive code files for review",
+      "legacy_action": "receive_task"
     },
-    "1": {
+    "2": {
       "name": "analyze_code_structure",
+      "pipeline_id": 101,
       "inputs": [
         "code_files"
       ],
@@ -278,10 +180,12 @@
         "depth": "deep",
         "include_metrics": true
       },
-      "legacy_pipeline_id": 101
+      "legacy_description": "Create structural graph using Code Analysis Pipeline",
+      "legacy_action": "Analyze"
     },
-    "2": {
+    "3": {
       "name": "create_code_graph",
+      "pipeline_id": 101,
       "inputs": [
         "code_analysis"
       ],
@@ -291,20 +195,24 @@
       "triggers_hooks": [
         "OnGraphCreated"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Build traversable code graph",
+      "legacy_action": "CreateGraph"
     },
-    "3": {
+    "4": {
       "name": "compute_dependencies",
+      "pipeline_id": 101,
       "inputs": [
         "code_graph_id"
       ],
       "outputs": [
         "dependency_map"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Analyze dependency relationships",
+      "legacy_action": "ComputeDependencies"
     },
-    "4": {
+    "5": {
       "name": "semantic_analysis",
+      "pipeline_id": 10,
       "inputs": [
         "code_graph_id"
       ],
@@ -316,10 +224,12 @@
         "semantic_depth": "deep",
         "analyze_patterns": true
       },
-      "legacy_pipeline_id": 10
+      "legacy_description": "ZSEI adds semantic layer to structural graph",
+      "legacy_action": "TriggerHook"
     },
-    "5": {
+    "6": {
       "name": "load_methodologies",
+      "pipeline_id": 16,
       "inputs": [
         "required_methodologies",
         "suggested_methodologies"
@@ -327,10 +237,12 @@
       "outputs": [
         "active_methodologies"
       ],
-      "legacy_pipeline_id": 16
+      "legacy_description": "Load required code review methodologies",
+      "legacy_action": "LoadMethodologies"
     },
-    "6": {
+    "7": {
       "name": "aggregate_review_context",
+      "pipeline_id": 12,
       "inputs": [
         "enriched_graph_id",
         "dependency_map",
@@ -340,10 +252,12 @@
       "outputs": [
         "review_prompt_context"
       ],
-      "legacy_pipeline_id": 12
+      "legacy_description": "Build comprehensive review context",
+      "legacy_action": "AggregateForTask"
     },
-    "7": {
+    "8": {
       "name": "generate_review",
+      "pipeline_id": 9,
       "inputs": [
         "review_prompt_context"
       ],
@@ -354,10 +268,12 @@
         "response_format": "structured",
         "include_graph_references": true
       },
-      "legacy_pipeline_id": 9
+      "legacy_description": "Generate code review using LLM with graph context",
+      "legacy_action": "Execute"
     },
-    "8": {
+    "9": {
       "name": "structure_findings",
+      "pipeline_id": 1,
       "inputs": [
         "raw_review",
         "code_graph_id"
@@ -380,10 +296,12 @@
           "suggestion"
         ]
       },
-      "legacy_pipeline_id": 1
+      "legacy_description": "Organize review findings by severity and category",
+      "legacy_action": "structure_review"
     },
-    "9": {
+    "10": {
       "name": "link_to_graph",
+      "pipeline_id": 101,
       "inputs": [
         "code_graph_id",
         "structured_review"
@@ -391,7 +309,8 @@
       "outputs": [
         "annotated_graph_id"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Link review findings to graph nodes",
+      "legacy_action": "UpdateGraph"
     }
   },
   "legacy_methodology_config": {

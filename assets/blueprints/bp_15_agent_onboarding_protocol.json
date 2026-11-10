@@ -8,7 +8,7 @@
     {
       "step_index": 0,
       "action": "read",
-      "description": "Read CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md, and the shared-context handoffs before touching anything",
+      "description": "Read CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md and the shared-context handoffs before touching anything, and summarize what is current and who holds what. Hands on the context. Reading repository files needs a file-read capability that is not registered.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,12 +25,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        1
+      ],
+      "name": "read_state"
     },
     {
       "step_index": 1,
       "action": "coordinate",
-      "description": "file_claim before editing; route work through host tasks; end sessions with a handoff note",
+      "description": "State the claims to take (file_claim before editing), how work is routed through host tasks, and the handoff note to end the session with. Hands on claims and tasks. File claims go through the shared-context server, which is not a registered provider here.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -49,12 +53,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "claim_and_route"
     },
     {
       "step_index": 2,
       "action": "verify",
-      "description": "Probe live state (health, task list, graph) before trusting docs — verify what's actually active, not just what's built",
+      "description": "Probe live state (health, task list, graph) before trusting the docs: verify what is actually active, not just what is built. Hands on the live state. Use only tool results the walk shows; say what could not be probed.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -73,10 +81,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "verify_live"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "file claims and handoff notes through the shared-context server (file_claim, note_add)",
+    "read files from the repository or data dir (CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md, model_calls/decision_review.jsonl)"
+  ],
   "methodology_ids": [
     30020,
     30026,
@@ -85,28 +100,35 @@
     30038,
     30039
   ],
+  "walk_covered": [],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "read_state",
+      "pipeline_id": 9,
       "outputs": [
         "context"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Read CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md, and the shared-context handoffs before touching anything",
+      "legacy_action": "read"
     },
-    "1": {
+    "2": {
       "name": "claim_and_route",
+      "pipeline_id": 9,
       "outputs": [
         "claims",
         "tasks"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "file_claim before editing; route work through host tasks; end sessions with a handoff note",
+      "legacy_action": "coordinate"
     },
-    "2": {
+    "3": {
       "name": "verify_live",
+      "pipeline_id": 9,
       "outputs": [
         "live_state"
       ],
-      "legacy_pipeline_id": 9
+      "legacy_description": "Probe live state (health, task list, graph) before trusting docs — verify what's actually active, not just what's built",
+      "legacy_action": "verify"
     }
   },
   "legacy_methodology_config": {

@@ -7,8 +7,8 @@
   "steps": [
     {
       "step_index": 0,
-      "action": "receive_task",
-      "description": "Receive data and analysis request",
+      "action": "detect_modalities",
+      "description": "Identify the data modalities in the supplied data sources (tabular text, code, math/statistics, ...) and their basic metadata. Hands on the detected modalities and data metadata.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,12 +25,16 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        2
+      ],
+      "name": "detect_data_types"
     },
     {
       "step_index": 1,
-      "action": "detect_modalities",
-      "description": "Identify data modalities",
+      "action": "Analyze",
+      "description": "Parse the analysis request into requirements: the metrics wanted, hypotheses to test, visualizations requested. Hands on the analysis requirements.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -49,18 +53,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        4
+      ],
+      "name": "analyze_request"
     },
     {
       "step_index": 2,
-      "action": "parallel_modality_analysis",
-      "description": "Create structural graphs for each data modality",
+      "action": "Execute",
+      "description": "Create the analysis plan as JSON (steps, methods, which data each uses, what each result means) from the requirements, the data graphs the walk built and the data metadata. Hands on the analysis plan.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        0,
         1
       ],
       "wait_for_graph_update": false,
@@ -74,18 +81,22 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        5
+      ],
+      "name": "plan_analysis"
     },
     {
       "step_index": 3,
-      "action": "Analyze",
-      "description": "Parse analysis requirements",
-      "pipeline_id": 100,
+      "action": "CreateProvisionalNodes",
+      "description": "Write the code for each analysis step (python), with its inputs and expected output. Consumes the analysis plan; hands on the analysis code.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        0
+        2
       ],
       "wait_for_graph_update": false,
       "max_retries": 1,
@@ -98,19 +109,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        6
+      ],
+      "name": "generate_analysis_code"
     },
     {
       "step_index": 4,
-      "action": "Execute",
-      "description": "Create analysis plan with LLM",
+      "action": "ExecuteInSandbox",
+      "description": "Run the analysis code on the data in a sandbox (python, timeout 300 s, memory limit 1024 MB) and report results and execution logs. No sandbox execution capability is registered, so this step works out the expected results and logs from the code and the data where that is possible without fabricating, states what could not be computed, and the capability is recorded.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        1,
-        2,
         3
       ],
       "wait_for_graph_update": false,
@@ -124,13 +137,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        7
+      ],
+      "name": "execute_analysis"
     },
     {
       "step_index": 5,
-      "action": "CreateProvisionalNodes",
-      "description": "Generate code for analysis steps",
-      "pipeline_id": 101,
+      "action": "process_results",
+      "description": "Process and validate the analysis results against the analysis requirements: check for errors, missing metrics, implausible numbers. Hands on processed results and a validation status.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -148,18 +165,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        8
+      ],
+      "name": "process_results"
     },
     {
       "step_index": 6,
-      "action": "ExecuteInSandbox",
-      "description": "Run analysis code in sandbox",
-      "pipeline_id": 101,
+      "action": "CreateGraph",
+      "description": "Only when the analysis is statistical: state the statistical results as structured math (estimates, tests, intervals, assumptions) so they can be linked. Consumes the processed results; hands on the structured statistical results. (Graph creation is the walk's, Stage 4.)",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        0,
         5
       ],
       "wait_for_graph_update": false,
@@ -173,18 +193,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        9
+      ],
+      "name": "statistical_structure"
     },
     {
       "step_index": 7,
-      "action": "process_results",
-      "description": "Process and validate analysis results",
+      "action": "Execute",
+      "description": "Only if visualizations were requested: create the visualization code from the processed results and the plan. Hands on the visualization code.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        3,
         6
       ],
       "wait_for_graph_update": false,
@@ -198,13 +221,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        11
+      ],
+      "name": "generate_visualizations"
     },
     {
       "step_index": 8,
-      "action": "CreateGraph",
-      "description": "Create math graph for statistical results",
-      "pipeline_id": 105,
+      "action": "Execute",
+      "description": "Generate the analysis report including methodology, limitations and recommendations. Consumes the report context (processed results, visualizations, graphs); hands on the report.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -222,18 +249,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        13
+      ],
+      "name": "generate_report"
     },
     {
       "step_index": 9,
-      "action": "TriggerHook",
-      "description": "Create cross-modality links",
+      "action": "CreateFiles",
+      "description": "Produce the output files (the report, the analysis code, the visualization code) with paths and complete content. Writing to disk needs a file-write capability this system does not have registered, so the step delivers them in its output and the capability is recorded.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        2,
         8
       ],
       "wait_for_graph_update": false,
@@ -247,152 +277,64 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 10,
-      "action": "Execute",
-      "description": "Create visualizations from results",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        4,
-        7
+      "optional": false,
+      "legacy_step_ids": [
+        15
       ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 11,
-      "action": "AggregateForTask",
-      "description": "Build report context",
-      "pipeline_id": 21,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        7,
-        9,
-        10
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 12,
-      "action": "Execute",
-      "description": "Generate analysis report",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        11
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 13,
-      "action": "FinalizeProvisional",
-      "description": "Finalize provisional code nodes",
-      "pipeline_id": 101,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        5
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 14,
-      "action": "CreateFiles",
-      "description": "Write report and code to files",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        10,
-        12,
-        13
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
+      "name": "write_outputs"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "file write: create or overwrite files in the workspace (legacy CreateFile)",
+    "sandboxed code execution (python, with time and memory limits) for generated analysis code (legacy ExecuteInSandbox)"
+  ],
   "methodology_ids": [
     30009,
     30003,
     30005,
     30013
   ],
+  "walk_covered": [
+    {
+      "legacy_step": 1,
+      "legacy_name": "receive_data",
+      "covered_by": "walk intake (Stage 0-2: request received, jurisdiction gate, text normalization)"
+    },
+    {
+      "legacy_step": 3,
+      "legacy_name": "create_data_graphs",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    },
+    {
+      "legacy_step": 10,
+      "legacy_name": "link_all_graphs",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    },
+    {
+      "legacy_step": 12,
+      "legacy_name": "aggregate_context",
+      "covered_by": "walk Stages 3-5 (context aggregation: methodologies, graphs and the AMT are assembled into each step's prompt)"
+    },
+    {
+      "legacy_step": 14,
+      "legacy_name": "finalize_code",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    }
+  ],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "receive_data",
+      "pipeline_id": 1,
       "outputs": [
         "data_sources",
         "analysis_request"
       ],
-      "legacy_pipeline_id": 1
+      "legacy_description": "Receive data and analysis request",
+      "legacy_action": "receive_task"
     },
-    "1": {
+    "2": {
       "name": "detect_data_types",
+      "pipeline_id": 1,
       "inputs": [
         "data_sources"
       ],
@@ -400,10 +342,12 @@
         "detected_modalities",
         "data_metadata"
       ],
-      "legacy_pipeline_id": 1
+      "legacy_description": "Identify data modalities",
+      "legacy_action": "detect_modalities"
     },
-    "2": {
+    "3": {
       "name": "create_data_graphs",
+      "pipeline_id": "dynamic",
       "inputs": [
         "data_sources",
         "detected_modalities"
@@ -415,10 +359,12 @@
         "iterate_over": "detected_modalities",
         "parallel": true
       },
-      "legacy_pipeline_id": "dynamic"
+      "legacy_description": "Create structural graphs for each data modality",
+      "legacy_action": "parallel_modality_analysis"
     },
-    "3": {
+    "4": {
       "name": "analyze_request",
+      "pipeline_id": 100,
       "inputs": [
         "analysis_request"
       ],
@@ -430,10 +376,12 @@
         "extract_hypotheses": true,
         "extract_visualizations": true
       },
-      "legacy_pipeline_id": 100
+      "legacy_description": "Parse analysis requirements",
+      "legacy_action": "Analyze"
     },
-    "4": {
+    "5": {
       "name": "plan_analysis",
+      "pipeline_id": 9,
       "inputs": [
         "analysis_requirements",
         "data_graphs",
@@ -446,20 +394,24 @@
         "response_format": "json",
         "schema": "analysis_plan_schema"
       },
-      "legacy_pipeline_id": 9
+      "legacy_description": "Create analysis plan with LLM",
+      "legacy_action": "Execute"
     },
-    "5": {
+    "6": {
       "name": "generate_analysis_code",
+      "pipeline_id": 101,
       "inputs": [
         "analysis_plan"
       ],
       "outputs": [
         "provisional_code"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Generate code for analysis steps",
+      "legacy_action": "CreateProvisionalNodes"
     },
-    "6": {
+    "7": {
       "name": "execute_analysis",
+      "pipeline_id": 101,
       "inputs": [
         "provisional_code",
         "data_sources"
@@ -473,10 +425,12 @@
         "timeout_seconds": 300,
         "memory_limit_mb": 1024
       },
-      "legacy_pipeline_id": 101
+      "legacy_description": "Run analysis code in sandbox",
+      "legacy_action": "ExecuteInSandbox"
     },
-    "7": {
+    "8": {
       "name": "process_results",
+      "pipeline_id": 1,
       "inputs": [
         "analysis_results",
         "analysis_requirements"
@@ -485,10 +439,12 @@
         "processed_results",
         "validation_status"
       ],
-      "legacy_pipeline_id": 1
+      "legacy_description": "Process and validate analysis results",
+      "legacy_action": "process_results"
     },
-    "8": {
+    "9": {
       "name": "create_math_graph",
+      "pipeline_id": 105,
       "inputs": [
         "processed_results"
       ],
@@ -498,10 +454,12 @@
       "conditional": {
         "condition": "has_statistical_analysis"
       },
-      "legacy_pipeline_id": 105
+      "legacy_description": "Create math graph for statistical results",
+      "legacy_action": "CreateGraph"
     },
-    "9": {
+    "10": {
       "name": "link_all_graphs",
+      "pipeline_id": 10,
       "inputs": [
         "data_graphs",
         "math_graph_id"
@@ -512,10 +470,12 @@
       "config": {
         "hook_type": "OnCrossModalityLink"
       },
-      "legacy_pipeline_id": 10
+      "legacy_description": "Create cross-modality links",
+      "legacy_action": "TriggerHook"
     },
-    "10": {
+    "11": {
       "name": "generate_visualizations",
+      "pipeline_id": 9,
       "inputs": [
         "processed_results",
         "analysis_plan"
@@ -526,10 +486,12 @@
       "conditional": {
         "condition": "visualizations_requested"
       },
-      "legacy_pipeline_id": 9
+      "legacy_description": "Create visualizations from results",
+      "legacy_action": "Execute"
     },
-    "11": {
+    "12": {
       "name": "aggregate_context",
+      "pipeline_id": 12,
       "inputs": [
         "linked_analysis_graph",
         "processed_results",
@@ -538,10 +500,12 @@
       "outputs": [
         "report_context"
       ],
-      "legacy_pipeline_id": 12
+      "legacy_description": "Build report context",
+      "legacy_action": "AggregateForTask"
     },
-    "12": {
+    "13": {
       "name": "generate_report",
+      "pipeline_id": 9,
       "inputs": [
         "report_context"
       ],
@@ -553,20 +517,24 @@
         "include_limitations": true,
         "include_recommendations": true
       },
-      "legacy_pipeline_id": 9
+      "legacy_description": "Generate analysis report",
+      "legacy_action": "Execute"
     },
-    "13": {
+    "14": {
       "name": "finalize_code",
+      "pipeline_id": 101,
       "inputs": [
         "provisional_code"
       ],
       "outputs": [
         "final_code_graph"
       ],
-      "legacy_pipeline_id": 101
+      "legacy_description": "Finalize provisional code nodes",
+      "legacy_action": "FinalizeProvisional"
     },
-    "14": {
+    "15": {
       "name": "write_outputs",
+      "pipeline_id": 11,
       "inputs": [
         "analysis_report",
         "final_code_graph",
@@ -575,7 +543,8 @@
       "outputs": [
         "output_paths"
       ],
-      "legacy_pipeline_id": 11
+      "legacy_description": "Write report and code to files",
+      "legacy_action": "CreateFiles"
     }
   },
   "legacy_methodology_config": {

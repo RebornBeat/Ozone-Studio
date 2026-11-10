@@ -7,8 +7,8 @@
   "steps": [
     {
       "step_index": 0,
-      "action": "receive_task",
-      "description": "Receive code creation request",
+      "action": "Analyze",
+      "description": "Extract the code requirements from the request: entities, technical terms, constraints. Consumes the request and any existing project context; hands on a requirement analysis.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
@@ -25,66 +25,77 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        3
+      ],
+      "name": "analyze_requirements"
     },
     {
       "step_index": 1,
-      "action": "QueryGraph",
-      "description": "Load existing project code graph if available",
-      "pipeline_id": 101,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        0
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": true
-    },
-    {
-      "step_index": 2,
-      "action": "Analyze",
-      "description": "Extract code requirements from request",
-      "pipeline_id": 100,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        0
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 3,
       "action": "Execute",
-      "description": "Plan code structure with LLM",
+      "description": "Plan the code structure as JSON (components, files, interfaces, order of dependency) from the requirement analysis and the existing project graph the walk supplies. Hands on the structure plan. If the later conflict check fails, this step is revised.",
       "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        1,
+        0
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false,
+      "legacy_step_ids": [
+        4
+      ],
+      "name": "plan_structure"
+    },
+    {
+      "step_index": 2,
+      "action": "CreateProvisionalNodes",
+      "description": "THE KEY GRAPH-FIRST STEP (legacy: critical): turn the structure plan into explicit provisional components BEFORE any code is written - list each component/node with its dependencies so conflicts are found first. Consumes the structure plan and the existing graph; hands on the provisional node list. (Persisting provisional nodes in the graph is done by the walk, Stage 4.)",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
+        1
+      ],
+      "wait_for_graph_update": false,
+      "max_retries": 1,
+      "timeout_ms": null,
+      "model_override": null,
+      "source_chunk_indices": [],
+      "methodology_ids": [],
+      "rule_refs": [],
+      "step_type": "pipeline",
+      "provider": null,
+      "tool": null,
+      "args": null,
+      "optional": false,
+      "legacy_step_ids": [
+        5
+      ],
+      "name": "plan_graph_nodes"
+    },
+    {
+      "step_index": 3,
+      "action": "CheckConflicts",
+      "description": "Validate the provisional structure against the existing code: name clashes, duplicate responsibilities, incompatible interfaces. Hands on a conflict report. On failure (legacy on_failure: revise_plan, go back to the plan step) revise the plan and re-check.",
+      "pipeline_id": 9,
+      "context_requirements": [],
+      "loop_config": null,
+      "sub_steps": [],
+      "depends_on": [
         2
       ],
       "wait_for_graph_update": false,
@@ -98,18 +109,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        6
+      ],
+      "name": "check_conflicts"
     },
     {
       "step_index": 4,
-      "action": "CreateProvisionalNodes",
-      "description": "Create provisional nodes in graph BEFORE generation",
-      "pipeline_id": 101,
+      "action": "Execute",
+      "description": "Generate the code for each provisional component, one at a time in dependency order, including the provisional context and validating each against the graph. Consumes the generation context and node list; hands on the generated code.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        1,
         3
       ],
       "wait_for_graph_update": false,
@@ -123,13 +137,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        10
+      ],
+      "name": "generate_code"
     },
     {
       "step_index": 5,
-      "action": "CheckConflicts",
-      "description": "Validate provisional structure against existing code",
-      "pipeline_id": 101,
+      "action": "Analyze",
+      "description": "Validate the generated code against the graph constraints: imports resolve, types agree, dependencies exist. Hands on a validation result (success or a list of failures; on failure regenerate the failing components, at most 3 times).",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -147,18 +165,21 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        11
+      ],
+      "name": "validate_code"
     },
     {
       "step_index": 6,
-      "action": "EvaluateDecision",
-      "description": "Ethical and architectural review of planned code",
-      "pipeline_id": 39,
+      "action": "CreateFile",
+      "description": "Produce the validated code files (path and complete content for each). Writing them to disk needs a file-write capability this system does not have registered, so the step delivers the files in its output and the capability is recorded. Only runs when validation succeeded (legacy conditional).",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
       "depends_on": [
-        3,
         5
       ],
       "wait_for_graph_update": false,
@@ -172,13 +193,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
+      "optional": false,
+      "legacy_step_ids": [
+        12
+      ],
+      "name": "write_files"
     },
     {
       "step_index": 7,
-      "action": "LoadMethodologies",
-      "description": "Load code creation methodologies",
-      "pipeline_id": 11,
+      "action": "IndexFiles",
+      "description": "List the files and the semantic summary that should be indexed for the new code (path, purpose, exports). Indexing into the ZSEI project index is a capability this system does not have registered, so the step delivers the index entries and the capability is recorded.",
+      "pipeline_id": 9,
       "context_requirements": [],
       "loop_config": null,
       "sub_steps": [],
@@ -196,184 +221,17 @@
       "provider": null,
       "tool": null,
       "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 8,
-      "action": "AggregateForTask",
-      "description": "Build generation context with graph and methodologies",
-      "pipeline_id": 21,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        2,
-        4,
-        7
+      "optional": false,
+      "legacy_step_ids": [
+        15
       ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 9,
-      "action": "Execute",
-      "description": "Generate code for each provisional node",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        4,
-        8
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 10,
-      "action": "Analyze",
-      "description": "Validate generated code against graph constraints",
-      "pipeline_id": 101,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        9
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 11,
-      "action": "CreateFile",
-      "description": "Write validated code to files",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        9,
-        10
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 12,
-      "action": "FinalizeProvisional",
-      "description": "Convert provisional nodes to permanent after successful write",
-      "pipeline_id": 101,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        4,
-        11
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 13,
-      "action": "TriggerHook",
-      "description": "Add semantic layer to new code",
-      "pipeline_id": 9,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        12
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
-    },
-    {
-      "step_index": 14,
-      "action": "IndexFiles",
-      "description": "Update ZSEI index with new code",
-      "pipeline_id": 4,
-      "context_requirements": [],
-      "loop_config": null,
-      "sub_steps": [],
-      "depends_on": [
-        11,
-        13
-      ],
-      "wait_for_graph_update": false,
-      "max_retries": 1,
-      "timeout_ms": null,
-      "model_override": null,
-      "source_chunk_indices": [],
-      "methodology_ids": [],
-      "rule_refs": [],
-      "step_type": "pipeline",
-      "provider": null,
-      "tool": null,
-      "args": null,
-      "optional": false
+      "name": "update_project_index"
     }
   ],
-  "missing_capabilities": [],
+  "missing_capabilities": [
+    "file write: create or overwrite files in the workspace (legacy CreateFile)",
+    "index new files into the ZSEI project index (legacy IndexFiles)"
+  ],
   "methodology_ids": [
     30003,
     30005,
@@ -383,27 +241,70 @@
     30007,
     30008
   ],
+  "walk_covered": [
+    {
+      "legacy_step": 1,
+      "legacy_name": "receive_request",
+      "covered_by": "walk intake (Stage 0-2: request received, jurisdiction gate, text normalization)"
+    },
+    {
+      "legacy_step": 2,
+      "legacy_name": "load_project_graph",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    },
+    {
+      "legacy_step": 7,
+      "legacy_name": "consciousness_check",
+      "covered_by": "walk consciousness gate (internal; not callable from a blueprint)"
+    },
+    {
+      "legacy_step": 8,
+      "legacy_name": "load_methodologies",
+      "covered_by": "walk Stage 3 (methodology gather: the applicable methodologies and their rules are loaded and shown in every step's prompt)"
+    },
+    {
+      "legacy_step": 9,
+      "legacy_name": "aggregate_context",
+      "covered_by": "walk Stages 3-5 (context aggregation: methodologies, graphs and the AMT are assembled into each step's prompt)"
+    },
+    {
+      "legacy_step": 13,
+      "legacy_name": "finalize_graph",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    },
+    {
+      "legacy_step": 14,
+      "legacy_name": "trigger_semantic_analysis",
+      "covered_by": "walk Stage 4 (graph creation: per-modality structural graphs, links and updates are made by the walk)"
+    }
+  ],
   "legacy_step_fields": {
-    "0": {
+    "1": {
       "name": "receive_request",
+      "pipeline_id": 1,
       "outputs": [
         "request",
         "existing_context"
       ],
-      "legacy_pipeline_id": 1
+      "legacy_description": "Receive code creation request",
+      "legacy_action": "receive_task"
     },
-    "1": {
+    "2": {
       "name": "load_project_graph",
+      "pipeline_id": 101,
       "inputs": [
         "project_id"
       ],
       "outputs": [
         "existing_graph"
       ],
-      "legacy_pipeline_id": 101
+      "optional": true,
+      "legacy_description": "Load existing project code graph if available",
+      "legacy_action": "QueryGraph"
     },
-    "2": {
+    "3": {
       "name": "analyze_requirements",
+      "pipeline_id": 100,
       "inputs": [
         "request"
       ],
@@ -414,10 +315,12 @@
         "extract_entities": true,
         "identify_technical_terms": true
       },
-      "legacy_pipeline_id": 100
+      "legacy_description": "Extract code requirements from request",
+      "legacy_action": "Analyze"
     },
-    "3": {
+    "4": {
       "name": "plan_structure",
+      "pipeline_id": 9,
       "inputs": [
         "requirement_analysis",
         "existing_graph"
@@ -429,10 +332,12 @@
         "response_format": "json",
         "schema": "code_structure_plan"
       },
-      "legacy_pipeline_id": 9
+      "legacy_description": "Plan code structure with LLM",
+      "legacy_action": "Execute"
     },
-    "4": {
+    "5": {
       "name": "create_provisional_nodes",
+      "pipeline_id": 101,
       "inputs": [
         "structure_plan",
         "existing_graph"
@@ -443,10 +348,12 @@
       ],
       "critical": true,
       "comment": "This is the key graph-first step - plan the structure before writing code",
-      "legacy_pipeline_id": 101
+      "legacy_description": "Create provisional nodes in graph BEFORE generation",
+      "legacy_action": "CreateProvisionalNodes"
     },
-    "5": {
+    "6": {
       "name": "check_conflicts",
+      "pipeline_id": 101,
       "inputs": [
         "provisional_graph"
       ],
@@ -457,10 +364,12 @@
         "action": "revise_plan",
         "goto_step": 4
       },
-      "legacy_pipeline_id": 101
+      "legacy_description": "Validate provisional structure against existing code",
+      "legacy_action": "CheckConflicts"
     },
-    "6": {
+    "7": {
       "name": "consciousness_check",
+      "pipeline_id": 40,
       "inputs": [
         "structure_plan",
         "conflict_report"
@@ -472,20 +381,24 @@
         "check_security_implications": true,
         "check_architectural_fit": true
       },
-      "legacy_pipeline_id": 40
+      "legacy_description": "Ethical and architectural review of planned code",
+      "legacy_action": "EvaluateDecision"
     },
-    "7": {
+    "8": {
       "name": "load_methodologies",
+      "pipeline_id": 16,
       "inputs": [
         "required_methodologies"
       ],
       "outputs": [
         "active_methodologies"
       ],
-      "legacy_pipeline_id": 16
+      "legacy_description": "Load code creation methodologies",
+      "legacy_action": "LoadMethodologies"
     },
-    "8": {
+    "9": {
       "name": "aggregate_context",
+      "pipeline_id": 12,
       "inputs": [
         "provisional_graph",
         "active_methodologies",
@@ -494,10 +407,12 @@
       "outputs": [
         "generation_context"
       ],
-      "legacy_pipeline_id": 12
+      "legacy_description": "Build generation context with graph and methodologies",
+      "legacy_action": "AggregateForTask"
     },
-    "9": {
+    "10": {
       "name": "generate_code",
+      "pipeline_id": 9,
       "inputs": [
         "generation_context",
         "provisional_node_ids"
@@ -514,10 +429,12 @@
         "include_provisional_context": true,
         "validate_against_graph": true
       },
-      "legacy_pipeline_id": 9
+      "legacy_description": "Generate code for each provisional node",
+      "legacy_action": "Execute"
     },
-    "10": {
+    "11": {
       "name": "validate_code",
+      "pipeline_id": 101,
       "inputs": [
         "generated_code"
       ],
@@ -529,10 +446,12 @@
         "check_types": true,
         "check_dependencies": true
       },
-      "legacy_pipeline_id": 101
+      "legacy_description": "Validate generated code against graph constraints",
+      "legacy_action": "Analyze"
     },
-    "11": {
+    "12": {
       "name": "write_files",
+      "pipeline_id": 11,
       "inputs": [
         "generated_code",
         "validation_result"
@@ -548,10 +467,12 @@
           "max_retries": 3
         }
       },
-      "legacy_pipeline_id": 11
+      "legacy_description": "Write validated code to files",
+      "legacy_action": "CreateFile"
     },
-    "12": {
+    "13": {
       "name": "finalize_graph",
+      "pipeline_id": 101,
       "inputs": [
         "provisional_node_ids",
         "file_paths"
@@ -566,10 +487,12 @@
           "provisional_node_ids"
         ]
       },
-      "legacy_pipeline_id": 101
+      "legacy_description": "Convert provisional nodes to permanent after successful write",
+      "legacy_action": "FinalizeProvisional"
     },
-    "13": {
+    "14": {
       "name": "trigger_semantic_analysis",
+      "pipeline_id": 10,
       "inputs": [
         "final_graph"
       ],
@@ -579,10 +502,12 @@
       "config": {
         "hook_type": "OnGraphCreated"
       },
-      "legacy_pipeline_id": 10
+      "legacy_description": "Add semantic layer to new code",
+      "legacy_action": "TriggerHook"
     },
-    "14": {
+    "15": {
       "name": "update_project_index",
+      "pipeline_id": 7,
       "inputs": [
         "file_paths",
         "enriched_graph"
@@ -590,7 +515,8 @@
       "outputs": [
         "index_status"
       ],
-      "legacy_pipeline_id": 7
+      "legacy_description": "Update ZSEI index with new code",
+      "legacy_action": "IndexFiles"
     }
   },
   "legacy_methodology_config": {
