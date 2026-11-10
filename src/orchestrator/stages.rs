@@ -238,6 +238,8 @@ impl PromptOrchestrator {
         crate::keyword_program::note_files(state.file_graphs.values().copied());
         self.gather_methodologies(state).await?;
 
+        // Stage 4's wall time was recorded as 0 ms (live EU walk 2026-11-09: 90 minutes hidden) — time the whole stage (4a + 4b).
+        let stage4_started = std::time::Instant::now();
         // STAGE 4 (part A): File graph classification — AFTER text processing
         // gives us keywords/topics signals, BEFORE aggregation so the
         // classified file modalities feed the root modality list. Runs ONCE.
@@ -254,7 +256,7 @@ impl PromptOrchestrator {
         self.create_initial_modality_graphs(state)
             .await
             .map_err(|e| format!("Initial graph creation failed: {}", e))?;
-        self.record_stage(
+        self.record_stage_timed(
             state,
             4,
             "Initial Graph Creation",
@@ -275,6 +277,7 @@ impl PromptOrchestrator {
                     .sum::<usize>(),
                 state.classified_file_graphs.len()
             ),
+            stage4_started.elapsed().as_millis() as u64,
         );
 
         // STAGE 5: Build the AMT — graph-native traversal when the chunks
