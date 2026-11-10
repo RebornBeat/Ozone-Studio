@@ -1,0 +1,64 @@
+{
+  "decision_rules": [
+    {
+      "action": "grant only the permissions the subject's task requires and nothing broader",
+      "condition": "access is being granted to a subject (user, service, or role)",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "allow access only to subjects with a stated need for that data",
+      "condition": "a resource holds sensitive data",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "split the steps between different subjects",
+      "condition": "one action chain would let a single subject both initiate and approve a sensitive operation",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "deny the request",
+      "condition": "no rule explicitly allows the requested access",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Authorization",
+  "heuristics": [
+    {
+      "description": "review it when the task ends and remove it if no longer required",
+      "examples": [],
+      "name": "a permission was granted for a temporary task",
+      "when_to_apply": "a permission was granted for a temporary task"
+    },
+    {
+      "description": "split it into narrower roles",
+      "examples": [],
+      "name": "a role keeps accumulating permissions",
+      "when_to_apply": "a role keeps accumulating permissions"
+    }
+  ],
+  "storage": {
+    "category": "Access Control",
+    "description": "A methodology for defining, enforcing, and managing access rights to resources based on policies, roles, and attributes.",
+    "keywords": [
+      "RBAC",
+      "ABAC",
+      "Policy",
+      "Permissions",
+      "Access Management"
+    ],
+    "name": "Authorization",
+    "principles": [
+      "Least Privilege",
+      "Need-to-Know",
+      "Separation of Duties"
+    ]
+  }
+}

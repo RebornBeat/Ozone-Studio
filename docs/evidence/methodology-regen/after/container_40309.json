@@ -1,0 +1,378 @@
+{
+  "metadata": {
+    "container_type": "Methodology",
+    "modality": "Unknown",
+    "created_at": 1794274869,
+    "updated_at": 1794315128,
+    "provenance": "orchestrator_layer_crossref",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Component Restoration",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "baseline recovery",
+      "component diagnostics",
+      "component recovery",
+      "component refurbishment",
+      "component rehabilitation",
+      "component repair",
+      "component restoration",
+      "damage repair",
+      "fault isolation",
+      "fault recovery",
+      "fix component",
+      "hardware restoration",
+      "modular restoration",
+      "module restoration",
+      "part restoration",
+      "rebuild component",
+      "restore component",
+      "reversible repair",
+      "software restoration",
+      "state restoration",
+      "system component repair"
+    ],
+    "topics": [
+      "component restoration"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null,
+    "keyword_meta": {
+      "baseline recovery": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "component diagnostics": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "component recovery": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "component refurbishment": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "component rehabilitation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "component repair": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "component restoration": {
+        "source": "extracted",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "damage repair": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "fault isolation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "fault recovery": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "fix component": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "hardware restoration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "modular restoration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "module restoration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "part restoration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "rebuild component": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "restore component": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "reversible repair": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "software restoration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state restoration": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "system component repair": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      }
+    }
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "methodologies_created/methodology_1794315128_40309.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

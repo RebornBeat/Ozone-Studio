@@ -1,0 +1,266 @@
+{
+  "metadata": {
+    "container_type": "Methodology",
+    "modality": "Unknown",
+    "created_at": 1794275211,
+    "updated_at": 1794315131,
+    "provenance": "orchestrator_layer_crossref",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "State Propagation",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "Estado de propagación",
+      "propagation d'état",
+      "propagation of state",
+      "state change propagation",
+      "state diffusion",
+      "state dissemination",
+      "state flow",
+      "state propagation",
+      "state propagation mechanism",
+      "state synchronization",
+      "state transfer",
+      "state updating",
+      "状態伝播"
+    ],
+    "topics": [
+      "state propagation"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null,
+    "keyword_meta": {
+      "Estado de propagación": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "propagation d'état": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "propagation of state": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state change propagation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state diffusion": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state dissemination": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state flow": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state propagation": {
+        "source": "extracted",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state propagation mechanism": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state synchronization": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state transfer": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "state updating": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "状態伝播": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      }
+    }
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "methodologies_created/methodology_1794315131_40323.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

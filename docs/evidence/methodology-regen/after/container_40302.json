@@ -1,0 +1,461 @@
+{
+  "metadata": {
+    "container_type": "Methodology",
+    "modality": "Unknown",
+    "created_at": 1794274724,
+    "updated_at": 1794314983,
+    "provenance": "orchestrator_layer_crossref",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "API Design",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "API architecture",
+      "API best practices",
+      "API contracts",
+      "API development",
+      "API documentation",
+      "API endpoints",
+      "API governance",
+      "API lifecycle",
+      "API modeling",
+      "API patterns",
+      "API security",
+      "API specification",
+      "API standards",
+      "API versioning",
+      "Backend API",
+      "GraphQL API",
+      "HTTP API",
+      "Microservices API",
+      "OpenAPI",
+      "REST API design",
+      "RESTful API",
+      "Resource-oriented design",
+      "Service design",
+      "Swagger",
+      "Web API design",
+      "api design"
+    ],
+    "topics": [
+      "api design"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null,
+    "keyword_meta": {
+      "*": {
+        "source": "",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API architecture": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API best practices": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API contracts": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API development": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API documentation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API endpoints": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API governance": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API lifecycle": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API modeling": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API patterns": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API security": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API specification": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API standards": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "API versioning": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "Backend API": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "GraphQL API": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "HTTP API": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 3,
+          "returned_traced": 3,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "Microservices API": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "OpenAPI": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "REST API design": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "RESTful API": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "Resource-oriented design": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "Service design": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "Swagger": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "Web API design": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "api design": {
+        "source": "extracted",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      }
+    }
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "methodologies_created/methodology_1794314983_40302.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 3,
+    "hotness_score": 0.0,
+    "last_accessed": 1794298398,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

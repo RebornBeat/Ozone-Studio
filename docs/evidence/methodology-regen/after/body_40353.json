@@ -1,0 +1,69 @@
+{
+  "decision_rules": [
+    {
+      "action": "have a tested rollback path ready before it begins",
+      "condition": "a deployment is about to start",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "define in advance the conditions that trigger rollback",
+      "condition": "a deployment is monitored",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "ensure data written during the deployment is handled so it stays consistent",
+      "condition": "a rollback is done",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "release it to a small portion first so failures affect little",
+      "condition": "a change is released",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Rollback Strategies",
+  "heuristics": [
+    {
+      "description": "test it before relying on it",
+      "examples": [],
+      "name": "rollback has never been tested",
+      "when_to_apply": "rollback has never been tested"
+    },
+    {
+      "description": "plan how to restore data compatible with the old version",
+      "examples": [],
+      "name": "a change alters data format",
+      "when_to_apply": "a change alters data format"
+    }
+  ],
+  "storage": {
+    "category": "Software Reliability & Deployment",
+    "description": "A methodology covering frameworks and best practices for reverting system changes, recovering from deployment failures, and ensuring data integrity during software releases.",
+    "keywords": [
+      "Blue-Green deployment",
+      "Canary release",
+      "Feature flag",
+      "Circuit breaker",
+      "Database rollback",
+      "Deployment pipeline",
+      "Version control",
+      "Rollback trigger"
+    ],
+    "name": "Rollback Strategies",
+    "principles": [
+      "Pre-deployment safety nets",
+      "Automated rollback triggers",
+      "Data consistency preservation",
+      "Minimal blast radius",
+      "Fast recovery time objectives"
+    ]
+  }
+}

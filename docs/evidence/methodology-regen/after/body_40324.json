@@ -1,0 +1,65 @@
+{
+  "decision_rules": [
+    {
+      "action": "compare stored records with the designated source of truth",
+      "condition": "storage is reconciled",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "identify records missing from either side",
+      "condition": "a reconciliation is run",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "verify the stores agree and list the differences",
+      "condition": "data lives in more than one store",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record the discrepancy, the decision, and the change made",
+      "condition": "a discrepancy is resolved",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Storage Reconciliation",
+  "heuristics": [
+    {
+      "description": "settle which is authoritative before correcting data",
+      "examples": [],
+      "name": "the source of truth is disputed",
+      "when_to_apply": "the source of truth is disputed"
+    },
+    {
+      "description": "find the writer that causes it",
+      "examples": [],
+      "name": "the same discrepancy recurs",
+      "when_to_apply": "the same discrepancy recurs"
+    }
+  ],
+  "storage": {
+    "category": "Data Management",
+    "description": "A systematic approach to verifying that stored data matches expected configurations, ensuring data integrity and consistency across storage systems.",
+    "keywords": [
+      "data integrity",
+      "validation",
+      "consistency",
+      "audit trail",
+      "storage verification"
+    ],
+    "name": "Storage Reconciliation",
+    "principles": [
+      "Accuracy - ensuring stored data matches the source of truth",
+      "Completeness - all required data is present and accounted for",
+      "Consistency - data remains consistent across all storage systems",
+      "Auditability - all reconciliation steps are documented and traceable"
+    ]
+  }
+}

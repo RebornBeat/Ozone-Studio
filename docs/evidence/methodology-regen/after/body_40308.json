@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "use a locking or isolation mechanism so they do not interfere",
+      "condition": "two or more operations may access the same data at the same time",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "make them succeed or fail together",
+      "condition": "a change spans several data operations",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "state the isolation level and which anomalies it permits",
+      "condition": "a transaction is defined",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "acquire them in a consistent order or use timeouts",
+      "condition": "multiple locks are taken",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Concurrency Control",
+  "heuristics": [
+    {
+      "description": "shorten the critical section or narrow the lock scope before weakening isolation",
+      "examples": [],
+      "name": "contention on a lock is high",
+      "when_to_apply": "contention on a lock is high"
+    },
+    {
+      "description": "treat it as a serializability problem and verify with concurrent tests",
+      "examples": [],
+      "name": "a result depends on interleaving of operations",
+      "when_to_apply": "a result depends on interleaving of operations"
+    }
+  ],
+  "storage": {
+    "category": "Database Systems",
+    "description": "Methods and strategies for managing simultaneous access to shared resources, ensuring data consistency, isolation, and correctness in concurrent and distributed systems.",
+    "keywords": [
+      "locking",
+      "transactions",
+      "isolation",
+      "deadlock",
+      "timestamp ordering",
+      "optimistic concurrency",
+      "serializability"
+    ],
+    "name": "Concurrency Control",
+    "principles": [
+      "Mutual Exclusion and Locking",
+      "Atomicity and Isolation of Transactions",
+      "Serializability and Isolation Levels"
+    ]
+  }
+}

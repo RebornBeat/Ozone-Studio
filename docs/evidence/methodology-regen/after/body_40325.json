@@ -1,0 +1,54 @@
+{
+  "decision_rules": [
+    {
+      "action": "define modules with clear responsibilities and interfaces",
+      "condition": "a system architecture is designed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "depend only on its interface, not its internals",
+      "condition": "a module depends on another",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "state the load or growth it is meant to handle and where it would first strain",
+      "condition": "an architecture is proposed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: System Architecture",
+  "heuristics": [
+    {
+      "description": "split it",
+      "examples": [],
+      "name": "a module has several unrelated responsibilities",
+      "when_to_apply": "a module has several unrelated responsibilities"
+    },
+    {
+      "description": "review the boundaries",
+      "examples": [],
+      "name": "a change requires edits in many modules",
+      "when_to_apply": "a change requires edits in many modules"
+    }
+  ],
+  "storage": {
+    "category": "Systems Engineering",
+    "description": "A structured methodology for designing, modeling, and documenting system components, interactions, and constraints to meet functional and non-functional requirements such as scalability, reliability, and maintainability.",
+    "keywords": [
+      "framework",
+      "components",
+      "integration"
+    ],
+    "name": "System Architecture",
+    "principles": [
+      "Modularity",
+      "Scalability"
+    ]
+  }
+}

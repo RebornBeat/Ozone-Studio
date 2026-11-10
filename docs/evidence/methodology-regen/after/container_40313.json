@@ -1,0 +1,378 @@
+{
+  "metadata": {
+    "container_type": "Methodology",
+    "modality": "Unknown",
+    "created_at": 1794275047,
+    "updated_at": 1794315129,
+    "provenance": "orchestrator_layer_crossref",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Deduplication",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "data cleaning",
+      "data cleansing",
+      "data dedup",
+      "data integrity",
+      "data quality management",
+      "dedup",
+      "deduplication",
+      "duplicate checking",
+      "duplicate data",
+      "duplicate detection",
+      "duplicate elimination",
+      "duplicate identification",
+      "duplicate matching",
+      "duplicate records",
+      "duplicate removal",
+      "duplicate suppression",
+      "entity resolution",
+      "record deduplication",
+      "record linkage",
+      "removing duplicates",
+      "unique records"
+    ],
+    "topics": [
+      "deduplication"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null,
+    "keyword_meta": {
+      "data cleaning": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "data cleansing": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "data dedup": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "data integrity": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "data quality management": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "dedup": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "deduplication": {
+        "source": "extracted",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate checking": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate data": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate detection": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate elimination": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate identification": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate matching": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate records": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate removal": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "duplicate suppression": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "entity resolution": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "record deduplication": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "record linkage": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "removing duplicates": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "unique records": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      }
+    }
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "methodologies_created/methodology_1794315129_40313.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

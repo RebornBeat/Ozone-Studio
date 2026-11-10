@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "identify the root cause of its failure before applying any intervention",
+      "condition": "a component is to be restored",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "isolate and restore them one at a time so faults are not conflated",
+      "condition": "several components appear faulty",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "return it to its baseline condition without unnecessary modifications",
+      "condition": "a component is restored",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "choose or prepare it so it can be undone if it causes damage",
+      "condition": "a restoration step is planned",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Component Restoration",
+  "heuristics": [
+    {
+      "description": "do not proceed to restoration until the cause is established or the uncertainty is recorded",
+      "examples": [],
+      "name": "the cause of failure is unclear",
+      "when_to_apply": "the cause of failure is unclear"
+    },
+    {
+      "description": "record the state beforehand so it can at least be reproduced",
+      "examples": [],
+      "name": "a restoration step cannot be undone",
+      "when_to_apply": "a restoration step cannot be undone"
+    }
+  ],
+  "storage": {
+    "category": "Systems Maintenance & Repair",
+    "description": "A systematic approach to diagnosing, repairing, and rebuilding damaged or degraded components to their original functional state across hardware and software domains.",
+    "keywords": [
+      "component repair",
+      "fault isolation",
+      "baseline restoration",
+      "damage assessment",
+      "modular repair",
+      "system recovery"
+    ],
+    "name": "Component Restoration",
+    "principles": [
+      "Diagnostic Precision: Accurately identify root causes of component failure before applying interventions.",
+      "Modular Isolation: Treat and restore components independently to isolate faults and streamline the process.",
+      "State Preservation: Restore components to their baseline condition without introducing unnecessary modifications.",
+      "Reversibility: Design restoration steps to be easily reversible in case of unintended damage."
+    ]
+  }
+}

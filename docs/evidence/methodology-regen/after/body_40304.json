@@ -1,0 +1,68 @@
+{
+  "decision_rules": [
+    {
+      "action": "start each stage only after the stages it depends on have completed and declare those dependencies explicitly",
+      "condition": "a boot or startup sequence is defined",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "stop or fall back to a defined recovery path instead of continuing in an unknown state",
+      "condition": "a boot stage fails",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "define what state and parameters are handed over and verify them on receipt",
+      "condition": "control passes between firmware, loader, or software stages",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record the stage and its outcome so a failed boot can be diagnosed",
+      "condition": "a boot stage starts or ends",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Boot Sequence",
+  "heuristics": [
+    {
+      "description": "look for hidden dependencies or timing assumptions and make them explicit",
+      "examples": [],
+      "name": "two boot runs with the same inputs behave differently",
+      "when_to_apply": "two boot runs with the same inputs behave differently"
+    },
+    {
+      "description": "add a check that proves it ran",
+      "examples": [],
+      "name": "a stage can be skipped without any later stage noticing",
+      "when_to_apply": "a stage can be skipped without any later stage noticing"
+    }
+  ],
+  "storage": {
+    "category": "Systems / Software Engineering",
+    "description": "A structured approach to designing, documenting, and troubleshooting the ordered initialization of hardware, firmware, bootloader, and operating system components.",
+    "keywords": [
+      "boot",
+      "firmware",
+      "BIOS",
+      "UEFI",
+      "bootloader",
+      "kernel",
+      "initialization"
+    ],
+    "name": "Boot Sequence",
+    "principles": [
+      "Ordered initialization with clear dependencies",
+      "Fail-safe and recoverable startup stages",
+      "Minimal, explicit hardware and firmware handoffs",
+      "Deterministic behavior and repeatable boot paths",
+      "Observability through logging and diagnostics"
+    ]
+  }
+}

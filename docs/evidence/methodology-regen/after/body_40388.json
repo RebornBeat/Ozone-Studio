@@ -1,0 +1,53 @@
+{
+  "decision_rules": [
+    {
+      "action": "include tests at each applicable level (unit, integration, system)",
+      "condition": "a system is tested",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "run the automated tests on every change",
+      "condition": "code changes",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "report the areas not covered",
+      "condition": "tests are reviewed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Testing & Verification",
+  "heuristics": [
+    {
+      "description": "fix or quarantine it",
+      "examples": [],
+      "name": "a test is flaky",
+      "when_to_apply": "a test is flaky"
+    },
+    {
+      "description": "add a test that would have caught it",
+      "examples": [],
+      "name": "a bug is found without a test",
+      "when_to_apply": "a bug is found without a test"
+    }
+  ],
+  "storage": {
+    "category": "Quality Assurance",
+    "description": "A comprehensive methodology for validating system behavior, ensuring quality, reliability, and compliance through systematic testing approaches and verification processes.",
+    "keywords": [
+      "testing",
+      "verification"
+    ],
+    "name": "Testing & Verification",
+    "principles": [
+      "Thoroughness and coverage across all test levels",
+      "Continuous integration and automated validation"
+    ]
+  }
+}

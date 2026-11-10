@@ -1,0 +1,238 @@
+{
+  "metadata": {
+    "container_type": "Methodology",
+    "modality": "Unknown",
+    "created_at": 1794274828,
+    "updated_at": 1794315127,
+    "provenance": "orchestrator_layer_crossref",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Consistency Checking",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "audit trail",
+      "consistency checking",
+      "constraint validation",
+      "data consistency",
+      "data integrity checks",
+      "drift detection",
+      "reconciliation process",
+      "records reconciliation",
+      "schema compliance",
+      "system monitoring",
+      "validation workflow"
+    ],
+    "topics": [
+      "consistency checking"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null,
+    "keyword_meta": {
+      "audit trail": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "consistency checking": {
+        "source": "extracted",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "constraint validation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "data consistency": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "data integrity checks": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "drift detection": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "reconciliation process": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "records reconciliation": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "schema compliance": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "system monitoring": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      },
+      "validation workflow": {
+        "source": "expansion",
+        "validated": null,
+        "hits": {
+          "returned": 0,
+          "returned_traced": 0,
+          "packed": 0,
+          "kept": 0,
+          "dropped": 0,
+          "applied": 0,
+          "human": 0
+        }
+      }
+    }
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "methodologies_created/methodology_1794315127_40307.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

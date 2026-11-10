@@ -1,0 +1,68 @@
+{
+  "decision_rules": [
+    {
+      "action": "write down the explicit rules or constraints being checked before running the check",
+      "condition": "a dataset is to be checked for consistency",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "run the defined checks at that point",
+      "condition": "data enters, is transformed, or is read from a store",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "report which rule failed, on which record, with the conflicting values",
+      "condition": "a consistency check fails",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record what was changed and why",
+      "condition": "a violation is resolved or reconciled",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Consistency Checking",
+  "heuristics": [
+    {
+      "description": "look for a defect upstream instead of repairing records one by one",
+      "examples": [],
+      "name": "the same rule keeps failing on new data",
+      "when_to_apply": "the same rule keeps failing on new data"
+    },
+    {
+      "description": "flag it for resolution rather than choosing silently",
+      "examples": [],
+      "name": "two sources disagree and neither is designated authoritative",
+      "when_to_apply": "two sources disagree and neither is designated authoritative"
+    }
+  ],
+  "storage": {
+    "category": "Data Quality & Validation",
+    "description": "A systematic approach to verify that data, systems, or processes adhere to defined rules, constraints, and logical relationships, ensuring absence of contradictions and maintaining integrity across states and over time.",
+    "keywords": [
+      "data integrity",
+      "constraint validation",
+      "reconciliation",
+      "drift detection",
+      "audit trail",
+      "referential integrity",
+      "schema compliance"
+    ],
+    "name": "Consistency Checking",
+    "principles": [
+      "Define explicit consistency rules and constraints",
+      "Automate validation at ingestion, transformation, and access points",
+      "Enable continuous monitoring and drift detection",
+      "Support reconciliation and conflict resolution workflows",
+      "Maintain audit trails for traceability and compliance"
+    ]
+  }
+}

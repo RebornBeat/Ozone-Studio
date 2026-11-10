@@ -1,0 +1,76 @@
+{
+  "decision_rules": [
+    {
+      "action": "validate it there before any use",
+      "condition": "input crosses from an untrusted source into the system",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "reject it immediately with an error instead of continuing",
+      "condition": "input is invalid",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "define what is allowed and reject everything else",
+      "condition": "a rule defines acceptable input",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "validate and encode it for that context",
+      "condition": "input is used in a particular context (SQL, HTML, path, command)",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "encode it for the destination",
+      "condition": "stored input is later displayed or passed on",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Input Validation",
+  "heuristics": [
+    {
+      "description": "repeat it on the receiving side",
+      "examples": [],
+      "name": "validation is done only in the client",
+      "when_to_apply": "validation is done only in the client"
+    },
+    {
+      "description": "replace it with an allowlist",
+      "examples": [],
+      "name": "a blocklist is growing",
+      "when_to_apply": "a blocklist is growing"
+    }
+  ],
+  "storage": {
+    "category": "Application Security",
+    "description": "A methodology focused on verifying, sanitizing, and filtering user-supplied data to ensure it conforms to expected formats, lengths, types, and ranges before processing or storage, thereby preventing injection attacks and data corruption.",
+    "keywords": [
+      "allowlisting",
+      "sanitization",
+      "fail fast",
+      "injection prevention",
+      "data integrity",
+      "format checking",
+      "length limits",
+      "type checking"
+    ],
+    "name": "Input Validation",
+    "principles": [
+      "Validate at the boundary of trust",
+      "Fail fast on invalid input",
+      "Use allowlisting over blocklisting",
+      "Apply context-specific rules",
+      "Sanitize and encode output"
+    ]
+  }
+}

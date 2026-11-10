@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "declare it using the standard declaration format",
+      "condition": "an MCP capability is registered",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "give it only the access it needs",
+      "condition": "an MCP capability is given access",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "update the registry and remove access when it retires",
+      "condition": "an MCP capability is added, changed, or retired",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record its use so it can be reviewed",
+      "condition": "an MCP capability is invoked",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: MCP Capability Management",
+  "heuristics": [
+    {
+      "description": "review whether it should stay registered",
+      "examples": [],
+      "name": "a capability has not been used for a long time",
+      "when_to_apply": "a capability has not been used for a long time"
+    },
+    {
+      "description": "narrow it",
+      "examples": [],
+      "name": "a capability's declared access exceeds what it uses",
+      "when_to_apply": "a capability's declared access exceeds what it uses"
+    }
+  ],
+  "storage": {
+    "category": "AI Infrastructure & Agent Orchestration",
+    "description": "A methodology for managing the lifecycle, exposure, security, and governance of Model Context Protocol (MCP) tools, resources, and prompts, ensuring standardized capability registration, access control, and dynamic scaling for AI agents.",
+    "keywords": [
+      "Model Context Protocol",
+      "MCP servers",
+      "tool management",
+      "resource orchestration",
+      "agent capability",
+      "access control"
+    ],
+    "name": "MCP Capability Management",
+    "principles": [
+      "Standardized Declaration",
+      "Least Privilege Access",
+      "Lifecycle Automation",
+      "Observability & Auditing"
+    ]
+  }
+}

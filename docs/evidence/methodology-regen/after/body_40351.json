@@ -1,0 +1,56 @@
+{
+  "decision_rules": [
+    {
+      "action": "use the same schema and naming as existing entries",
+      "condition": "an entry is added to a registry",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "restrict writes to authorized parties and record who made each change",
+      "condition": "a registry is read or written",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "check that lookup remains fast and unambiguous",
+      "condition": "entries are added",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Registry Management",
+  "heuristics": [
+    {
+      "description": "merge or cross-reference them",
+      "examples": [],
+      "name": "two entries describe the same thing",
+      "when_to_apply": "two entries describe the same thing"
+    },
+    {
+      "description": "mark or remove it",
+      "examples": [],
+      "name": "an entry is stale",
+      "when_to_apply": "an entry is stale"
+    }
+  ],
+  "storage": {
+    "category": "Data Management",
+    "description": "A methodology for the systematic creation, maintenance, and governance of registries to ensure data integrity, accessibility, and security.",
+    "keywords": [
+      "registry",
+      "management",
+      "data governance",
+      "accuracy"
+    ],
+    "name": "Registry Management",
+    "principles": [
+      "Consistency",
+      "Security",
+      "Scalability"
+    ]
+  }
+}

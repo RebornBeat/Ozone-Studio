@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "tie it to a stated strategic objective",
+      "condition": "a capability is considered for development or investment",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "distinguish the ones that differentiate the organization from the supporting ones",
+      "condition": "capabilities are assessed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "reassess which capabilities remain needed",
+      "condition": "a period passes or conditions change",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "favor capabilities that deliver the most value to the stated objective",
+      "condition": "resources are assigned",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Capability Management",
+  "heuristics": [
+    {
+      "description": "question whether it should be maintained",
+      "examples": [],
+      "name": "a capability supports no objective",
+      "when_to_apply": "a capability supports no objective"
+    },
+    {
+      "description": "identify what is needed to build or acquire it",
+      "examples": [],
+      "name": "a capability is a gap",
+      "when_to_apply": "a capability is a gap"
+    }
+  ],
+  "storage": {
+    "category": "Strategic Management",
+    "description": "A systematic approach to identifying, assessing, developing, and leveraging core organizational and individual capabilities to achieve strategic objectives and maintain competitive advantage.",
+    "keywords": [
+      "core competencies",
+      "competitive advantage",
+      "organizational development",
+      "capability building",
+      "strategic alignment"
+    ],
+    "name": "Capability Management",
+    "principles": [
+      "Strategic Alignment",
+      "Core Competency Identification",
+      "Continuous Evolution",
+      "Resource Optimization",
+      "Value Delivery"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "decision_rules": [
+    {
+      "action": "grant minimal access and time-limit it where possible",
+      "condition": "access is given to a registry or provider",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "rotate it on a schedule and record the rotation",
+      "condition": "a credential is used",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "keep an audit record of who accessed what",
+      "condition": "registry or provider access occurs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "verify its trust anchors before trusting its content",
+      "condition": "a registry is relied on",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Registry Access & Provider Management",
+  "heuristics": [
+    {
+      "description": "replace it with a short-lived one",
+      "examples": [],
+      "name": "a credential is long-lived",
+      "when_to_apply": "a credential is long-lived"
+    },
+    {
+      "description": "hide it behind a common abstraction",
+      "examples": [],
+      "name": "provider-specific code spreads",
+      "when_to_apply": "provider-specific code spreads"
+    }
+  ],
+  "storage": {
+    "category": "Identity & Access Management",
+    "description": "Governance framework for secure registry authentication, provider onboarding, credential lifecycle, and access control across distributed systems",
+    "keywords": [
+      "registry authentication",
+      "provider onboarding",
+      "credential management",
+      "access control policies",
+      "multi-cloud identity",
+      "OIDC federation",
+      "secret rotation",
+      "audit compliance"
+    ],
+    "name": "Registry Access & Provider Management",
+    "principles": [
+      "Least privilege access with just-in-time provisioning",
+      "Automated credential rotation and audit trails",
+      "Provider-agnostic abstraction for multi-cloud portability",
+      "Continuous verification of registry trust anchors"
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "decision_rules": [
+    {
+      "action": "state the fields and comparison method used before matching",
+      "condition": "records are to be compared for duplication",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "use the same criteria for every record",
+      "condition": "a dataset is deduplicated",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "keep both unless the criteria confirm they are the same entity",
+      "condition": "two records are only partially similar",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record which records were merged or removed and why",
+      "condition": "a duplicate is merged or removed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Deduplication",
+  "heuristics": [
+    {
+      "description": "hold them for review instead of merging automatically",
+      "examples": [],
+      "name": "uncertain matches are found",
+      "when_to_apply": "uncertain matches are found"
+    },
+    {
+      "description": "check the criteria for false matches before accepting the result",
+      "examples": [],
+      "name": "deduplication removes a large share of the data",
+      "when_to_apply": "deduplication removes a large share of the data"
+    }
+  ],
+  "storage": {
+    "category": "Data Management",
+    "description": "A systematic approach to identifying and removing duplicate records or items within a dataset to ensure data quality, integrity, and efficiency.",
+    "keywords": [
+      "deduplication",
+      "data deduplication",
+      "record matching",
+      "unique identification",
+      "fuzzy matching",
+      "hash-based deduplication",
+      "data quality"
+    ],
+    "name": "Deduplication",
+    "principles": [
+      "Accuracy in identifying true duplicates",
+      "Preservation of original unique records",
+      "Consistency in matching criteria",
+      "Transparency in the deduplication process"
+    ]
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "model it around a resource noun and use the HTTP method to express the action",
+      "condition": "an API endpoint is being designed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "version the change or make it additive so existing clients keep working",
+      "condition": "an existing API contract needs to change",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "return a status code that matches the failure class and an error body with the same shape across all endpoints",
+      "condition": "an API operation can fail",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "document its path, method, inputs, outputs, and error cases in the same change",
+      "condition": "an endpoint is added or changed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: API Design",
+  "heuristics": [
+    {
+      "description": "prefer adding a new field or version and deprecating the old one instead",
+      "examples": [],
+      "name": "a change would rename or remove a field or endpoint",
+      "when_to_apply": "a change would rename or remove a field or endpoint"
+    },
+    {
+      "description": "align them to one convention rather than documenting the difference",
+      "examples": [],
+      "name": "two endpoints behave differently for the same kind of input",
+      "when_to_apply": "two endpoints behave differently for the same kind of input"
+    }
+  ],
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A comprehensive methodology for designing robust, scalable, and maintainable APIs with focus on RESTful principles, versioning, documentation, and security best practices.",
+    "keywords": [
+      "API design",
+      "RESTful",
+      "versioning",
+      "documentation",
+      "security",
+      "backend development"
+    ],
+    "name": "API Design",
+    "principles": [
+      "RESTful design principles",
+      "Versioning and backward compatibility",
+      "Consistent error handling and status codes",
+      "Clear and comprehensive documentation"
+    ]
+  }
+}

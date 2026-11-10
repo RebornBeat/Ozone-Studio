@@ -1,0 +1,55 @@
+{
+  "decision_rules": [
+    {
+      "action": "map its steps, inputs, and outputs before automating",
+      "condition": "a repetitive task is to be automated",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "implement each step as a separate unit that can be tested and reused",
+      "condition": "a workflow is automated",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "run it the same way each time and record the result",
+      "condition": "an automated workflow runs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Workflow Automation",
+  "heuristics": [
+    {
+      "description": "keep it manual and automate around it",
+      "examples": [],
+      "name": "a step needs a human judgment",
+      "when_to_apply": "a step needs a human judgment"
+    },
+    {
+      "description": "check that automating it is worthwhile",
+      "examples": [],
+      "name": "a task is rare or changes often",
+      "when_to_apply": "a task is rare or changes often"
+    }
+  ],
+  "storage": {
+    "category": "Business Process Management",
+    "description": "A structured approach to designing, executing, and optimizing automated sequences of business activities.",
+    "keywords": [
+      "workflow",
+      "automation",
+      "process",
+      "pipeline"
+    ],
+    "name": "Workflow Automation",
+    "principles": [
+      "Identify repetitive tasks and map them into logical workflows",
+      "Use modular design and automation tools to ensure consistent execution"
+    ]
+  }
+}

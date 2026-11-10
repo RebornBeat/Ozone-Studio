@@ -1,0 +1,60 @@
+{
+  "decision_rules": [
+    {
+      "action": "use orchestration or scripts rather than manual commands",
+      "condition": "containers are deployed or scaled",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "limit its privileges, resources, and network access to what it needs",
+      "condition": "a container is run",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "define how it scales and how it recovers when a container stops",
+      "condition": "a containerized service is designed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Container Management",
+  "heuristics": [
+    {
+      "description": "reduce its privileges",
+      "examples": [],
+      "name": "a container runs as a privileged user",
+      "when_to_apply": "a container runs as a privileged user"
+    },
+    {
+      "description": "set them",
+      "examples": [],
+      "name": "a container has no resource limits",
+      "when_to_apply": "a container has no resource limits"
+    }
+  ],
+  "storage": {
+    "category": "Infrastructure & DevOps",
+    "description": "A comprehensive methodology for designing, deploying, and maintaining containerized applications across environments, ensuring efficient resource utilization, scalability, and security.",
+    "keywords": [
+      "container orchestration",
+      "Kubernetes",
+      "Docker",
+      "microservices",
+      "scalability",
+      "isolation",
+      "security",
+      "lifecycle management"
+    ],
+    "name": "Container Management",
+    "principles": [
+      "Automation and orchestration",
+      "Isolation and security",
+      "Scalability and resilience"
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "decision_rules": [
+    {
+      "action": "check for and handle the failure at that point",
+      "condition": "an operation can fail",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "define what it does on failure and how it returns to normal",
+      "condition": "a component can fail",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "apply timeouts and bounded retries so one failure does not spread",
+      "condition": "a call depends on another service",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Error Handling & Resilience Engineering",
+  "heuristics": [
+    {
+      "description": "make the operation idempotent first",
+      "examples": [],
+      "name": "a retry could repeat a side effect",
+      "when_to_apply": "a retry could repeat a side effect"
+    },
+    {
+      "description": "test them deliberately",
+      "examples": [],
+      "name": "failure paths are never exercised",
+      "when_to_apply": "failure paths are never exercised"
+    }
+  ],
+  "storage": {
+    "category": "Software Engineering",
+    "description": "This methodology focuses on designing systems to anticipate, handle, and recover from failures, ensuring stability and reliability through proactive error management and fault-tolerant patterns.",
+    "keywords": [
+      "Error handling",
+      "Resilience",
+      "Fault tolerance",
+      "Retry mechanisms"
+    ],
+    "name": "Error Handling & Resilience Engineering",
+    "principles": [
+      "Anticipate and handle errors explicitly",
+      "Design for failure and recovery",
+      "Implement resilience patterns"
+    ]
+  }
+}

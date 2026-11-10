@@ -1,0 +1,74 @@
+{
+  "decision_rules": [
+    {
+      "action": "validate it at the boundary before use",
+      "condition": "input enters the system",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "accept only known-good values and reject everything else",
+      "condition": "validation rules are defined",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "reject it instead of processing it",
+      "condition": "input is invalid",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "validate at more than one layer",
+      "condition": "data passes through several components",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "make sure it is stored as received after validation, without silent alteration",
+      "condition": "data is stored",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Input Validation & Data Integrity",
+  "heuristics": [
+    {
+      "description": "consider whether a second layer is needed",
+      "examples": [],
+      "name": "a check exists in only one layer",
+      "when_to_apply": "a check exists in only one layer"
+    },
+    {
+      "description": "record the alteration",
+      "examples": [],
+      "name": "data is altered during validation",
+      "when_to_apply": "data is altered during validation"
+    }
+  ],
+  "storage": {
+    "category": "Application Security",
+    "description": "A methodology covering techniques and best practices to ensure user inputs are properly checked, sanitized, and conform to expected formats, preventing injection attacks, corruption, and unauthorized modifications of data throughout its lifecycle.",
+    "keywords": [
+      "Input validation",
+      "Sanitization",
+      "Injection prevention",
+      "Whitelisting",
+      "Data integrity",
+      "Boundary validation"
+    ],
+    "name": "Input Validation & Data Integrity",
+    "principles": [
+      "Validate on the edge (input validation at the system boundary)",
+      "Whitelist over blacklist (allow only known-good values, reject everything else)",
+      "Fail securely (reject invalid input rather than processing it unsafely)",
+      "Defense in depth (implement multiple layers of validation)",
+      "Preserve data integrity (ensure data remains unaltered from input to storage)"
+    ]
+  }
+}

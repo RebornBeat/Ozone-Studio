@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "propagate it so dependent components do not hold contradictory state",
+      "condition": "state changes in one component that others depend on",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "define the same input and state as always producing the same next state",
+      "condition": "a state transition is defined",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "emit an update to the dependents instead of requiring them to poll",
+      "condition": "a state changes",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "update them in topological order so each is computed after its inputs",
+      "condition": "several dependent states must be updated",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: State Propagation",
+  "heuristics": [
+    {
+      "description": "resolve it explicitly instead of looping",
+      "examples": [],
+      "name": "a cycle appears in the dependencies",
+      "when_to_apply": "a cycle appears in the dependencies"
+    },
+    {
+      "description": "make applying it idempotent",
+      "examples": [],
+      "name": "an update is seen twice",
+      "when_to_apply": "an update is seen twice"
+    }
+  ],
+  "storage": {
+    "category": "Computational Systems",
+    "description": "The systematic transfer and updating of state information across components, nodes, or systems based on current states and inputs, ensuring consistent transitions and synchronization.",
+    "keywords": [
+      "state transition",
+      "state machine",
+      "event-driven",
+      "synchronization",
+      "state consistency",
+      "reactive systems"
+    ],
+    "name": "State Propagation",
+    "principles": [
+      "State Consistency",
+      "Deterministic Transitions",
+      "Event-Driven Updates",
+      "Topological Ordering"
+    ]
+  }
+}

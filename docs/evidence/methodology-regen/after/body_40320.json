@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "state its scale so distances can be interpreted",
+      "condition": "a map is produced",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record the coordinate projection used and keep it consistent across layers",
+      "condition": "map data is plotted",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "include a legend that explains each one",
+      "condition": "symbols or colors carry meaning",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "place them according to their source data and cite the source",
+      "condition": "features are drawn",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Mapping",
+  "heuristics": [
+    {
+      "description": "simplify or split it by theme rather than shrinking symbols",
+      "examples": [],
+      "name": "a map is crowded",
+      "when_to_apply": "a map is crowded"
+    },
+    {
+      "description": "confirm they share a projection before overlaying",
+      "examples": [],
+      "name": "layers come from different sources",
+      "when_to_apply": "layers come from different sources"
+    }
+  ],
+  "storage": {
+    "category": "Geospatial",
+    "description": "A methodology for creating visual representations of spatial or conceptual data to analyze, communicate, or navigate relationships.",
+    "keywords": [
+      "cartography",
+      "GIS",
+      "spatial data",
+      "topology",
+      "visualization"
+    ],
+    "name": "Mapping",
+    "principles": [
+      "Accuracy",
+      "Clarity",
+      "Scale",
+      "Legend",
+      "Projection"
+    ]
+  }
+}

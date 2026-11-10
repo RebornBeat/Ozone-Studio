@@ -1,0 +1,69 @@
+{
+  "decision_rules": [
+    {
+      "action": "assess interactions between components, not only components alone",
+      "condition": "reliability is assessed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "state what variation and disturbances are expected and how the system adjusts to them",
+      "condition": "a system or process is designed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record it and analyze contributing factors across the system",
+      "condition": "a failure or near-miss occurs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "check that it does not remove the ability of people or systems to adapt to unexpected conditions",
+      "condition": "a safeguard is added",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Resilience Engineering",
+  "heuristics": [
+    {
+      "description": "also look for the interactions that allowed it",
+      "examples": [],
+      "name": "an incident is blamed on a single component",
+      "when_to_apply": "an incident is blamed on a single component"
+    },
+    {
+      "description": "review it as an early warning",
+      "examples": [],
+      "name": "a near-miss is dismissed as harmless",
+      "when_to_apply": "a near-miss is dismissed as harmless"
+    }
+  ],
+  "storage": {
+    "category": "Systems Engineering",
+    "description": "A methodology focused on understanding and enhancing the ability of complex systems to absorb stresses, adapt to changing conditions, and recover from failures without catastrophic collapse, shifting the focus from purely preventing failures to ensuring system robustness and agility.",
+    "keywords": [
+      "resilience",
+      "robustness",
+      "adaptability",
+      "system variability",
+      "recovery",
+      "high reliability",
+      "systemic failure",
+      "defenselessness"
+    ],
+    "name": "Resilience Engineering",
+    "principles": [
+      "Systems thinking: Understanding the interconnectedness and dynamic interactions within a complex system.",
+      "Reliability as a system property: Recognizing that reliability emerges from the interactions of components rather than individual parts.",
+      "Embracing variability: Acknowledging that uncertainty and variation are inherent in complex work environments.",
+      "Adaptive performance: Focusing on the system's capacity to adjust its behavior in response to unexpected disturbances.",
+      "Learning from failures and near-misses: Using the 'Swiss Cheese Model' and 'Avalanche Effect' to learn from low-level incidents to prevent major accidents."
+    ]
+  }
+}

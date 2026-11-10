@@ -1,0 +1,65 @@
+{
+  "decision_rules": [
+    {
+      "action": "state what the root and each level represent",
+      "condition": "a hierarchy is constructed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "connect it to a defined parent",
+      "condition": "a node is added",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "validate the new children before continuing to expand",
+      "condition": "a node is expanded further",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "make it consistent with the existing levels and semantics",
+      "condition": "an expansion is added",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Hierarchy Construction & Re-expansion Workflow",
+  "heuristics": [
+    {
+      "description": "drop it",
+      "examples": [],
+      "name": "an expansion repeats existing content",
+      "when_to_apply": "an expansion repeats existing content"
+    },
+    {
+      "description": "revise the definition before further expansion",
+      "examples": [],
+      "name": "a level's meaning drifts",
+      "when_to_apply": "a level's meaning drifts"
+    }
+  ],
+  "storage": {
+    "category": "Hierarchical Modeling",
+    "description": "A structured method for building hierarchical models and iteratively expanding them to incorporate new details or levels.",
+    "keywords": [
+      "hierarchy",
+      "re-expansion",
+      "tree",
+      "graph",
+      "iterative"
+    ],
+    "name": "Hierarchy Construction & Re-expansion Workflow",
+    "principles": [
+      "Define root and level semantics",
+      "Establish parent-child relationships",
+      "Apply iterative expansion with validation",
+      "Maintain consistency across expansions"
+    ]
+  }
+}

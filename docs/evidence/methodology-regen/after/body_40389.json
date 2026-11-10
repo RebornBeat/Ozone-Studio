@@ -1,0 +1,77 @@
+{
+  "decision_rules": [
+    {
+      "action": "check its status code before using the body",
+      "condition": "an HTTP response is received",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "classify it as client or server error and as retryable or not by idempotency",
+      "condition": "an HTTP error occurs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "log the request, status, and relevant headers for diagnosis",
+      "condition": "an HTTP error occurs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "retry only idempotent requests with bounded, backed-off attempts",
+      "condition": "a failed request is retried",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "use a consistent format following the relevant specification",
+      "condition": "an error response is returned",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: HTTP Protocol Error Handling",
+  "heuristics": [
+    {
+      "description": "degrade gracefully instead of retrying indefinitely",
+      "examples": [],
+      "name": "a server error persists",
+      "when_to_apply": "a server error persists"
+    },
+    {
+      "description": "fix the request instead of retrying",
+      "examples": [],
+      "name": "a client error recurs",
+      "when_to_apply": "a client error recurs"
+    }
+  ],
+  "storage": {
+    "category": "Network Protocol Management",
+    "description": "A systematic approach to detecting, classifying, logging, and recovering from HTTP protocol errors to maintain reliable communication between clients and servers.",
+    "keywords": [
+      "HTTP",
+      "status codes",
+      "error handling",
+      "client error",
+      "server error",
+      "idempotent requests",
+      "logging",
+      "retry",
+      "RFC 7231"
+    ],
+    "name": "HTTP Protocol Error Handling",
+    "principles": [
+      "Detect errors early using status code inspection",
+      "Classify errors by client vs server and idempotency",
+      "Log detailed error context for diagnostics",
+      "Implement graceful degradation and retry strategies",
+      "Standardize error responses per RFC specifications"
+    ]
+  }
+}

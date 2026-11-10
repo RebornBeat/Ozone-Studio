@@ -1,0 +1,53 @@
+{
+  "decision_rules": [
+    {
+      "action": "specify an explicit version rather than an open-ended range",
+      "condition": "a dependency is added or updated",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "run a security scan and record findings before accepting the change",
+      "condition": "dependencies are added, updated, or periodically reviewed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "change it in a separate, reviewable step and verify the project still builds and passes its checks",
+      "condition": "a dependency version changes",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Dependency Management",
+  "heuristics": [
+    {
+      "description": "consider whether to replace it",
+      "examples": [],
+      "name": "a dependency has had no maintenance for a long time",
+      "when_to_apply": "a dependency has had no maintenance for a long time"
+    },
+    {
+      "description": "align them to one version where possible",
+      "examples": [],
+      "name": "the same dependency appears at several versions",
+      "when_to_apply": "the same dependency appears at several versions"
+    }
+  ],
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A systematic approach to declaring, resolving, versioning, and auditing software dependencies to ensure build reproducibility, runtime stability, and security compliance.",
+    "keywords": [
+      "versioning",
+      "reproducibility"
+    ],
+    "name": "Dependency Management",
+    "principles": [
+      "Explicit version pinning",
+      "Regular security scanning"
+    ]
+  }
+}

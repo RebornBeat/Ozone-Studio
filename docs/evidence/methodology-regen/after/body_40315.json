@@ -1,0 +1,65 @@
+{
+  "decision_rules": [
+    {
+      "action": "give every node exactly one defined parent (except the root) and a stated relationship to it",
+      "condition": "a hierarchy is built",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "decide whether to structure top-down or bottom-up and record which",
+      "condition": "a hierarchy is built from a set of items",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "make them the same kind of thing as their siblings",
+      "condition": "nodes are added to a level",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "ensure every node can be reached from the root by following the structure",
+      "condition": "the hierarchy grows",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Hierarchy Construction",
+  "heuristics": [
+    {
+      "description": "introduce an intermediate grouping level",
+      "examples": [],
+      "name": "a node has too many children to scan",
+      "when_to_apply": "a node has too many children to scan"
+    },
+    {
+      "description": "check whether the level is needed",
+      "examples": [],
+      "name": "a node has only one child",
+      "when_to_apply": "a node has only one child"
+    }
+  ],
+  "storage": {
+    "category": "Software Architecture",
+    "description": "Methodology for designing and organizing hierarchical structures such as taxonomies, file systems, organizational charts, and knowledge trees.",
+    "keywords": [
+      "hierarchy",
+      "tree",
+      "nesting",
+      "taxonomy",
+      "organization"
+    ],
+    "name": "Hierarchy Construction",
+    "principles": [
+      "Establish clear parent-child relationships",
+      "Use top-down or bottom-up structuring as appropriate",
+      "Maintain consistent depth and breadth",
+      "Ensure scalability and discoverability"
+    ]
+  }
+}

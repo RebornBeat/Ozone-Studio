@@ -1,0 +1,64 @@
+{
+  "decision_rules": [
+    {
+      "action": "verify values against the source or a known reference where one exists",
+      "condition": "data is accepted into a system",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "reject or flag values that do not conform",
+      "condition": "a field has a defined type, range, or format",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "verify they do not contradict each other",
+      "condition": "related fields or records exist",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "report which value failed which check instead of dropping it silently",
+      "condition": "data fails validation",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Data Validation",
+  "heuristics": [
+    {
+      "description": "write them down before relying on the results",
+      "examples": [],
+      "name": "validation rules are undocumented",
+      "when_to_apply": "validation rules are undocumented"
+    },
+    {
+      "description": "examine the data source before loosening the check",
+      "examples": [],
+      "name": "many records fail the same check",
+      "when_to_apply": "many records fail the same check"
+    }
+  ],
+  "storage": {
+    "category": "Data Management",
+    "description": "A methodology for ensuring data accuracy, consistency, and reliability by verifying it against predefined rules and standards before processing or storage.",
+    "keywords": [
+      "validation",
+      "data quality",
+      "integrity",
+      "rules",
+      "checks"
+    ],
+    "name": "Data Validation",
+    "principles": [
+      "Accuracy",
+      "Consistency",
+      "Validity"
+    ]
+  }
+}

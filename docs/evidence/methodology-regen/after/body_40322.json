@@ -1,0 +1,80 @@
+{
+  "decision_rules": [
+    {
+      "action": "state what defect or behavior it is meant to expose",
+      "condition": "a test is designed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "report only that no defects were found by these tests, not that none exist",
+      "condition": "tests pass",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "write or run tests as soon as the behavior exists",
+      "condition": "a feature or change is being developed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "choose it for the kind of system and risk involved",
+      "condition": "a test approach is chosen",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "review and add cases so it does not miss new defects",
+      "condition": "a test suite has not changed while the code has",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Software Testing",
+  "heuristics": [
+    {
+      "description": "increase testing there",
+      "examples": [],
+      "name": "defects concentrate in one module",
+      "when_to_apply": "defects concentrate in one module"
+    },
+    {
+      "description": "prioritize by risk",
+      "examples": [],
+      "name": "exhaustive testing is not possible",
+      "when_to_apply": "exhaustive testing is not possible"
+    }
+  ],
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A systematic process of evaluating software to identify defects, verify requirements, and ensure quality through static and dynamic techniques across the software development lifecycle.",
+    "keywords": [
+      "unit testing",
+      "integration testing",
+      "system testing",
+      "acceptance testing",
+      "test automation",
+      "quality assurance",
+      "test cases",
+      "bug tracking",
+      "regression testing",
+      "test coverage"
+    ],
+    "name": "Software Testing",
+    "principles": [
+      "Testing shows presence of defects",
+      "Exhaustive testing is impossible",
+      "Early testing saves time and cost",
+      "Defects cluster together",
+      "Beware of the pesticide paradox",
+      "Testing is context dependent",
+      "Absence of errors is a fallacy"
+    ]
+  }
+}

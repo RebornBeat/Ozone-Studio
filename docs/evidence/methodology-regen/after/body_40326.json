@@ -1,0 +1,53 @@
+{
+  "decision_rules": [
+    {
+      "action": "compare it with an authoritative source or independent check",
+      "condition": "a claim, value, or output is to be verified",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record what was checked, against what, and the result",
+      "condition": "a verification is done",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "mark it unverified instead of treating it as correct",
+      "condition": "something could not be verified",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Verification",
+  "heuristics": [
+    {
+      "description": "seek a second independent one",
+      "examples": [],
+      "name": "only one source supports a claim",
+      "when_to_apply": "only one source supports a claim"
+    },
+    {
+      "description": "document how to repeat it",
+      "examples": [],
+      "name": "a check is not repeatable",
+      "when_to_apply": "a check is not repeatable"
+    }
+  ],
+  "storage": {
+    "category": "Information Quality Assurance",
+    "description": "A systematic process to confirm the accuracy, truthfulness, and integrity of data, claims, or processes through independent review, source analysis, and cross-checking.",
+    "keywords": [
+      "verify",
+      "validate"
+    ],
+    "name": "Verification",
+    "principles": [
+      "Accuracy",
+      "Traceability"
+    ]
+  }
+}

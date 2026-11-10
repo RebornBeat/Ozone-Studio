@@ -1,0 +1,66 @@
+{
+  "decision_rules": [
+    {
+      "action": "treat it as untrusted and reject malformed requests or responses instead of guessing",
+      "condition": "HTTP input is received",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "use the declared length or chunked framing to find where it ends, and handle compressed bodies as declared",
+      "condition": "an HTTP message has a body",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "act on the method and status code according to their standard semantics",
+      "condition": "a request or response is handled",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "follow the relevant RFC (7230-7235) rather than local convention",
+      "condition": "parsing behavior is ambiguous",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: HTTP Parsing",
+  "heuristics": [
+    {
+      "description": "reject the message rather than choosing one",
+      "examples": [],
+      "name": "a header or length value is conflicting or duplicated",
+      "when_to_apply": "a header or length value is conflicting or duplicated"
+    },
+    {
+      "description": "tighten it",
+      "examples": [],
+      "name": "a parser accepts input the specification forbids",
+      "when_to_apply": "a parser accepts input the specification forbids"
+    }
+  ],
+  "storage": {
+    "category": "Protocol & API Engineering",
+    "description": "A methodology for systematically extracting and interpreting structured data from raw HTTP messages, covering request headers, response headers, status codes, and payload boundaries while ensuring RFC compliance.",
+    "keywords": [
+      "HTTP headers",
+      "Status codes",
+      "Request/Response body",
+      "Chunked transfer encoding",
+      "Content-Type",
+      "RFC 7230 compliance"
+    ],
+    "name": "HTTP Parsing",
+    "principles": [
+      "Defensive parsing against malformed inputs",
+      "State-aware interpretation of HTTP methods and status codes",
+      "Strict adherence to RFC 7230-7235 standards",
+      "Accurate payload boundary detection (chunked, compressed)"
+    ]
+  }
+}

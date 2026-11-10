@@ -1,0 +1,56 @@
+{
+  "decision_rules": [
+    {
+      "action": "check preconditions before acting",
+      "condition": "a function or process receives input or depends on a resource",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "report what failed, where, and with what input, in a consistent format",
+      "condition": "an error occurs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "handle it, propagate it, or log it - never discard it silently",
+      "condition": "an error is caught",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Error Handling",
+  "heuristics": [
+    {
+      "description": "add the context they would need",
+      "examples": [],
+      "name": "an error message would not help a reader fix the problem",
+      "when_to_apply": "an error message would not help a reader fix the problem"
+    },
+    {
+      "description": "centralize its handling",
+      "examples": [],
+      "name": "the same error is handled in many places",
+      "when_to_apply": "the same error is handled in many places"
+    }
+  ],
+  "storage": {
+    "category": "Software Engineering",
+    "description": "A systematic approach to detecting, reporting, recovering from, and preventing errors in software systems to ensure robustness and reliability.",
+    "keywords": [
+      "exception handling",
+      "error logging",
+      "fault tolerance",
+      "retry logic",
+      "validation"
+    ],
+    "name": "Error Handling",
+    "principles": [
+      "Proactive error prevention",
+      "Consistent and meaningful error reporting"
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "decision_rules": [
+    {
+      "action": "resolve them to one canonical record",
+      "condition": "the same entity appears in several records",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "use fixed, documented matching rules so the same inputs give the same result",
+      "condition": "records are matched",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "choose the surviving value by a documented survivorship rule",
+      "condition": "merged records disagree on a value",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record the sources and the rule applied",
+      "condition": "records are merged",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Canonical Resolution & Deduplication",
+  "heuristics": [
+    {
+      "description": "queue it for review rather than merging",
+      "examples": [],
+      "name": "a match is uncertain",
+      "when_to_apply": "a match is uncertain"
+    },
+    {
+      "description": "process them incrementally",
+      "examples": [],
+      "name": "new records arrive continuously",
+      "when_to_apply": "new records arrive continuously"
+    }
+  ],
+  "storage": {
+    "category": "Data Management / Master Data Management",
+    "description": "A systematic approach to identifying duplicate records across disparate data sources, resolving attribute conflicts, and establishing a single authoritative canonical representation (golden record) for each real-world entity.",
+    "keywords": [
+      "entity resolution",
+      "record linkage",
+      "deduplication",
+      "canonicalization",
+      "golden record",
+      "matching",
+      "blocking",
+      "survivorship"
+    ],
+    "name": "Canonical Resolution & Deduplication",
+    "principles": [
+      "Single source of truth",
+      "Deterministic matching and merging",
+      "Data survivorship and conflict resolution",
+      "Transparency and auditability",
+      "Scalability and incremental processing"
+    ]
+  }
+}

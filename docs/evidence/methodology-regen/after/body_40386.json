@@ -1,0 +1,55 @@
+{
+  "decision_rules": [
+    {
+      "action": "ensure it can be destroyed and recreated from its definition without data loss",
+      "condition": "a container is built or run",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "build it from a versioned definition so the same input produces the same image",
+      "condition": "an image is built",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "automate each stage including teardown",
+      "condition": "a container moves from build to teardown",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Container Lifecycle Management",
+  "heuristics": [
+    {
+      "description": "move it to external storage",
+      "examples": [],
+      "name": "state is stored inside a container",
+      "when_to_apply": "state is stored inside a container"
+    },
+    {
+      "description": "pin the base version",
+      "examples": [],
+      "name": "an image is built from an unpinned base",
+      "when_to_apply": "an image is built from an unpinned base"
+    }
+  ],
+  "storage": {
+    "category": "Cloud Native / DevOps",
+    "description": "Covers practices for building, deploying, running, scaling, monitoring, updating, and securely destroying containerized applications across their lifecycle.",
+    "keywords": [
+      "containers",
+      "Kubernetes",
+      "DevOps",
+      "orchestration"
+    ],
+    "name": "Container Lifecycle Management",
+    "principles": [
+      "Treat containers as ephemeral and reproducible",
+      "Automate the full container lifecycle from build to teardown"
+    ]
+  }
+}
