@@ -983,13 +983,23 @@ async fn context_span_out(
 /// PEER OFFERS (operator ruling 2026-11-10: notify and gate, never auto-sync). Every `announce` manifest received from a PAIRED peer
 /// (`peer_sync_candidates.jsonl`) is an OFFER; nothing is downloaded or applied. The deterministic part of the gate classifies a methodology
 /// offer against the local store by NAME + BODY HASH: `have` (same name, same hash → nothing to do), `conflict` (same name, different hash →
-/// review, never overwrite), `new`. Other kinds are `not_checked` until their local index exists. The decision (`download` / `ignore`) is the
+/// review, never overwrite), `new`. A TOOL offer is classified by name against `mcp_tool_registry.json` (`same_name` / `new`, never "identical"). Pipelines and jurisdiction sets stay `not_checked` (no reliable local name/hash index). The decision (`download` / `ignore`) is the
 /// operator's and is recorded in `peer_offer_decisions.json`; `download` records approval only — the fetch step is not built yet.
+/// Lower-cased `name` of every entry of a JSON array file (e.g. `mcp_tool_registry.json`); empty when the file is absent or not an array.
+fn read_json_array_names(path: &std::path::Path) -> std::collections::HashSet<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.as_array().map(|a| a.iter().filter_map(|e| e["name"].as_str().map(|n| n.to_lowercase())).collect()))
+        .unwrap_or_default()
+}
+
 fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<String, String>) -> Vec<serde_json::Value> {
     use serde_json::{json, Value};
     let dir = std::path::Path::new(data_dir);
     let read = |name: &str| -> Value { std::fs::read_to_string(dir.join(name)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({})) };
     let (decisions, import_done, pending, reviews) = (read("peer_offer_decisions.json"), read("peer_import_done.json"), read("peer_fetch_pending.json"), read("peer_offer_reviews.json"));
+    let local_tool_names: std::collections::HashSet<String> = read_json_array_names(&dir.join("mcp_tool_registry.json"));
     crate::orchestrator::peer_import::collect_offers(dir)
         .into_iter()
         .map(|o| {
@@ -998,6 +1008,15 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
                     Some(h) if !o.hash.is_empty() && *h == o.hash => "have",
                     Some(_) => "conflict",
                     None => "new",
+                }
+            } else if o.item_type == "tool" {
+                // LOCAL CLASSIFICATION of a tool offer (deterministic, no model): is a provider of this NAME already registered here?
+                // Name only — a tool offer carries no body hash to compare — so the honest labels are `same_name` / `new`; it never
+                // claims the two are identical, and nothing acts on it (the operator still decides).
+                if local_tool_names.contains(&o.name.to_lowercase()) {
+                    "same_name"
+                } else {
+                    "new"
                 }
             } else {
                 "not_checked"
@@ -1017,7 +1036,7 @@ fn peer_offers_view(data_dir: &str, local_methods: &std::collections::HashMap<St
                 "downloading": pending.get(&o.key).is_some(),
                 // the outcome of an approved download: imported / have / staged / approval_only / failed / rejected (null = not started)
                 "import": import_done.get(&o.key).cloned().unwrap_or(Value::Null),
-                "note": if local_status == "conflict" { "same name, different content — review; it is never overwritten" } else { "" },
+                "note": if local_status == "same_name" { "a tool with this name is already registered — review; it is never overwritten" } else if local_status == "conflict" { "same name, different content — review; it is never overwritten" } else { "" },
             })
         })
         .collect()

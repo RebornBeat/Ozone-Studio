@@ -55,7 +55,7 @@ function usageIndex(ms: MarketplaceMethodology[], providers: MarketplaceProvider
 // status → tone. Colours are fixed per meaning so a state reads the same everywhere (and is never the only cue: the label is always shown).
 const STATUS_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
   imported: "ok", have: "ok", staged: "warn", approval_only: "info", failed: "bad", rejected: "bad", downloading: "info",
-  download: "info", ignore: "muted", not_needed: "muted", pending: "warn", new: "info", conflict: "warn", not_checked: "muted", review: "warn",
+  download: "info", ignore: "muted", not_needed: "muted", pending: "warn", new: "info", conflict: "warn", same_name: "warn", not_checked: "muted", review: "warn",
 };
 const TONE_STYLE: Record<string, React.CSSProperties> = {
   ok: { borderColor: "rgba(63,185,80,0.55)", color: "#56d364" },
@@ -65,7 +65,7 @@ const TONE_STYLE: Record<string, React.CSSProperties> = {
   muted: {},
 };
 const toneChip = (status: string): React.CSSProperties => ({ ...chip, ...(TONE_STYLE[STATUS_TONE[status] ?? "muted"] ?? {}) });
-const OFFER_LABEL: Record<string, string> = { conflict: "same name, different content", have: "already here", not_needed: "nothing to do", approval_only: "approval recorded (human install)" };
+const OFFER_LABEL: Record<string, string> = { conflict: "same name, different content", same_name: "a tool with this name is already registered", have: "already here", not_needed: "nothing to do", approval_only: "approval recorded (human install)" };
 
 /** One offer from a peer: what it is, how it compares with what is here, the gate's advisory recommendation, and where an approved download is. */
 const OfferRow: React.FC<{ o: MarketplacePeerOffer; onDecide: (key: string, d: "download" | "ignore") => void }> = ({ o, onDecide }) => {
