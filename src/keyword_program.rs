@@ -357,7 +357,7 @@ pub fn record_keywords_changed(id: u64, before: &[String], after: &[String]) {
 }
 
 /// Record a strength-N judgment as a LABELLED SAMPLE (the training labels the model needs). `kind` names the question family
-/// ("methodology_relevance" | "rule_applicability" | "capability_necessity" | "keyword_keeper" | "decision_review"). `yes` is the vote's
+/// ("methodology_relevance" | "rule_applicability" | "rule_step_fidelity" | "offer_review" | "capability_necessity" | "keyword_keeper" | "decision_review"). `yes` is the vote's
 /// outcome (for drop-style questions YES = "drop it"); `strength` is the N the vote ran at.
 pub fn record_judgment(kind: &str, subject_id: Option<u64>, subject: &str, request: &str, question: &str, yes: bool, strength: u32) {
     if !hits_enabled() {

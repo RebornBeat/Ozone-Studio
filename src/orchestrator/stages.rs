@@ -865,7 +865,7 @@ impl PromptOrchestrator {
         )
         .await;
         let (mut judged, mut dropped, mut cites_dropped) = (0usize, 0usize, 0usize);
-        for ((id, name, items, unjudged, _), (not_applicable, not_carried, tokens)) in work.into_iter().zip(results) {
+        for ((id, name, items, unjudged, cites), (not_applicable, not_carried, tokens)) in work.into_iter().zip(results) {
             state.tokens_used_so_far += tokens as u32;
             for (key, text) in items.iter().filter(|(k, _)| unjudged.contains(k)) {
                 let na = not_applicable.contains(key);
@@ -887,6 +887,12 @@ impl PromptOrchestrator {
                     }
                 }
             }
+            // EVERY judged citation is a labelled sample (kept AND removed), so the ML sees both classes
+            for (step_index, key) in &cites {
+                let rule_text = items.iter().find(|(k, _)| k == key).map(|(_, t)| t.as_str()).unwrap_or("");
+                let desc = state.blueprint_steps.iter().find(|s| s.step_index as usize == *step_index).map(|s| s.description.clone()).unwrap_or_default();
+                crate::keyword_program::record_judgment("rule_step_fidelity", Some(id), rule_text, &desc, "does this step NOT carry out the rule it cites?", not_carried.contains(&(*step_index, key.clone())), strength);
+            }
             for (step_index, key) in &not_carried {
                 let rule_ref = format!("m{id}:{key}");
                 if let Some(st) = state.blueprint_steps.iter_mut().find(|s| s.step_index as usize == *step_index) {
@@ -894,8 +900,6 @@ impl PromptOrchestrator {
                     st.rule_refs.retain(|r| *r != rule_ref);
                     if st.rule_refs.len() < before {
                         cites_dropped += 1;
-                        let rule_text = items.iter().find(|(k, _)| k == key).map(|(_, t)| t.as_str()).unwrap_or("");
-                        crate::keyword_program::record_judgment("rule_step_fidelity", Some(id), rule_text, &st.description, "does this step NOT carry out the rule it cites?", true, strength);
                     }
                 }
             }
@@ -1044,6 +1048,11 @@ impl PromptOrchestrator {
         if !uncovered.is_empty() && !state.blueprint_steps.is_empty() {
             tracing::warn!(uncovered = uncovered.len(), of = state.rule_verdicts.len(), "blueprint gate: applicable rules no step cites");
             crate::orchestrator::meta_loop::record_uncovered_rules(&uncovered, &state.keywords);
+            for r in &uncovered {
+                if let Some(mid) = r.strip_prefix('m').and_then(|x| x.split(':').next()).and_then(|x| x.parse::<u64>().ok()) {
+                    crate::keyword_program::record_event("rule_uncovered", mid, &state.keywords, serde_json::json!({"kind": "rule", "rule_ref": r}));
+                }
+            }
         }
         tracing::info!(cited, distinct_rules_applied = applied.len(), "blueprint gate: rule citations audited");
     }
