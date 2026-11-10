@@ -1,0 +1,507 @@
+{
+ "global_state": {
+  "child_count": 2,
+  "child_ids": [
+   1516,
+   1517
+  ],
+  "container_id": 1515,
+  "parent_id": 1513,
+  "version": 13
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 12,
+      "returned_traced": 10
+     },
+     "source": "",
+     "validated": null
+    },
+    "Element": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "verbatim",
+     "validated": true
+    },
+    "MCP body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP configuration body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity JSON": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity data": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity definition": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity document": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity fields": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity interface": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity metadata": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity object": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity payload": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity properties": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity representation": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity schema": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity spec": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity structure": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP message body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP payload": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP prompt body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP request body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP resource body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP schema body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP tool body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "entity body": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "uidocument_ingest": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "verbatim",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "uidocument_ingest",
+    "Element",
+    "proj:1",
+    "MCP entity body",
+    "MCP entity",
+    "entity body",
+    "MCP body",
+    "MCP request body",
+    "MCP payload",
+    "MCP message body",
+    "MCP schema body",
+    "MCP configuration body",
+    "MCP resource body",
+    "MCP tool body",
+    "MCP prompt body",
+    "MCP entity definition",
+    "MCP entity schema",
+    "MCP entity fields",
+    "MCP entity properties",
+    "MCP entity document",
+    "MCP entity JSON",
+    "MCP entity object",
+    "MCP entity data",
+    "MCP entity payload",
+    "MCP entity metadata",
+    "MCP entity structure",
+    "MCP entity interface",
+    "MCP entity spec",
+    "MCP entity representation"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "scope": {
+    "global": false,
+    "project_id": 1,
+    "workspace_id": null
+   },
+   "topics": [
+    "mcp"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 12,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794298398,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "McpEntity",
+   "created_at": 1793444117,
+   "materialized_path": "/mcp/uidocument_ingest/1511/n3",
+   "modality": "UiDocument",
+   "name": "body",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "uidocument-ingest",
+   "updated_at": 1794298572
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "mcp_graph/1511/n3.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

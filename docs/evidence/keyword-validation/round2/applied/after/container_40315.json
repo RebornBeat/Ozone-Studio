@@ -1,0 +1,245 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 40315,
+  "parent_id": 0,
+  "version": 5
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "classification structure": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "file system hierarchy": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "hierarchical design": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "hierarchy building": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "hierarchy construction": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "knowledge tree": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "nested structure": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "organization chart": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "parent-child relationships": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "taxonomy creation": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "tree building": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "classification structure",
+    "hierarchical design",
+    "hierarchy building",
+    "hierarchy construction",
+    "knowledge tree",
+    "nested structure",
+    "parent-child relationships",
+    "taxonomy creation",
+    "tree building"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "hierarchy construction"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 0,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 0,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1794275113,
+   "materialized_path": null,
+   "modality": "Unknown",
+   "name": "Hierarchy Construction",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "orchestrator_layer_crossref",
+   "updated_at": 1794346079
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies_created/methodology_1794315129_40315.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

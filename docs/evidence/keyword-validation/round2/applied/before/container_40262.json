@@ -1,0 +1,474 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 40262,
+  "parent_id": 2,
+  "version": 11
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 3,
+      "packed": 0,
+      "returned": 10,
+      "returned_traced": 10
+     },
+     "source": "",
+     "validated": null
+    },
+    "AMT": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "AMT container": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 7,
+      "returned_traced": 7
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "AMT re-expansion": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 4
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "InitialBuild": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "MCP provider": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "capability": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "container": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 3,
+      "packed": 0,
+      "returned": 10,
+      "returned_traced": 10
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "container 40211": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 3,
+      "packed": 0,
+      "returned": 10,
+      "returned_traced": 10
+     },
+     "source": "extracted",
+     "validated": null
+    },
+    "container initialization": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 7,
+      "returned_traced": 7
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "container registry": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 7,
+      "returned_traced": 7
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "container registry mcp": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 7,
+      "returned_traced": 7
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "container-registry-mcp": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 3,
+      "packed": 0,
+      "returned": 10,
+      "returned_traced": 10
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "error handling": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "fallback": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "fallback strategy": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "initial build": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 4,
+      "returned_traced": 4
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "initial build container": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 7,
+      "returned_traced": 7
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "initial main AMT": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "mcp": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "missing provider": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "provider registration": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "re-expansion": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 5
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "registry": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "registry access": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "registry fallback": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "registry operations": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "AMT",
+    "InitialBuild",
+    "capability",
+    "container",
+    "container-registry-mcp",
+    "fallback",
+    "initial main AMT",
+    "mcp",
+    "provider registration",
+    "re-expansion",
+    "registry",
+    "registry access",
+    "AMT re-expansion",
+    "initial build container",
+    "container registry",
+    "MCP provider",
+    "registry fallback",
+    "AMT container",
+    "initial build",
+    "container initialization",
+    "registry operations",
+    "fallback strategy",
+    "missing provider",
+    "error handling",
+    "container registry mcp",
+    "container 40211"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "MCP provider management",
+    "container registry operations",
+    "AMT container initialization",
+    "fallback strategies",
+    "error handling for missing providers"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 10,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794298398,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 1794258936,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1794258936,
+   "materialized_path": null,
+   "modality": "Unknown",
+   "name": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "methodology_create",
+   "updated_at": 1794340250
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies_created/methodology_1794258936_new.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

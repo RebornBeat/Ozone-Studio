@@ -1,0 +1,384 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 30020,
+  "parent_id": 2,
+  "version": 5
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "agent collaboration": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "agent coordination": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "agent verification": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "claim": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "claim checking": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "claim validation": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "coordination": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "cross-agent": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "cross-agent claim verification": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "cross-agent system": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "distributed agents": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "inter-agent verification": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "multi-agent authentication": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "multi-agent collaboration": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "multi-agent coordination": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "multi-agent framework": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "multi-agent system": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "multi-agent team": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "multi-agent verification": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "multi_agent": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "verification": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "multi_agent",
+    "verification",
+    "coordination",
+    "cross-agent claim verification",
+    "cross-agent",
+    "claim",
+    "claim validation",
+    "multi-agent collaboration",
+    "inter-agent verification",
+    "agent coordination",
+    "distributed agents",
+    "multi-agent verification",
+    "agent verification",
+    "multi-agent coordination",
+    "claim checking",
+    "agent collaboration"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "multi_agent",
+    "verification",
+    "coordination"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 0,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 0,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1792391529,
+   "materialized_path": "/Methodologies/Cross-Agent Claim Verification",
+   "modality": "Unknown",
+   "name": "Cross-Agent Claim Verification",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "bootstrap",
+   "updated_at": 1794346079
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies/method_20_cross_agent_verification.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

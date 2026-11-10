@@ -1,0 +1,238 @@
+{
+ "metadata": {
+  "container_type": "Methodology",
+  "modality": "Unknown",
+  "created_at": 1794297998,
+  "updated_at": 1794346082,
+  "provenance": "methodology_create",
+  "permissions": 0,
+  "owner_id": 0,
+  "name": "Farm Profile Start Failure Recovery",
+  "materialized_path": null
+ },
+ "context": {
+  "categories": [],
+  "methodologies": [],
+  "keywords": [
+   "AMT re-expansion",
+   "MCP tool failed",
+   "capability",
+   "container",
+   "farm default",
+   "farm_profile_start",
+   "mcp",
+   "registry"
+  ],
+  "topics": [
+   "browser farm",
+   "farm profile",
+   "MCP troubleshooting",
+   "container registry"
+  ],
+  "relationships": [],
+  "learned_associations": [],
+  "embedding": null,
+  "keyword_meta": {
+   "*": {
+    "source": "",
+    "validated": null,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "AMT re-expansion": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "CoordinationReceived": {
+    "source": "extracted",
+    "validated": false,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "MCP tool failed": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "capability": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "container": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "container 3644": {
+    "source": "",
+    "validated": false,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "farm default": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "farm_profile_start": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "mcp": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "registry": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   }
+  }
+ },
+ "storage": {
+  "db_shard_id": null,
+  "vector_index_ref": null,
+  "object_store_path": "methodologies_created/methodology_1794297998_new.json",
+  "compression_type": "None"
+ },
+ "hints": {
+  "access_frequency": 1,
+  "hotness_score": 0.0,
+  "last_accessed": 1794298398,
+  "centroid": null,
+  "ml_prediction_weight": 0.0
+ },
+ "integrity": {
+  "content_hash": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "semantic_fingerprint": [],
+  "last_verified": 1794297998,
+  "integrity_score": 1.0,
+  "version_history": []
+ },
+ "file_context": null,
+ "code_context": null,
+ "text_context": null,
+ "external_ref": null
+}

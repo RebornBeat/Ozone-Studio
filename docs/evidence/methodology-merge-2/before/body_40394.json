@@ -1,0 +1,65 @@
+{
+  "category_id": 0,
+  "decision_rules": [
+    {
+      "action": "Use farm_state_get, farm_profile, farm_state_set, and farm_profile_start in sequence.",
+      "condition": "Farm status and state indicate the profile is stopped or idle and no container/registry error is present.",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "Require container-registry-mcp provider before attempting further farm profile start.",
+      "condition": "Failure involves container image pull, registry authentication, or missing container-registry-mcp capability.",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "container-registry-mcp",
+          "optional": false,
+          "purpose": "Handle container registry and image pull operations needed for farm profile start."
+        }
+      ]
+    }
+  ],
+  "description": "Recover AMT re-expansion farm profile start failures by reading farm posture, profile, shared state, and result records before retrying the registered farm_profile_start tool, using only registered farm providers and ordinary reasoning.",
+  "heuristics": [
+    {
+      "description": "Inspect farm_status and farm_profiles, then farm_state_get and farm_result.",
+      "examples": [],
+      "name": "Error mentions farm 'default', /profiles/profile_#/start, or http #: [object object]",
+      "when_to_apply": "Error mentions farm 'default', /profiles/profile_#/start, or http #: [object object]"
+    },
+    {
+      "description": "Use farm_profile or farm_state_set to reconcile state, then retry farm_profile_start.",
+      "examples": [],
+      "name": "Farm status or state shows paused, stopped, or mismatched profile",
+      "when_to_apply": "Farm status or state shows paused, stopped, or mismatched profile"
+    },
+    {
+      "description": "Avoid blind retries; route to container-registry-mcp capability if not available.",
+      "examples": [],
+      "name": "Error suggests container, registry, or image pull problem",
+      "when_to_apply": "Error suggests container, registry, or image pull problem"
+    }
+  ],
+  "name": "Farm Profile Start Failure Recovery",
+  "principles": [
+    {
+      "applicability": [],
+      "rationale": "Check farm_status, farm_profiles, farm_state_get, and farm_result before invoking farm_profile_start.",
+      "statement": "Read before start"
+    },
+    {
+      "applicability": [],
+      "rationale": "Confirm the target profile identifier and shared state before retrying post /profiles/profile_#/start.",
+      "statement": "Verify exact profile state"
+    },
+    {
+      "applicability": [],
+      "rationale": "Use farm_profile_stop, farm_profile_pause, or farm_state_set only after confirming the current state.",
+      "statement": "Minimal state change"
+    }
+  ]
+}

@@ -1,0 +1,439 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 30027,
+  "parent_id": 2,
+  "version": 12
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 13,
+      "returned_traced": 3
+     },
+     "source": "",
+     "validated": null
+    },
+    "broad": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "broad applicability": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "broad coverage": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "broad relevance discovery pattern": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "broadly relevant": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "connection finding": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "cross-domain": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "cross_modality": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "data repository": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 5,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "discovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "entity discovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "graph query": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 11,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "graph storage": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 11,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "knowledge graph": {
+     "hits": {
+      "applied": 1,
+      "dropped": 0,
+      "human": 0,
+      "kept": 1,
+      "packed": 0,
+      "returned": 11,
+      "returned_traced": 3
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "link discovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "multi-modal": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "pattern": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": false
+    },
+    "pattern discovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": false
+    },
+    "relation discovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "relationship_discovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "relevance": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "relevance retrieval": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": true
+    },
+    "search": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    },
+    "storage": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "extracted",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "search",
+    "relationship_discovery",
+    "cross_modality",
+    "storage",
+    "broad relevance discovery pattern",
+    "relevance",
+    "discovery",
+    "multi-modal",
+    "relation discovery",
+    "link discovery",
+    "entity discovery",
+    "knowledge graph",
+    "graph query",
+    "cross-domain",
+    "relevance retrieval",
+    "connection finding",
+    "graph storage",
+    "data repository"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "search",
+    "relationship_discovery",
+    "cross_modality",
+    "storage"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 13,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794274845,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1792391529,
+   "materialized_path": "/Methodologies/Broad Relevance Discovery Pattern",
+   "modality": "Unknown",
+   "name": "Broad Relevance Discovery Pattern",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "bootstrap",
+   "updated_at": 1794346079
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies/method_27_broad_relevance_discovery_pattern.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

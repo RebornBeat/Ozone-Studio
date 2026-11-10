@@ -1,0 +1,277 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 40396,
+  "parent_id": 2,
+  "version": 4
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": null
+    },
+    "AMT": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    },
+    "CoordinationReceived": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": true
+    },
+    "HTTP error": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": true
+    },
+    "capability": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "created:unknown",
+     "validated": false
+    },
+    "container": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": true
+    },
+    "failure": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    },
+    "farm": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": true
+    },
+    "farm_profile_start": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 1,
+      "returned_traced": 1
+     },
+     "source": "",
+     "validated": true
+    },
+    "mcp": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    },
+    "profile": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    },
+    "re-expansion": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    },
+    "recovery": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "AMT",
+    "CoordinationReceived",
+    "HTTP error",
+    "container",
+    "failure",
+    "farm",
+    "farm_profile_start",
+    "mcp",
+    "profile",
+    "re-expansion",
+    "recovery"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [],
+   "topics": [
+    "browser-farm",
+    "profile-management",
+    "error-recovery",
+    "mcp-tools",
+    "container-orchestration"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 1,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794298398,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 1794298101,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "Methodology",
+   "created_at": 1794298101,
+   "materialized_path": null,
+   "modality": "Unknown",
+   "name": "farm-profile-start-failure-recovery",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "methodology_create",
+   "updated_at": 1794346079
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "methodologies_created/methodology_1794298101_new.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

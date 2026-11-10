@@ -110,7 +110,7 @@ impl SearchStrategy for KeywordScan {
                 let active_kw = crate::keyword_program::searchable_keywords(
                     &container.local_state.context.keywords,
                     &container.local_state.context.keyword_meta,
-                    crate::keyword_program::require_validated_keywords(),
+                    crate::keyword_program::strict_for_type(&format!("{:?}", container.local_state.metadata.container_type)),
                 );
                 let haystack: Vec<String> = active_kw
                     .iter()
@@ -164,7 +164,7 @@ impl SearchStrategy for LooseScan {
                 let active_kw = crate::keyword_program::searchable_keywords(
                     &container.local_state.context.keywords,
                     &container.local_state.context.keyword_meta,
-                    crate::keyword_program::require_validated_keywords(),
+                    crate::keyword_program::strict_for_type(&format!("{:?}", container.local_state.metadata.container_type)),
                 );
                 let haystack: Vec<String> = active_kw
                     .iter()
@@ -215,7 +215,11 @@ impl SearchStrategy for TokenAware {
             let ctx = &container.local_state.context;
             let name = container.local_state.metadata.name.clone().unwrap_or_default();
             // VALIDATION GATE (strict mode, off by default): only validated keywords + markers may match
-            let active_kw = crate::keyword_program::searchable_keywords(&ctx.keywords, &ctx.keyword_meta, strict_validated);
+            // strict mode applies ONLY to the types the validation gate covers: the others (JurisdictionRuleSet routing keys / ISO codes,
+            // Experience, Chat*, *Root, Modality …) are never gated, so their keywords can never become "validated" and strict mode would
+            // silently stop them matching (measured on the EU 2026-11-10, docs/evidence/keyword-validation/round2/SUMMARY.md)
+            let strict_here = strict_validated && crate::keyword_program::strict_for_type(&format!("{:?}", container.local_state.metadata.container_type));
+            let active_kw = crate::keyword_program::searchable_keywords(&ctx.keywords, &ctx.keyword_meta, strict_here);
             let mut terms: Vec<String> = active_kw.clone();
             terms.extend(ctx.topics.iter().cloned());
             let Some(info) = km::match_info(&query, &name, &terms, false) else { continue };
@@ -297,7 +301,7 @@ impl SearchStrategy for ExactMatch {
                 let active_kw = crate::keyword_program::searchable_keywords(
                     &container.local_state.context.keywords,
                     &container.local_state.context.keyword_meta,
-                    crate::keyword_program::require_validated_keywords(),
+                    crate::keyword_program::strict_for_type(&format!("{:?}", container.local_state.metadata.container_type)),
                 );
                 let haystack: Vec<String> = active_kw
                     .iter()

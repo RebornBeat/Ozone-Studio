@@ -1,0 +1,197 @@
+{
+ "queries": {
+  "none|found now (any type)": 597,
+  "none|found now (content)": 576,
+  "none|found strict (any type)": 597,
+  "none|found strict (content)": 576,
+  "none|queried": 609,
+  "none|results now (content ids)": 4999,
+  "none|results strict (content ids)": 2156,
+  "orchestrate|LOST under strict (any type)": 17,
+  "orchestrate|found now (any type)": 697,
+  "orchestrate|found now (content)": 643,
+  "orchestrate|found strict (any type)": 680,
+  "orchestrate|found strict (content)": 643,
+  "orchestrate|queried": 706,
+  "orchestrate|results now (content ids)": 7684,
+  "orchestrate|results strict (content ids)": 6793,
+  "other|found now (any type)": 34,
+  "other|found now (content)": 33,
+  "other|found strict (any type)": 34,
+  "other|found strict (content)": 33,
+  "other|queried": 34,
+  "other|results now (content ids)": 3013,
+  "other|results strict (content ids)": 3010
+ },
+ "lost_examples": [],
+ "keyword_state_by_type": {
+  "McpEntity": {
+   "not-validated": 1697,
+   "validated": 53
+  },
+  "JurisdictionRuleSet": {
+   "not-validated": 877
+  },
+  "Derived": {
+   "not-validated": 601
+  },
+  "CoordinationEvent": {
+   "not-validated": 2816
+  },
+  "Experience": {
+   "not-validated": 251
+  },
+  "ModalityGraph": {
+   "validated": 91,
+   "not-validated": 1
+  },
+  "Pipeline": {
+   "validated": 148
+  },
+  "Methodology": {
+   "validated": 1272,
+   "not-validated": 75
+  },
+  "Blueprint": {
+   "validated": 197
+  },
+  "EthicsRoot": {
+   "not-validated": 1
+  },
+  "ProteomicsRoot": {
+   "not-validated": 1
+  },
+  "EmotionalRoot": {
+   "not-validated": 1
+  },
+  "ElectromagneticRoot": {
+   "not-validated": 1
+  },
+  "McpResult": {
+   "not-validated": 26
+  },
+  "Category": {
+   "validated": 14
+  },
+  "KinematicsRoot": {
+   "not-validated": 1
+  },
+  "GeospatialRoot": {
+   "not-validated": 1
+  },
+  "Modality": {
+   "not-validated": 9
+  },
+  "HapticRoot": {
+   "not-validated": 1
+  },
+  "IMURoot": {
+   "not-validated": 1
+  },
+  "CoreMemoryRoot": {
+   "not-validated": 1
+  },
+  "NarrativeRoot": {
+   "not-validated": 1
+  },
+  "ChatTurn": {
+   "not-validated": 30
+  },
+  "ActiveSonarRoot": {
+   "not-validated": 1
+  },
+  "ModalityRoot": {
+   "not-validated": 1
+  },
+  "BlueprintRoot": {
+   "not-validated": 2
+  },
+  "SharedContextRoot": {
+   "not-validated": 1
+  },
+  "JurisdictionRoot": {
+   "not-validated": 1
+  },
+  "URLRoot": {
+   "not-validated": 1
+  },
+  "ParametricCADRoot": {
+   "not-validated": 1
+  },
+  "PipelineRoot": {
+   "not-validated": 1
+  },
+  "ActiveRadarRoot": {
+   "not-validated": 1
+  },
+  "IdentityRoot": {
+   "not-validated": 1
+  },
+  "ChatSession": {
+   "not-validated": 3
+  },
+  "ExperienceMemory": {
+   "not-validated": 1
+  },
+  "ChunkGraphRoot": {
+   "not-validated": 1
+  },
+  "SoundReconstructionRoot": {
+   "not-validated": 1
+  },
+  "NetworkTopologyRoot": {
+   "not-validated": 1
+  },
+  "BCIRoot": {
+   "not-validated": 1
+  },
+  "ThermalRoot": {
+   "not-validated": 1
+  },
+  "RelationshipRoot": {
+   "not-validated": 1
+  },
+  "BiologyRoot": {
+   "not-validated": 1
+  },
+  "FileGraphRoot": {
+   "not-validated": 1
+  },
+  "MethodologyRoot": {
+   "not-validated": 2
+  },
+  "MetaCognitionRoot": {
+   "not-validated": 1
+  },
+  "PackageRoot": {
+   "not-validated": 1
+  },
+  "DepthRoot": {
+   "not-validated": 1
+  },
+  "UiDocumentRoot": {
+   "not-validated": 1
+  },
+  "ConsciousnessRoot": {
+   "not-validated": 1
+  },
+  "ExternalRoot": {
+   "not-validated": 1
+  },
+  "ControlSystemsRoot": {
+   "not-validated": 1
+  },
+  "CollectiveRoot": {
+   "not-validated": 1
+  },
+  "HyperspectralRoot": {
+   "not-validated": 1
+  },
+  "ThreeDRoot": {
+   "not-validated": 1
+  },
+  "CrossModalIndexRoot": {
+   "not-validated": 1
+  }
+ }
+}

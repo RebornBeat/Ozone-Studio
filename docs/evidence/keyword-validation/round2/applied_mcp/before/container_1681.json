@@ -1,0 +1,231 @@
+{
+ "global_state": {
+  "child_count": 0,
+  "child_ids": [],
+  "container_id": 1681,
+  "parent_id": 1612,
+  "version": 6
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 2,
+      "returned_traced": 2
+     },
+     "source": "",
+     "validated": null
+    },
+    "MCP": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "MCP entity": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "StyleRule": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "verbatim",
+     "validated": true
+    },
+    "entity identifier": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "entity svg": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "model context protocol": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "svg entity": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "expansion",
+     "validated": null
+    },
+    "uidocument_ingest": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "verbatim",
+     "validated": true
+    }
+   },
+   "keywords": [
+    "uidocument_ingest",
+    "StyleRule",
+    "proj:1",
+    "MCP entity",
+    "model context protocol",
+    "svg entity",
+    "entity svg",
+    "MCP",
+    "entity identifier"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [
+    {
+     "confidence": 0.800000011920929,
+     "discovered_via": "ToolOutput",
+     "relation_type": "References",
+     "target_id": 1545
+    }
+   ],
+   "scope": {
+    "global": false,
+    "project_id": 1,
+    "workspace_id": null
+   },
+   "topics": [
+    "mcp"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 2,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794244578,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "McpEntity",
+   "created_at": 1793444663,
+   "materialized_path": "/mcp/uidocument_ingest/1518/x81",
+   "modality": "UiDocument",
+   "name": ".gb_Ta.gb_eb svg",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "uidocument-ingest",
+   "updated_at": 1794270924
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "mcp_graph/1518/x81.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

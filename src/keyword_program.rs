@@ -206,6 +206,13 @@ pub fn term_is_validated(meta: Option<&TermMeta>) -> bool {
     meta.map(|m| m.validated == Some(true) || m.source == "identifier" || m.source == "rollup").unwrap_or(false)
 }
 
+/// Strict (validated-only) search for ONE container type: on only when the switch is on AND the type is one the write gate covers. Types that
+/// are never gated (JurisdictionRuleSet routing keys, Experience, Chat*, *Root, Modality …) can never get a validated term, so strict mode
+/// would silently stop them matching (measured on the EU 2026-11-10: docs/evidence/keyword-validation/round2/SUMMARY.md).
+pub fn strict_for_type(container_type: &str) -> bool {
+    require_validated_keywords() && GATED_TYPES.contains(&container_type)
+}
+
 /// STRICT MODE (`OZONE_KEYWORD_REQUIRE_VALIDATED=1`, default OFF): search ignores keywords that have not passed the gate. Off by default
 /// because it empties recall on a store whose backlog is still being validated; flip it once the backlog is done.
 pub fn require_validated_keywords() -> bool {

@@ -1,0 +1,11 @@
+{"40396": {
+ "add_decision_rules": [
+  {"name": "stopped_or_idle_profile_sequence", "condition": "farm status and state indicate the profile is stopped or idle and no container or registry error is present", "outcome": "use farm_state_get, farm_profile, farm_state_set, and farm_profile_start in sequence", "requires": []},
+  {"name": "registry_or_image_pull_failure", "condition": "the failure involves container image pull, registry authentication, or a missing container-registry capability", "outcome": "require the container-registry capability before attempting further farm profile start", "requires": []}
+ ],
+ "add_heuristics": [
+  {"condition": "the error suggests a container, registry, or image pull problem", "action": "avoid blind retries; route to the container-registry capability if it is not available"}
+ ],
+ "add_principles": [],
+ "add_keywords": ["registry", "MCP tool failed"]
+}}

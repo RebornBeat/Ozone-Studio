@@ -1,0 +1,157 @@
+{
+ "global_state": {
+  "child_count": 3,
+  "child_ids": [
+   2010,
+   2011,
+   2009
+  ],
+  "container_id": 2008,
+  "parent_id": 2007,
+  "version": 10
+ },
+ "local_state": {
+  "code_context": null,
+  "context": {
+   "categories": [],
+   "embedding": null,
+   "keyword_meta": {
+    "*": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 7,
+      "returned_traced": 2
+     },
+     "source": "",
+     "validated": null
+    },
+    "Graphic": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "",
+     "validated": true
+    },
+    "uidocument_ingest": {
+     "hits": {
+      "applied": 0,
+      "dropped": 0,
+      "human": 0,
+      "kept": 0,
+      "packed": 0,
+      "returned": 0,
+      "returned_traced": 0
+     },
+     "source": "created:unknown",
+     "validated": null
+    }
+   },
+   "keywords": [
+    "uidocument_ingest",
+    "Graphic",
+    "proj:1"
+   ],
+   "learned_associations": [],
+   "methodologies": [],
+   "relationships": [
+    {
+     "confidence": 1,
+     "discovered_via": "ToolOutput",
+     "relation_type": "Encloses",
+     "target_id": 2009
+    },
+    {
+     "confidence": 1,
+     "discovered_via": "ToolOutput",
+     "relation_type": "Encloses",
+     "target_id": 2011
+    }
+   ],
+   "scope": {
+    "global": false,
+    "project_id": 1,
+    "workspace_id": null
+   },
+   "topics": [
+    "mcp"
+   ]
+  },
+  "external_ref": null,
+  "file_context": null,
+  "hints": {
+   "access_frequency": 7,
+   "centroid": null,
+   "hotness_score": 0,
+   "last_accessed": 1794274845,
+   "ml_prediction_weight": 0
+  },
+  "integrity": {
+   "content_hash": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "integrity_score": 1,
+   "last_verified": 0,
+   "semantic_fingerprint": [],
+   "version_history": []
+  },
+  "metadata": {
+   "container_type": "McpEntity",
+   "created_at": 1793485778,
+   "materialized_path": "/mcp/uidocument_ingest/2006/n4",
+   "modality": "UiDocument",
+   "name": "svg fig",
+   "owner_id": 0,
+   "permissions": 0,
+   "provenance": "uidocument-ingest",
+   "updated_at": 1794346472
+  },
+  "storage": {
+   "compression_type": "None",
+   "db_shard_id": null,
+   "object_store_path": "mcp_graph/2006/n4.json",
+   "vector_index_ref": null
+  },
+  "text_context": null
+ }
+}

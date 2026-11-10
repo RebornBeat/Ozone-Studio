@@ -1,0 +1,268 @@
+{
+ "metadata": {
+  "container_type": "Methodology",
+  "modality": "Unknown",
+  "created_at": 1794298101,
+  "updated_at": 1794346079,
+  "provenance": "methodology_create",
+  "permissions": 0,
+  "owner_id": 0,
+  "name": "farm-profile-start-failure-recovery",
+  "materialized_path": null
+ },
+ "context": {
+  "categories": [],
+  "methodologies": [],
+  "keywords": [
+   "AMT",
+   "CoordinationReceived",
+   "HTTP error",
+   "container",
+   "failure",
+   "farm",
+   "farm_profile_start",
+   "mcp",
+   "profile",
+   "re-expansion",
+   "recovery"
+  ],
+  "topics": [
+   "browser-farm",
+   "profile-management",
+   "error-recovery",
+   "mcp-tools",
+   "container-orchestration"
+  ],
+  "relationships": [],
+  "learned_associations": [],
+  "embedding": null,
+  "keyword_meta": {
+   "*": {
+    "source": "",
+    "validated": null,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "AMT": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "CoordinationReceived": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "HTTP error": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "capability": {
+    "source": "created:unknown",
+    "validated": false,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "container": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "failure": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "farm": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "farm_profile_start": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 1,
+     "returned_traced": 1,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "mcp": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "profile": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "re-expansion": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   },
+   "recovery": {
+    "source": "",
+    "validated": true,
+    "hits": {
+     "returned": 0,
+     "returned_traced": 0,
+     "packed": 0,
+     "kept": 0,
+     "dropped": 0,
+     "applied": 0,
+     "human": 0
+    }
+   }
+  }
+ },
+ "storage": {
+  "db_shard_id": null,
+  "vector_index_ref": null,
+  "object_store_path": "methodologies_created/methodology_1794298101_new.json",
+  "compression_type": "None"
+ },
+ "hints": {
+  "access_frequency": 1,
+  "hotness_score": 0.0,
+  "last_accessed": 1794298398,
+  "centroid": null,
+  "ml_prediction_weight": 0.0
+ },
+ "integrity": {
+  "content_hash": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "semantic_fingerprint": [],
+  "last_verified": 1794298101,
+  "integrity_score": 1.0,
+  "version_history": []
+ },
+ "file_context": null,
+ "code_context": null,
+ "text_context": null,
+ "external_ref": null
+}
