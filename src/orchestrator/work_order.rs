@@ -127,6 +127,21 @@ async fn ensure_gap_task(tm: &TaskManager, walk: TaskID, name: &str) {
     sync_one(tm, id, &row).await;
 }
 
+/// Every capability gap this walk reported or acted on, de-duplicated case-insensitively: the names still in `missing_capabilities` plus the
+/// names the closure judged (`closure_attempted`, lower-cased; the `__…__` entries are control markers, not capabilities).
+fn gap_names(state: &OrchestrationState) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    let still: Vec<String> = state.missing_capabilities.iter().filter_map(|m| m["name"].as_str().map(|n| n.to_string())).collect();
+    let judged = state.closure_attempted.iter().filter(|n| !n.starts_with("__")).cloned();
+    for name in still.into_iter().chain(judged) {
+        if seen.insert(name.trim().to_lowercase()) {
+            out.push(name);
+        }
+    }
+    out
+}
+
 impl PromptOrchestrator {
     /// Record / extend this walk's work-order tree. Idempotent on walk-scoped keys: call it again after the AMT expanded or a plan was
     /// grafted and only the NEW nodes are added (under their parents). Needs `state.task_id`.
@@ -168,13 +183,12 @@ impl PromptOrchestrator {
             tm.create_work_task(Some(parent), "wo_step", &key, &title, &[("run".to_string(), "the step ran to completion".to_string())], None, Some(walk)).await;
         }
         // 3. capability gaps this walk reported (one task per capability, a rerun task when it needs work again after completing)
-        let mut seen = std::collections::HashSet::new();
-        for m in &state.missing_capabilities {
-            if let Some(name) = m["name"].as_str() {
-                if seen.insert(name.trim().to_lowercase()) {
-                    ensure_gap_task(&tm, walk, name).await;
-                }
-            }
+        // EVERY gap the walk acted on, not only the ones still missing: the closure (stages 6/7, BEFORE this task exists) removes a gap from
+        // `state.missing_capabilities` the moment it is judged not-needed, gets a methodology, or gets a tool — so iterating only that list
+        // (the previous behaviour) left exactly the gaps that were acted on without a checklist, and their `tool` / `register` items could
+        // never tick. `gap_names` = still-missing ∪ everything the closure judged.
+        for name in gap_names(state) {
+            ensure_gap_task(&tm, walk, &name).await;
         }
         sync_gap_tasks(&tm).await;
     }
@@ -208,10 +222,10 @@ impl PromptOrchestrator {
     /// The walk completed: every gap it carried that was closed (methodology drafted or provider registered) is VERIFIED by this walk.
     pub(crate) async fn work_order_walk_done(&self, state: &OrchestrationState) {
         let Some(walk) = state.task_id else { return };
-        for m in &state.missing_capabilities {
-            let Some(name) = m["name"].as_str() else { continue };
+        for name in gap_names(state) {
+            let name = name.as_str();
             if let Some(row) = row_of(name) {
-                if resolution(&row, "methodology_drafted", 0).is_some() || row["status"].as_str() == Some("satisfied") {
+                if resolution(&row, "methodology_drafted", 0).is_some() || resolution(&row, "tool_created", 0).is_some() || row["status"].as_str() == Some("satisfied") {
                     note_gap_event(name, "verified", &format!("walk {walk} carried the closed capability and completed"), "walk");
                 }
             }

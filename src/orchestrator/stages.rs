@@ -1209,14 +1209,36 @@ impl PromptOrchestrator {
                             origin["implementation_path"] = serde_json::json!(art.implementation_path);
                             super::tool_binding::mark_gap_tool_created(capability, origin.clone(), "capability-closure");
                             crate::keyword_program::record_event("tool_created", methodology_id.unwrap_or(0), &state.keywords, serde_json::json!({"tool": spec.name, "gap": capability}));
-                            // the FINDING: a manifest (name + body hash + keywords) goes to the marketplace bridge — a no-op while publishing is off
-                            crate::network::publish_created_tool(crate::network::CreatedToolFinding {
-                                name: spec.name.clone(),
-                                body_hash: art.body_hash,
-                                keywords: spec.capabilities.clone(),
-                                body_path: art.body_path,
-                            });
-                            tracing::info!(capability, tool = %spec.name, "tool creation: tool created, registered (stdio, never auto-started) and published as a finding");
+                            // PUBLISH PRIVACY CHECK (operator 2026-11-11: what may leave is a rule set — `tool_creation::PUBLISH_RULES`, the same text as the
+                            // methodology draft 30_tool-publish-privacy). Deterministic scan first (real matching), then ONE strength-N yes/no vote; the
+                            // assured action is PUBLISHING, so every vote must say YES. A withheld finding leaves the tool created + registered locally;
+                            // only the announcement is withheld, and the reason is recorded on the gap (an event, so the work-order tree shows it).
+                            let body_text = tc::body_json(&spec);
+                            let findings = tc::privacy_findings(&body_text, &spec.implementation, &request, &data_dir);
+                            let strength = crate::shared_contracts::k_validation::configured_strength();
+                            let publish_ok = if findings.is_empty() {
+                                let votes = self.confirm_yes_no_batch(state, vec![tc::publish_vote_prompt(&body_text, &spec.implementation)], strength).await;
+                                let ok = votes.first().copied().unwrap_or(false);
+                                crate::keyword_program::record_judgment("tool_publish_privacy", methodology_id, capability, &request, "is the created tool's body safe to publish to other instances?", ok, strength);
+                                ok
+                            } else {
+                                false
+                            };
+                            if publish_ok {
+                                // the FINDING: a manifest (name + body hash + keywords) goes to the marketplace bridge — a no-op while publishing is off
+                                crate::network::publish_created_tool(crate::network::CreatedToolFinding {
+                                    name: spec.name.clone(),
+                                    body_hash: art.body_hash,
+                                    keywords: spec.capabilities.clone(),
+                                    body_path: art.body_path,
+                                });
+                                tracing::info!(capability, tool = %spec.name, "tool creation: tool created, registered (stdio, never auto-started) and published as a finding");
+                            } else {
+                                let why = if findings.is_empty() { "the strength-N publish vote did not unanimously say the body is safe to publish".to_string() } else { findings.join("; ") };
+                                super::tool_binding::note_gap_event(capability, "publish_withheld", &why, "tool-publish-privacy");
+                                crate::keyword_program::record_event("tool_publish_withheld", methodology_id.unwrap_or(0), &state.keywords, serde_json::json!({"tool": spec.name, "gap": capability, "reason": why}));
+                                tracing::warn!(capability, tool = %spec.name, reason = %why, "tool creation: tool created and registered locally; publishing WITHHELD by the privacy rules");
+                            }
                             Some(spec.name)
                         }
                         None => {

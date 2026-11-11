@@ -705,7 +705,7 @@ async fn session_gate(
         let rt = state.runtime.read().await;
         !(rt.config.general.setup_complete && rt.config.general.user_setup_complete)
     };
-    if std::env::var("OZONE_REQUIRE_SESSION").as_deref() == Ok("1")
+    if crate::config::switch_on("OZONE_REQUIRE_SESSION")
         && !first_run
         && PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
     {
@@ -1757,6 +1757,39 @@ async fn get_callgraph_live(
     }
 }
 
+#[derive(serde::Deserialize)]
+struct CallGraphFilesQuery {
+    project_id: Option<u64>,
+}
+
+/// GET /callgraph/files[?project_id=N] — the graphs this host created BY ITSELF for linked files (`graph_on_link`: file link, file change, workspace
+/// load), as recorded in `graph_on_link_ledger.json`, each row with the state of its `wo_graph` task; plus what an ENTRY means for every modality.
+/// Read-only; works with no prompt. `enabled` is the `OZONE_GRAPH_ON_LINK` switch (ON unless off). Rows are returned as stored — nothing scored.
+async fn get_callgraph_files(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<CallGraphFilesQuery>,
+) -> Json<serde_json::Value> {
+    let mut rows = crate::orchestrator::graph_on_link::ledger_rows(q.project_id);
+    {
+        let runtime = state.runtime.read().await;
+        let task_mgr = runtime.task_manager.read().await;
+        for r in rows.iter_mut() {
+            if let Some(tid) = r["task_id"].as_u64() {
+                if let Some(t) = task_mgr.get_task(tid).await {
+                    r["task_status"] = serde_json::json!(t.status);
+                }
+            }
+        }
+    }
+    Json(serde_json::json!({
+        "success": true,
+        "enabled": crate::orchestrator::graph_on_link::enabled(),
+        "count": rows.len(),
+        "files": rows,
+        "entry_concepts": crate::orchestrator::graph_on_link::entry_concepts(),
+    }))
+}
+
 /// GET /capability/gaps — EVERY recorded capability gap (`capability_gaps.json`), whatever its status: `missing`, `methodology_drafted`,
 /// `not_needed`, `wanted`. The Marketplace overview lists only the `wanted` ones; this is the full ledger (rows are returned as stored,
 /// including `details` and the `resolutions` history; nothing is derived or scored).
@@ -2207,8 +2240,8 @@ async fn rerun_step(
     let task_mgr = runtime.task_manager.read().await;
 
     // IDENTITY (2026-11-02): same strict-session precondition as /mcp/call.
-    // A presented token is validated; with OZONE_REQUIRE_SESSION unset this
-    // always allows (documented localhost posture).
+    // A presented token is validated; with OZONE_REQUIRE_SESSION=off this
+    // always allows (default is ON since 2026-11-11).
     let rerun_identity_validated = if req.session_token.trim().is_empty() {
         false
     } else {
@@ -2466,9 +2499,7 @@ async fn query_zsei_inner(
         auth.validate_session(&token_bytes).await.is_ok()
     };
 
-    let require_session = std::env::var("OZONE_ZSEI_REQUIRE_SESSION")
-        .map(|v| v == "1")
-        .unwrap_or(false);
+    let require_session = crate::config::switch_on("OZONE_ZSEI_REQUIRE_SESSION");
     if is_write && require_session && !identity_validated {
         let row = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
@@ -2477,7 +2508,7 @@ async fn query_zsei_inner(
             "container_id": container_id,
             "success": false,
             "refused": true,
-            "error": "session_token required (OZONE_ZSEI_REQUIRE_SESSION=1)",
+            "error": "session_token required (OZONE_ZSEI_REQUIRE_SESSION is on; a host opts out with =off)",
         });
         append_zsei_write_audit(&runtime.config.general.data_dir, &row);
         return Json(ZseiResponse {
@@ -4983,6 +5014,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/capability/gaps", get(get_capability_gaps))
         .route("/callgraph/system", get(get_callgraph_system))
         .route("/callgraph/live", get(get_callgraph_live))
+        .route("/callgraph/files", get(get_callgraph_files))
         .route("/methodology/refinement", get(get_methodology_refinement))
         .route("/assistant/feed", get(get_assistant_feed))
         .route("/consciousness/review_pass", post(consciousness_review_pass))

@@ -138,6 +138,67 @@ pub fn collision(name: &str, registry_names: &[String], data_dir: &Path) -> Opti
     None
 }
 
+/// WHAT MAY LEAVE THIS INSTANCE when a created tool is published (operator 2026-11-11: the publish rules "should be methodologies"). The same
+/// rules are the methodology draft `docs/evidence/methodology-from-prompts/drafts/30_tool-publish-privacy.json`; this text is what the
+/// publish check below puts in front of the model, so code and methodology cannot drift apart without a visible diff.
+pub const PUBLISH_RULES: &str = "\
+1. Only the tool's own body leaves: its name, description, capability names, input/output contracts and implementation. Nothing else does.\n\
+2. The request that caused the tool, the gap provenance, the task id, the origin record, user content and operator data never leave.\n\
+3. No secret leaves: no API key, token, password, session value, private key or credential, even as an example or default value.\n\
+4. No local identity leaves: no file-system path of this host, no data directory, no host name, no user name, no email address, no internal address.\n\
+5. The implementation must be general: it may not embed the request text, user data, or a fixed local resource it was drafted around.\n\
+6. Blueprints, jurisdiction content and ingest or bookkeeping nodes are never part of a tool and never published with one.\n\
+7. Anything uncertain is withheld: publishing is the outward, irreversible step, so it needs every vote to agree; withholding costs nothing and is retried.";
+
+/// DETERMINISTIC half of the publish check (real parsing / matching, no model): returns one plain-text finding per thing in the body that must
+/// not leave. Empty = nothing found. The model vote (`publish_vote_prompt`) judges what string matching cannot; neither replaces the other.
+/// No size limit applies — the whole body is scanned.
+pub fn privacy_findings(body: &str, implementation: &str, request: &str, data_dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let hay = format!("{body}\n{implementation}");
+    let lower = hay.to_lowercase();
+    let req = request.trim();
+    if !req.is_empty() && hay.contains(req) {
+        out.push("the body embeds the request text verbatim".to_string());
+    }
+    for p in [data_dir.to_string_lossy().to_string(), std::env::var("HOME").unwrap_or_default()] {
+        let p = p.trim().trim_end_matches('/').to_string();
+        // a bare "." / "zsei_data" is the default relative dir name, not an identity: only absolute, specific paths count
+        if p.len() > 1 && p.starts_with('/') && hay.contains(&p) {
+            out.push(format!("the body contains a local path ({p})"));
+        }
+    }
+    for marker in ["sk-or-", "sk-ant-", "begin private key", "begin rsa private key", "begin openssh private key", "bearer ey", "authorization: bearer"] {
+        if lower.contains(marker) {
+            out.push(format!("the body contains something shaped like a credential ({marker})"));
+        }
+    }
+    for key in ["api_key", "apikey", "password", "secret"] {
+        // an assignment of a literal to a secret-named variable: key + `=`/`:` + a quote
+        for sep in ["=", ":"] {
+            for q in ["\"", "'"] {
+                if lower.contains(&format!("{key}{sep}{q}")) || lower.contains(&format!("{key} {sep} {q}")) {
+                    out.push(format!("the body assigns a literal to a secret-named value ({key})"));
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The model half: ONE yes/no question per created tool, answered by the strength-N loop (`confirm_yes_no_batch`). The assured action is
+/// PUBLISHING (outward, not undoable), so it takes every vote saying YES; a single NO withholds the finding (the tool itself stays created and
+/// registered locally — only the announcement is withheld). No confidence number anywhere.
+pub fn publish_vote_prompt(spec_body: &str, implementation: &str) -> String {
+    format!(
+        "RULES for what may leave this instance when a created tool is published:\n{PUBLISH_RULES}\n\n\
+THE TOOL BODY THAT WOULD BE PUBLISHED (tool.json):\n{spec_body}\n\nITS IMPLEMENTATION (implementation.mjs):\n{implementation}\n\n\
+QUESTION: Does this body satisfy EVERY rule above — nothing private, no secret, no local identity, nothing tied to one request, general and reusable — so that it is safe to publish to other instances? Answer YES only if every rule holds; answer NO if any rule is broken or you are unsure."
+    )
+}
+
 /// The one-file body: spec + implementation, canonical JSON. This is what is hashed and what a peer's reviewed fetch is answered from —
 /// it carries NOTHING about the request that caused it (that is `origin.json`, local only).
 pub fn body_json(spec: &ToolSpec) -> String {

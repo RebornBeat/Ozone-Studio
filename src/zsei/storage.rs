@@ -293,8 +293,8 @@ impl ContainerStorage {
             storage.init_plain_file()?;
         }
         
-        // Load existing data, then the operator-invoked orphan purge (no-op
-        // without OZONE_PURGE_ORPHAN_GLOBALS=1).
+        // Load existing data, then the orphan purge (switch OZONE_PURGE_ORPHAN_GLOBALS, default on;
+        // a no-op with =off).
         storage.load_index()?;
         storage.purge_orphan_globals();
         storage.rebuild_child_ids_cache()?;
@@ -851,7 +851,7 @@ impl ContainerStorage {
     /// the scanner's existing "container_id == 0 means skip" convention
     /// (see `load_index`) instead of adding a new tombstone format.
 
-    /// ENV-GATED ORPHAN PURGE (OZONE_PURGE_ORPHAN_GLOBALS=1, run once at
+    /// ORPHAN PURGE (switch OZONE_PURGE_ORPHAN_GLOBALS, DEFAULT ON since 2026-11-11, `=off` opts out; run once at
     /// boot after load_index): removes global records whose local-state file
     /// never landed (torn writes from PC power loss — 231 of them as of
     /// 2026-10-08). These records are EMPTY shells: metadata lives in
@@ -859,10 +859,11 @@ impl ContainerStorage {
     /// content — the F4 fix refuses them on load and they re-error at every
     /// boot. This pass tombstones their global records (container_id = 0,
     /// the same convention load_index's scanner skips) so they are gone for
-    /// good. WITHOUT the env var this fn is a no-op — the purge is
-    /// explicitly operator-invoked, never automatic.
+    /// good. With the switch set off this fn is a no-op; with it on it is
+    /// idempotent (a later boot finds no orphans).
     fn purge_orphan_globals(&mut self) -> usize {
-        if std::env::var("OZONE_PURGE_ORPHAN_GLOBALS").as_deref() != Ok("1") {
+        // DEFAULT ON (operator 2026-11-11); idempotent — a second boot finds no orphans — and it only tombstones EMPTY shells (see above).
+        if !crate::config::switch_on("OZONE_PURGE_ORPHAN_GLOBALS") {
             return 0;
         }
         let orphans: Vec<ContainerID> = self

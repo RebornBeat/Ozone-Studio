@@ -540,6 +540,16 @@ fn default_true() -> bool {
     true
 }
 
+/// THE ONE READER OF A SWITCH ENV VAR (operator 2026-11-11: "all switches default ON; the EU leaves them on; local turns some off in its own
+/// config"). Unset or any value other than an explicit off (`off` / `0` / `false` / `no`, case-insensitive) = ON. A host opts out by setting the
+/// variable (or its config key) in ITS OWN environment; the code default is never off.
+pub fn switch_on(name: &str) -> bool {
+    !matches!(
+        std::env::var(name).ok().as_deref().map(|v| v.trim().to_ascii_lowercase()).as_deref(),
+        Some("off") | Some("0") | Some("false") | Some("no")
+    )
+}
+
 fn default_refinement_enabled() -> bool {
     true
 }

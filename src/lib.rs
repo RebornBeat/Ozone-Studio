@@ -148,6 +148,9 @@ pub fn sync_jurisdiction_file(
         return Ok("unchanged");
     }
     let unmodified_since_last_sync = manifest.get(key).map_or(false, |h| *h == dst_hash);
+    // `force` adopts a given shipped version ONCE per file: the marker `forced:<key>` records the shipped hash already force-adopted.
+    let forced_key = format!("forced:{key}");
+    let force = force && manifest.get(&forced_key).map_or(true, |h| *h != src_hash);
     // First-sync adoption (2026-11-01): a file with NO manifest entry predates
     // the manifest, so the shipped content is adopted (stale content was found
     // live) with the old copy preserved as `<name>.bak` — never lost.
@@ -159,6 +162,9 @@ pub fn sync_jurisdiction_file(
             let _ = std::fs::write(std::path::PathBuf::from(bak), &dst_bytes);
         }
         std::fs::write(dst, &src_bytes)?;
+        if force {
+            manifest.insert(forced_key, src_hash.clone());
+        }
         manifest.insert(key.to_string(), src_hash);
         return Ok("upgraded");
     }
@@ -560,9 +566,10 @@ impl OzoneRuntime {
                 // operator-edited), or when OZONE_JURISDICTION_FORCE_SYNC=1
                 // (the old copy is kept as `<name>.bak`). Anything else is kept
                 // and logged. Additive: never deletes a data-dir-only file.
-                let force = std::env::var("OZONE_JURISDICTION_FORCE_SYNC")
-                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                    .unwrap_or(false);
+                // DEFAULT ON (operator 2026-11-11), made safe by being ONCE PER SHIPPED VERSION: `sync_jurisdiction_file` adopts the shipped
+                // content (old copy kept as .bak) only when it has not already force-adopted THIS shipped hash for that file, so an operator
+                // edit made after the adoption survives every later boot, and the .bak is never rewritten by a boot.
+                let force = crate::config::switch_on("OZONE_JURISDICTION_FORCE_SYNC");
                 let manifest_path = jurisdiction_dir.join(".shipped_manifest.json");
                 let mut manifest: std::collections::HashMap<String, String> =
                     std::fs::read_to_string(&manifest_path)
@@ -606,7 +613,7 @@ impl OzoneRuntime {
                 tracing::info!(?counts, force, "Jurisdiction content sync (assets -> data dir)");
                 if counts.get("kept-newer-available").copied().unwrap_or(0) > 0 {
                     tracing::warn!(
-                        "{} jurisdiction file(s) differ from the shipped version and were NOT overwritten (edited, or first sync without a manifest). Set OZONE_JURISDICTION_FORCE_SYNC=1 once and restart to adopt the shipped content (old copies are kept as .bak).",
+                        "{} jurisdiction file(s) differ from the shipped version and were NOT overwritten (edited, or first sync without a manifest). OZONE_JURISDICTION_FORCE_SYNC is on by default and adopts each shipped version once; it is switched off on this host (=off) — remove that to adopt the shipped content (old copies are kept as .bak).",
                         counts.get("kept-newer-available").copied().unwrap_or(0)
                     );
                 }
@@ -1094,10 +1101,10 @@ impl OzoneRuntime {
         if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
             if !key.trim().is_empty() {
                 crate::openrouter_quota::spawn_monitor(key.clone());
-                // One-shot free-model probe (model_ledger.rs). Off unless set:
-                // it calls every catalog free model once and spends quota.
-                if std::env::var("OZONE_PROBE_FREE_MODELS").as_deref() == Ok("1") {
-                    tracing::warn!("OZONE_PROBE_FREE_MODELS=1 — free-model probe starts once the catalog is loaded");
+                // One-shot free-model probe (model_ledger.rs). DEFAULT ON (operator 2026-11-11; a host opts out with OZONE_PROBE_FREE_MODELS=off):
+                // it calls every catalog free model once per boot and spends free-model quota.
+                if crate::config::switch_on("OZONE_PROBE_FREE_MODELS") {
+                    tracing::warn!("OZONE_PROBE_FREE_MODELS is on — free-model probe starts once the catalog is loaded");
                     tokio::spawn(crate::model_ledger::probe_free_models(key));
                 }
             }
@@ -1182,6 +1189,14 @@ impl OzoneRuntime {
                     let _ = crate::orchestrator::call_graph::ensure_system_call_graphs(&cg_store).await;
                 });
             }
+
+            // GRAPH ON LINK (2026-11-11): the full graph creation process (modality Analyze → CreateGraph → entries) runs by itself when a file is
+            // linked, a linked file changes, and once at workspace load — as `wo_graph` work-order tasks. ON unless OZONE_GRAPH_ON_LINK=off.
+            crate::orchestrator::graph_on_link::spawn(
+                store_adapter.clone(),
+                executor_adapter.clone(),
+                runtime.read().await.task_manager.clone(),
+            );
 
             // KEYWORD PROGRAM ACTORS (2026-11-08): housekeeping (rollup + typed-scope backfill + CONTINUOUS training) and settlement run as their
             // own actors, off the meta pass that settlement used to starve for hours (orchestrator/keyword_loops.rs).
@@ -1428,9 +1443,9 @@ impl OzoneRuntime {
             // prompt task per pass runs the FULL gated walk (jurisdiction,
             // consciousness, steps — every gate a chat request passes).
             // Non-prompt queued tasks stay records: no un-gated action path.
-            if std::env::var("OZONE_AUTO_EXECUTE_TASKS").as_deref() == Ok("1") {
+            if crate::config::switch_on("OZONE_AUTO_EXECUTE_TASKS") {
                 tracing::info!(
-                    "Task executor ENABLED (OZONE_AUTO_EXECUTE_TASKS=1): queued prompt tasks run through the full gated walk, one per pass"
+                    "Task executor ENABLED (OZONE_AUTO_EXECUTE_TASKS is on by default since 2026-11-11): queued prompt tasks run through the full gated walk, one per pass"
                 );
                 let executor_runtime = runtime.clone();
                 tokio::spawn(async move {
@@ -1529,7 +1544,7 @@ impl OzoneRuntime {
                 });
             } else {
                 tracing::info!(
-                    "Task executor disabled (OZONE_AUTO_EXECUTE_TASKS unset) — queued tasks remain records; set =1 to opt in"
+                    "Task executor disabled (OZONE_AUTO_EXECUTE_TASKS=off on this host) — queued tasks remain records"
                 );
             }
 

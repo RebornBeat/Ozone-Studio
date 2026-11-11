@@ -144,15 +144,16 @@ pub fn record_gate_verdict(
 /// - `validated`: the caller presented a session token that validated;
 /// - `internal`: the call originates in-process (orchestrator step, loop) —
 ///   trusted by construction and never subject to the session requirement.
-/// Returns `Err(reason)` only when the strict flag is on and the caller is
-/// neither validated nor internal. With the flag off it always allows (the
-/// documented localhost posture), so default behaviour is unchanged.
+/// Returns `Err(reason)` only when the strict switch is on (DEFAULT ON since
+/// 2026-11-11; a host opts out with `OZONE_REQUIRE_SESSION=off`) and the
+/// caller is neither validated nor internal. With the switch off it always
+/// allows (the localhost posture).
 pub fn require_identity(validated: bool, internal: bool) -> Result<(), String> {
-    let strict = std::env::var("OZONE_REQUIRE_SESSION").as_deref() == Ok("1");
+    let strict = crate::config::switch_on("OZONE_REQUIRE_SESSION");
     if !strict || validated || internal {
         return Ok(());
     }
-    Err("this entry requires a validated session (OZONE_REQUIRE_SESSION=1): present a valid session_token".to_string())
+    Err("this entry requires a validated session (OZONE_REQUIRE_SESSION is on; a host opts out with OZONE_REQUIRE_SESSION=off): present a valid session_token".to_string())
 }
 
 /// Like [`gated`], but with an identity precondition in front of the
@@ -223,8 +224,10 @@ mod tests {
 
     #[test]
     fn require_identity_only_blocks_when_strict_and_unvalidated() {
-        // default (flag unset in this test's view): always allowed.
+        // default (switch unset): ON — an unvalidated, non-internal caller is refused; an explicit off allows (operator 2026-11-11).
         std::env::remove_var("OZONE_REQUIRE_SESSION");
+        assert!(require_identity(false, false).is_err());
+        std::env::set_var("OZONE_REQUIRE_SESSION", "off");
         assert!(require_identity(false, false).is_ok());
         std::env::set_var("OZONE_REQUIRE_SESSION", "1");
         assert!(require_identity(false, false).is_err());

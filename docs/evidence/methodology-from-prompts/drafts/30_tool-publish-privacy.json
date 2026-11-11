@@ -1,0 +1,94 @@
+{
+ "slug": "tool-publish-privacy",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "all again should be set on by default, privacy of tools and etc ensuring what should and shouldn't be published in tools no should be methodologies",
+  "blueprints we don't share",
+  "we don't accept anything not allowed"
+ ],
+ "overlap_check": "09_p2p-notify-and-gate covers WHO receives and the gate (manifests, allow-list, blueprints never shared); this covers WHAT a created tool may carry out when it is published. Distinct subject; kept separate. Code mirror: tool_creation::PUBLISH_RULES + privacy_findings + the strength-N publish vote in stages::create_tool_for_capability.",
+ "memory_links": "feedback_tool_creation_automatic_publish_findings; project_p2p_notify_and_gate; feedback_no_self_reported_confidence",
+ "payload": {
+  "action": "Create",
+  "name": "Created Tools Publish Only Their Own General Body",
+  "category_id": 0,
+  "description": "When a tool created on an identified need is published as a finding, only its own general body leaves the instance. Requests, provenance, user content, secrets and local identity never leave, and anything uncertain is withheld.",
+  "principles": [
+   {
+    "name": "Publishing is outward and irreversible",
+    "description": "Withholding costs nothing and is retried; a leak cannot be taken back, so the publishing side needs agreement and the withholding side does not.",
+    "priority": 5
+   },
+   {
+    "name": "A tool is general or it is not shared",
+    "description": "A tool that only makes sense for one request or one host stays local.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a drafted tool mentions a path, a name or an address",
+    "action": "treat it as local identity and keep the finding local"
+   },
+   {
+    "condition": "a drafted tool has a literal example value that looks real",
+    "action": "replace it with an obviously generic placeholder or keep the finding local"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Only the body leaves",
+    "condition": "a created tool is about to be published",
+    "outcome": "publish its name, description, capability names, contracts and implementation only; never its origin record, gap provenance, task id or the request that caused it",
+    "requires": []
+   },
+   {
+    "name": "No secret leaves",
+    "condition": "a created tool is about to be published",
+    "outcome": "withhold publication if the body holds a key, token, password, session value, private key or credential in any form, including examples and defaults",
+    "requires": []
+   },
+   {
+    "name": "No local identity leaves",
+    "condition": "a created tool is about to be published",
+    "outcome": "withhold publication if the body holds a file path of this host, a data directory, a host or user name, an email address or an internal address",
+    "requires": []
+   },
+   {
+    "name": "General or local",
+    "condition": "a created tool is about to be published",
+    "outcome": "withhold publication if the implementation embeds the request text, user data or a fixed local resource it was drafted around",
+    "requires": []
+   },
+   {
+    "name": "Blueprints and ingest nodes are never part of a tool",
+    "condition": "a created tool is about to be published",
+    "outcome": "never publish blueprints, jurisdiction content or ingest or bookkeeping nodes with a tool",
+    "requires": []
+   },
+   {
+    "name": "Unanimity to publish, nothing to withhold",
+    "condition": "the publish check runs",
+    "outcome": "run the deterministic scan first, then the yes or no vote; publish only when the scan finds nothing and every vote says yes, and record the reason when withholding; the tool itself stays created and registered locally",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "publish",
+   "created tool",
+   "privacy",
+   "withhold",
+   "marketplace",
+   "secrets",
+   "local identity"
+  ],
+  "topics": [
+   "tools",
+   "privacy",
+   "marketplace"
+  ]
+ }
+}

@@ -120,7 +120,7 @@
   "file": "14_verification-lives-outside-production-code.json",
   "slug": "verification-lives-outside-production-code",
   "kind": "create",
-  "status": "needs_confirm",
+  "status": "confirmed",
   "name": "Verification Lives Outside Production Code",
   "rules": 3,
   "heuristics": 1
@@ -228,7 +228,7 @@
   "file": "26_modality-call-graph-rule-and-fan-out.json",
   "slug": "modality-call-graph-rule-and-fan-out",
   "kind": "create",
-  "status": "needs_confirm",
+  "status": "confirmed",
   "name": "Every Modality Has a Call Graph Rule",
   "rules": 3,
   "heuristics": 1
@@ -259,5 +259,14 @@
   "name": "Enforcement Actions Need Real Behavior, Not Just Labels",
   "rules": 1,
   "heuristics": 1
+ },
+ {
+  "file": "30_tool-publish-privacy.json",
+  "slug": "tool-publish-privacy",
+  "kind": "create",
+  "status": "ready",
+  "name": "Created Tools Publish Only Their Own General Body",
+  "rules": 6,
+  "heuristics": 2
  }
 ]

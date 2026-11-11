@@ -59,6 +59,7 @@ pub mod decision_review;
 pub mod jurisdiction;
 pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed step (2026-11-02)
 pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
+pub mod graph_on_link; // the full graph creation process on file link / file change / workspace load, as wo_graph work-order tasks; per-modality entry concepts (2026-11-11)
 pub mod call_graph; // the system's own call graphs as graph containers (walk / loops / routes), created at boot from assets/call_graphs/system_call_graph.json; live overlay reader (2026-11-11)
 pub mod work_order; // the work-order tree: walk → AMT branches → steps, capability-gap checklists; one completion rule, completed is final (2026-11-10)
 pub mod tool_binding; // per-rule tool bindings, missing-capability capture, tool health (2026-11-04)
@@ -5326,6 +5327,14 @@ impl PromptOrchestrator {
                                     bc.branch.to_lowercase() == branch_str.to_lowercase()
                                 });
                                 if !already_exists {
+                                    // EVENT (operator 2026-11-11: expansion while the task is open must be visible): the discovered branch is recorded
+                                    // on the run's intent-event log BEFORE it is captured. NOTE (open, see docs/evidence/tool-creation-lifecycle/REPORT.md §4):
+                                    // this walk does not yet synthesize steps for it or re-run the capability closure for it.
+                                    crate::orchestrator::amt::record_intent_event(
+                                        state,
+                                        "amt_branch_discovered_in_walk",
+                                        serde_json::json!({"step": step.step_index, "branch": branch_str}),
+                                    );
                                     // Add to branch_captures so blueprint creation can pick it up
                                     state.branch_captures.push(BranchCapture {
                                         branch: branch_str.to_string(),
