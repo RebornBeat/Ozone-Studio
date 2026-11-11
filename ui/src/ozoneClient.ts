@@ -762,6 +762,13 @@ export interface FileGraphRow {
   task_id?: number;
   task_status?: string;
   graph_id?: number;
+  /** the pipeline's native (structural) graph exists — file link builds it first */
+  structural_done?: boolean;
+  /** who built the structural graph: the link worker or the walk (when the walk reached the file first) */
+  created_by?: "link" | "walk";
+  /** append-only: what walks added on top (e.g. the prompt-relative file role); never part of the structural graph */
+  semantic_layers?: { kind: string; by: string; at: number; detail?: { role?: string; reasoning?: string; trace_id?: string | null; task_id?: number | null } }[];
+  previous_task_id?: number;
   nodes?: number;
   edges?: number;
   entries?: string[];

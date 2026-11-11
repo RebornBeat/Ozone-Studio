@@ -87,6 +87,16 @@ const FileGraphsView: React.FC<FileGraphsViewProps> = ({ projectId, modality, co
               {r.task_status && <span className="ocg-badge" title="the wo_graph work-order task for this file's content">task {r.task_id}: {r.task_status}</span>}
               {typeof r.nodes === "number" && <span className="ocg-dim">{r.nodes} nodes · {r.edges ?? 0} edges</span>}
               <span className="ocg-dim">{r.trigger} · {when(r.at)}</span>
+              {r.structural_done && (
+                <span className="ocg-dim" title="the pipeline's native graph; file link builds it first and the walk reuses it">
+                  structural graph by {r.created_by ?? "link"}
+                </span>
+              )}
+              {r.semantic_layers && r.semantic_layers.length > 0 && (
+                <div className="ocg-dim" title="what walks added on top of the structural graph (append-only)">
+                  walk layers: {r.semantic_layers.map((l) => `${l.kind}${l.detail?.role ? ` = ${l.detail.role}` : ""} (${when(l.at)})`).join("; ")}
+                </div>
+              )}
               {r.entries && r.entries.length > 0 && (
                 <div className="ocg-dim" title={c?.entry}>
                   {c?.explicit_entry_points ? "entry points" : "entries (roots)"}: <span className="omono">{r.entries.join(", ")}</span>

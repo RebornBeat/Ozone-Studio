@@ -30,12 +30,24 @@
 //! PRIVACY: reads `FileReference` containers and the files they point at; announces nothing (no marketplace/peer publication, nothing from ui-ingest
 //!   or McpEntity); the ledger and tasks stay in the local data dir.
 //! SWITCH: `OZONE_GRAPH_ON_LINK` — ON unless set to `off`, `0` or `false` (a host opts out in its own config).
+//!
+//! LINK ↔ WALK ALIGNMENT (operator 2026-11-11: file link ALWAYS runs first and captures the non-semantic / structural graph; the walk adds the intelligence
+//! on top; both know the other's state — docs/evidence/graph-link-walk-alignment/REPORT.md). The ledger row of a file is the one state both read:
+//!   `hash` (the content), `graph_id`, `structural_done` (the pipeline's native graph exists), `created_by` (`link` | `walk`), `task_id` (the wo_graph task),
+//!   `semantic_layers` (append-only: what the walk later added, e.g. its prompt-relative file role — it never replaces or edits the structural graph).
+//! Both paths take the SAME per-path async lock (`claim`) before they look at the ledger, so there is never a parallel second graph for one content:
+//!   * the worker runs first (normal case): the walk finds `graph_id` for the current content hash and REUSES it;
+//!   * the worker is mid-run: the walk AWAITS the lock (it never fails open and never builds a second graph), then reuses;
+//!   * nothing exists yet (queue not reached / switch off / earlier failure): the walk builds the graph through its own pipeline calls and records it in the
+//!     ledger (`record_created`); the worker later finds `graph_id` for that hash, skips analyze/create and completes the remaining checklist items;
+//!   * the file changed since: the hash differs, so nothing is reused — a NEW graph and a NEW wo_graph task (`rerun_of` the previous one, completed is final).
 
 use super::{PipelineExecutor, StoreAccess};
 use crate::task::TaskManager;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
@@ -87,10 +99,165 @@ fn save_ledger(rows: &serde_json::Map<String, Value>) {
     }
 }
 
+/// One lock around every read-modify-write of the ledger file (the worker and the walk both write it).
+static LEDGER_LOCK: Mutex<()> = Mutex::new(());
+
 fn put_row(container_id: u64, row: Value) {
+    put_row_key(&container_id.to_string(), row);
+}
+
+/// Write one ledger row. For the SAME content the keys the walk owns (`semantic_layers`, `previous_task_id`) and who created the graph (`created_by`) are
+/// carried over from the old row, so a worker update never erases what the walk recorded (and the other way round).
+fn put_row_key(key: &str, mut row: Value) {
+    let _g = LEDGER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut rows = load_ledger();
-    rows.insert(container_id.to_string(), row);
+    let old = rows.get(key).cloned().unwrap_or(Value::Null);
+    let same = old["hash"].as_str().is_some() && old["hash"] == row["hash"];
+    if let Some(r) = row.as_object_mut() {
+        let created_by = if same { old["created_by"].as_str().unwrap_or("link").to_string() } else { "link".to_string() };
+        r.entry("created_by".to_string()).or_insert(json!(created_by));
+        if same {
+            for k in ["semantic_layers", "previous_task_id"] {
+                if let Some(v) = old.get(k) {
+                    r.entry(k.to_string()).or_insert(v.clone());
+                }
+            }
+        }
+    }
+    rows.insert(key.to_string(), row);
     save_ledger(&rows);
+}
+
+// ── link ↔ walk: the shared claim ─────────────────────────────────────────────────────────────────────
+
+static PATH_LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
+
+/// The async lock of one file path (held across the whole structural-graph job by whoever builds it; never held across the std ledger lock).
+fn path_lock(path: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let m = PATH_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut g = m.lock().unwrap_or_else(|e| e.into_inner());
+    g.entry(path.to_string()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone()
+}
+
+/// Which ledger row belongs to this (path, content) and its current value. Rows are keyed by the FileReference container id; the walk may not know it,
+/// so a row for the same path is found by scanning, and with no row at all the walk's row is keyed `path:<path>` — the worker adopts it (same content)
+/// into the container-id row the first time it claims the path.
+fn resolve_row(path: &str, hash: &str, container_id: Option<u64>) -> (String, Value) {
+    let _g = LEDGER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rows = load_ledger();
+    let alias = format!("path:{path}");
+    let key = match container_id {
+        Some(c) => c.to_string(),
+        None => rows
+            .iter()
+            .filter(|(_, v)| v["path"].as_str() == Some(path))
+            .max_by_key(|(_, v)| (v["hash"].as_str() == Some(hash), v["at"].as_u64().unwrap_or(0)))
+            .map(|(k, _)| k.clone())
+            .unwrap_or_else(|| alias.clone()),
+    };
+    let mut prev = rows.get(&key).cloned().unwrap_or(Value::Null);
+    if container_id.is_some() && prev["hash"].as_str() != Some(hash) {
+        if let Some(mut a) = rows.get(&alias).cloned() {
+            if a["hash"].as_str() == Some(hash) {
+                // the walk built this content's graph before the link row existed: the container-id row adopts it
+                if a.get("previous_task_id").map(|v| v.is_null()).unwrap_or(true) {
+                    if let Some(t) = prev["task_id"].as_u64() {
+                        a["previous_task_id"] = json!(t);
+                    }
+                }
+                rows.remove(&alias);
+                rows.insert(key.clone(), a.clone());
+                save_ledger(&rows);
+                prev = a;
+            }
+        }
+    }
+    (key, prev)
+}
+
+/// The holder of a file path's lock plus what the ledger said when it was taken. Dropping it releases the path.
+pub(crate) struct Claim {
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+    key: String,
+    path: String,
+    hash: String,
+    prev: Value,
+    existing: Option<u64>,
+}
+
+impl Claim {
+    /// The graph already built for THIS content (by the link worker or an earlier walk), when its container still exists.
+    pub(crate) fn existing_graph(&self) -> Option<u64> {
+        self.existing
+    }
+    /// The ledger row as it was when the claim was taken.
+    pub(crate) fn prev(&self) -> &Value {
+        &self.prev
+    }
+    /// The walk built the structural graph itself: record it so the link worker (and every later walk) sees it. Same content → same row; a changed file
+    /// keeps the old task as `previous_task_id` so the worker's new task is `rerun_of` it.
+    pub(crate) fn record_created(&self, graph_id: u64, modality: &str, pipeline_id: u64, project_id: u64) {
+        let mut row = json!({
+            "path": self.path, "project_id": project_id, "hash": self.hash, "modality": modality, "pipeline_id": pipeline_id,
+            "status": "graph_created", "trigger": "walk", "created_by": "walk", "graph_id": graph_id, "structural_done": true, "at": now_secs(),
+            "note": "graph built by the walk before the link worker reached this file — the link task completes the remaining items",
+        });
+        let same = self.prev["hash"].as_str() == Some(self.hash.as_str());
+        if let Some(r) = row.as_object_mut() {
+            if same {
+                if let Some(t) = self.prev.get("task_id").filter(|v| !v.is_null()) {
+                    r.insert("task_id".to_string(), t.clone());
+                }
+            } else if let Some(t) = self.prev["task_id"].as_u64() {
+                r.insert("previous_task_id".to_string(), json!(t));
+            }
+        }
+        put_row_key(&self.key, row);
+    }
+}
+
+/// Take the path's lock (AWAITING a worker or walk already building this file — never failing open, never building a second graph), then read the
+/// ledger. `container_id` is the FileReference id when the caller knows it (the worker); the walk passes `None`.
+pub(crate) async fn claim(store: &dyn StoreAccess, path: &str, hash: &str, container_id: Option<u64>) -> Claim {
+    let guard = path_lock(path).lock_owned().await;
+    let (key, prev) = resolve_row(path, hash, container_id);
+    let built = matches!(prev["status"].as_str(), Some("graph_created") | Some("complete"));
+    let existing = match prev["graph_id"].as_u64() {
+        Some(g) if built && prev["hash"].as_str() == Some(hash) && matches!(store.get_container(g).await, Ok(Some(_))) => Some(g),
+        _ => None,
+    };
+    Claim { _guard: guard, key, path: path.to_string(), hash: hash.to_string(), prev, existing }
+}
+
+/// The walk's entry: hash the file as it is now and take its claim. `None` when the file cannot be hashed (missing / unreadable): the walk then proceeds
+/// exactly as before and records nothing.
+pub(crate) async fn claim_for_file(store: &dyn StoreAccess, path: &str) -> Option<Claim> {
+    let p = path.to_string();
+    let hash = tokio::task::spawn_blocking(move || hash_file(&p)).await.ok()?.ok()?;
+    Some(claim(store, path, &hash, None).await)
+}
+
+/// The walk's intelligence about a file's graph (its prompt-relative role, …): appended to the row's `semantic_layers`, never touching the structural
+/// fields. The row is found by graph id. Append-only (each walk adds its own entry).
+pub(crate) fn record_semantic_layer(graph_id: u64, kind: &str, detail: Value) {
+    let _g = LEDGER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut rows = load_ledger();
+    let mut hit = false;
+    for (_, v) in rows.iter_mut() {
+        if v["graph_id"].as_u64() != Some(graph_id) {
+            continue;
+        }
+        if let Some(o) = v.as_object_mut() {
+            let layers = o.entry("semantic_layers".to_string()).or_insert_with(|| json!([]));
+            if let Some(a) = layers.as_array_mut() {
+                a.push(json!({"kind": kind, "by": "walk", "at": now_secs(), "detail": detail.clone()}));
+                hit = true;
+            }
+        }
+    }
+    if hit {
+        save_ledger(&rows);
+    }
 }
 
 /// Read-only view for `GET /callgraph/files`: the ledger rows (optionally of one project), as stored, plus each row's task state.
@@ -276,6 +443,7 @@ fn ledger_row(job: &Job, hash: &str, modality: &str, pipeline_id: u64, status: &
     let mut row = json!({
         "path": job.path, "project_id": job.project_id, "hash": hash, "modality": modality, "pipeline_id": pipeline_id,
         "status": status, "trigger": job.reason, "at": now_secs(),
+        "structural_done": matches!(status, "graph_created" | "complete"),
     });
     if let (Some(r), Some(e)) = (row.as_object_mut(), extra.as_object()) {
         for (k, v) in e {
@@ -300,7 +468,9 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
             return Ok(());
         }
     };
-    let prev = load_ledger().get(&job.container_id.to_string()).cloned().unwrap_or(Value::Null);
+    // the path's lock: if the walk is building this file's graph right now we wait for it (and then find it in the ledger); the walk waits for us the same way
+    let claim = claim(store, &job.path, &hash, Some(job.container_id)).await;
+    let prev = claim.prev().clone();
     let same_content = prev["hash"].as_str() == Some(hash.as_str());
     if same_content && matches!(prev["status"].as_str(), Some("complete") | Some("unreadable") | Some("not_text_readable")) {
         return Ok(()); // this content was already processed: the graph exists (or the file has no reader without invented parameters, recorded)
@@ -321,7 +491,6 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
     }
 
     // 4. the work-order task for this (file, content): a changed file is a NEW task, `rerun_of` the previous one (completed is final)
-    let previous_task = prev["task_id"].as_u64();
     let key = format!("file:{}:{}", job.container_id, &hash[..16.min(hash.len())]);
     let title = format!("Graph creation for {} ({})", job.path, modality);
     let items: Vec<(String, String)> = [
@@ -336,7 +505,12 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
     let task_id = {
         let tm = tasks.read().await;
         // idempotent on (parent, kind, key) for the same content; `rerun_of` only when the content changed since the last task
-        let rerun_of = if same_content { None } else { previous_task };
+        // same content: no rerun — unless the walk built the graph first and left the previous content's task for us (`previous_task_id`) and no task exists yet
+        let rerun_of = if same_content {
+            if prev["task_id"].is_null() { prev["previous_task_id"].as_u64() } else { None }
+        } else {
+            prev["task_id"].as_u64()
+        };
         tm.create_work_task(None, TASK_KIND, &key, &title, &items, rerun_of, None).await
     };
     let Some(task_id) = task_id else { return Err("could not create the work-order task".into()) };
@@ -344,7 +518,7 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
     tm.complete_item(task_id, "classify", &format!("modality {modality}, pipeline {pipeline_id}"), "graph-on-link").await;
 
     // resume point: a graph already created for THIS content (an earlier run stopped before `entries`)
-    let mut graph_id = if same_content { prev["graph_id"].as_u64() } else { None };
+    let mut graph_id = if same_content { claim.existing_graph() } else { None };
 
     // 5. analyze + create the graph (skipped when this content already has its graph)
     if graph_id.is_none() {
@@ -378,8 +552,9 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
         put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "graph_created", json!({"task_id": task_id, "graph_id": gid})));
     } else {
         // resumed: the earlier run already ticked analyze/graph; complete_item is idempotent and keeps the original evidence
-        tm.complete_item(task_id, "analyze", "analysed in an earlier run of this content", "graph-on-link").await;
-        tm.complete_item(task_id, "graph", &format!("ModalityGraph container {} created in an earlier run", graph_id.unwrap_or(0)), "graph-on-link").await;
+        let by = if prev["created_by"].as_str() == Some("walk") { "built by the walk's attached-file step (same pipeline calls)" } else { "created in an earlier run of this content" };
+        tm.complete_item(task_id, "analyze", &format!("analysed — {by}"), "graph-on-link").await;
+        tm.complete_item(task_id, "graph", &format!("ModalityGraph container {} {by}", graph_id.unwrap_or(0)), "graph-on-link").await;
     }
     let gid = graph_id.unwrap_or(0);
 

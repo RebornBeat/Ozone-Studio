@@ -656,6 +656,14 @@ impl PromptOrchestrator {
             }
         }
 
+        // the walk's intelligence about each file graph is recorded on the graph-on-link ledger row (append-only `semantic_layers`); the structural graph is untouched
+        for c in &classifications {
+            super::graph_on_link::record_semantic_layer(
+                c.graph_id,
+                "file_role",
+                serde_json::json!({"role": format!("{:?}", c.role), "reasoning": c.reasoning, "trace_id": state.trace_id, "task_id": state.task_id}),
+            );
+        }
         state.classified_file_graphs = classifications;
         Ok(())
     }
@@ -759,6 +767,34 @@ impl PromptOrchestrator {
     ///     graph, no invented analysis.
     /// Returns the file graph id, or `None` when the file has no graph.
     pub(crate) async fn graph_attached_file(
+        &self,
+        file_spec: &AttachedFileSpec,
+        file_content: &str,
+        pipeline_id: u64,
+        available_modalities: &[String],
+        project_id: u64,
+    ) -> Result<Option<u64>, String> {
+        // LINK ↔ WALK (graph_on_link.rs header): file link runs first and captures the structural graph; the walk REUSES it when one exists for this exact
+        // content, AWAITS a link job that is mid-run on this file (the shared path lock — never a parallel second graph, never fail-open), and builds + records
+        // the graph itself only when none exists (the link worker later finds it in the ledger). The walk's own intelligence about the graph (its file role)
+        // is appended to the ledger row's `semantic_layers` in `classify_file_graphs_post_creation` — it never edits the structural graph.
+        let claim = if file_spec.is_inline { None } else { super::graph_on_link::claim_for_file(&*self.store, &file_spec.file_path).await };
+        if let Some(c) = &claim {
+            if let Some(gid) = c.existing_graph() {
+                tracing::info!(file_path = %file_spec.file_path, graph_id = gid, created_by = c.prev()["created_by"].as_str().unwrap_or("link"), "attached file: reusing the structural graph already built for this content (graph-on-link ledger)");
+                return Ok(Some(gid));
+            }
+        }
+        let built = self.graph_attached_file_build(file_spec, file_content, pipeline_id, available_modalities, project_id).await?;
+        if let (Some(c), Some(gid)) = (&claim, built) {
+            let modality = crate::types::modality::ModalityType::from_path(&file_spec.file_path).path_name().to_string();
+            c.record_created(gid, &modality, pipeline_id, project_id);
+        }
+        Ok(built)
+    }
+
+    /// The pipeline calls themselves (the earlier body of `graph_attached_file`, unchanged): analyse + CreateGraph for one attached file.
+    async fn graph_attached_file_build(
         &self,
         file_spec: &AttachedFileSpec,
         file_content: &str,
