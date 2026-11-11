@@ -1,0 +1,19 @@
+=== blueprints/walk_1794258481774727006.json 13312
+   ...  post‑expansion validation, and profile‑id validation with rollback safeguards.",   "methodology_ids": [     40126,     40252   ],   "missing_capabilities": [     "amt-hierarchy-mcp",     "build-mcp",     
+   ... for this project",       "loop_config": null,       "max_retries": 1,       "methodology_ids": [         40126,         40252       ],       "model_override": null,       "optional": false,       "pipeline
+=== runs/56.json 19315
+   ... uild",     "AMT re-expansion",     "Container deployment",     "Project setup"   ],   "methodologies": [     40126,     40252,     40262,     40264,     40268   ],   "categories": [     40072,     40070,  
+   ... l_override": null,       "source_chunk_indices": [         0       ],       "methodology_ids": [         40126,         40252       ],       "rule_refs": [],       "step_type": "pipeline",       "provider"
+=== amt/amt_1794258230_22.json 11072
+   ...       "verified": true,       "confidence": 1.0     }   ],   "relationships": [],   "methodology_ids": [     40126,     40252   ],   "metadata": {},   "depth": 0,   "verified": true,   "confidence": 1.0 }
+=== local/40253.json 3931
+   ... ect",     "materialized_path": null   },   "context": {     "categories": [],     "methodologies": [       40126,       40252     ],     "keywords": [       "container",       "amt",       "project",      
+=== local/40255.json 6001
+   ... -Expansion Initial Build Blueprint"   },   "context": {     "categories": [],     "methodologies": [       40126,       40252     ],     "keywords": [       "amt",       "initialbuild",       "re-expansion
+=== local/40397.json 6083
+   ...    40381,       40382,       40383,       40384,       40385,       40386,       40388,       40389,       40391,       40394,       40395,       40396     ],     "keywords": [       "reexpansion",       "
+=== capability_gaps.json 24559
+   ... _drafted"       },       {         "at": 1794297998,         "by": "capability-closure",         "reason": "methodology 40394 created on the spot",         "status": "methodology_drafted"       }     ],   
+   ... _drafted"       },       {         "at": 1794297998,         "by": "capability-closure",         "reason": "methodology 40394 created on the spot",         "status": "methodology_drafted"       }     ],   
+=== blueprints/walk_1794298398587540751.json 42392
+   ... 0084,     40185,     40381,     40382,     40383,     40384,     40385,     40386,     40388,     40389,     40391,     40394,     40395,     40396   ],   "missing_capabilities": [     "amt-hierarchy-mcp",

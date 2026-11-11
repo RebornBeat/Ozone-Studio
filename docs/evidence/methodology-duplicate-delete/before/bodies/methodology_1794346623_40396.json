@@ -1,0 +1,159 @@
+{
+  "category_id": 0,
+  "decision_rules": [
+    {
+      "action": "Call farm_status to assess farm-wide health before profile-specific actions",
+      "condition": "Any farm_profile_start failure occurs",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "farm_status",
+          "optional": false,
+          "purpose": "Get overall farm posture and per-farm health metrics"
+        }
+      ]
+    },
+    {
+      "action": "Call farm_profiles to see all profile states and identify conflicts",
+      "condition": "farm_status shows farm healthy but start failed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "farm_profiles",
+          "optional": false,
+          "purpose": "List all farm profiles with stripped secrets to inspect states"
+        }
+      ]
+    },
+    {
+      "action": "Call farm_profile_stop on target profile, then retry start after 2 second delay",
+      "condition": "Target profile shows 'running', 'starting', or 'paused' in farm_profiles",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "farm_profile_stop",
+          "optional": false,
+          "purpose": "Gracefully stop a farm profile before restart attempt"
+        }
+      ]
+    },
+    {
+      "action": "Call farm_state_get to read coordination flags and container mappings",
+      "condition": "Error mentions 'CoordinationReceived' or 'AMT re-expansion'",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "farm_state_get",
+          "optional": false,
+          "purpose": "Read farm shared state for coordination flags and container mappings"
+        }
+      ]
+    },
+    {
+      "action": "Call farm_profile on target profile for detailed state",
+      "condition": "Profile state unclear after farm_profiles",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "farm_profile",
+          "optional": false,
+          "purpose": "Get detailed single farm profile state"
+        }
+      ]
+    },
+    {
+      "action": "Use farm_state_set to write recovery coordination flags preventing concurrent starts",
+      "condition": "Multiple profiles need sequential restart after farm-wide issue",
+      "exceptions": [],
+      "priority": 5,
+      "requires": [
+        {
+          "kind": "provider",
+          "name": "farm_state_set",
+          "optional": false,
+          "purpose": "Write farm shared state for recovery coordination"
+        }
+      ]
+    },
+    {
+      "action": "use farm_state_get, farm_profile, farm_state_set, and farm_profile_start in sequence",
+      "condition": "farm status and state indicate the profile is stopped or idle and no container or registry error is present",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "require the container-registry capability before attempting further farm profile start",
+      "condition": "the failure involves container image pull, registry authentication, or a missing container-registry capability",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Methodology for diagnosing and recovering from farm_profile_start failures using only registered farm MCP tools. Handles HTTP errors, container issues, and profile state conflicts.",
+  "heuristics": [
+    {
+      "description": "Call farm_status to check overall farm health, then farm_profiles to list all profiles and their states",
+      "examples": [],
+      "name": "farm_profile_start returns HTTP error or '[object Object]' response",
+      "when_to_apply": "farm_profile_start returns HTTP error or '[object Object]' response"
+    },
+    {
+      "description": "Call farm_profile_stop on that profile, wait 2s, then retry farm_profile_start",
+      "examples": [],
+      "name": "target profile shows 'running' or 'starting' in farm_profiles but start failed",
+      "when_to_apply": "target profile shows 'running' or 'starting' in farm_profiles but start failed"
+    },
+    {
+      "description": "Check farm_state_get for coordination flags, then restart affected profiles sequentially with 3s delays",
+      "examples": [],
+      "name": "farm_status shows farm posture degraded or containers unhealthy",
+      "when_to_apply": "farm_status shows farm posture degraded or containers unhealthy"
+    },
+    {
+      "description": "Use farm_state_get to read container mapping, then farm_command to issue container-specific recovery if supported",
+      "examples": [],
+      "name": "error mentions 'container 3644' or specific container ID",
+      "when_to_apply": "error mentions 'container 3644' or specific container ID"
+    },
+    {
+      "description": "avoid blind retries; route to the container-registry capability if it is not available",
+      "examples": [],
+      "name": "the error suggests a container, registry, or image pull problem",
+      "when_to_apply": "the error suggests a container, registry, or image pull problem"
+    }
+  ],
+  "name": "farm-profile-start-failure-recovery",
+  "principles": [
+    {
+      "applicability": [],
+      "rationale": "Always check farm status and profile state before attempting recovery actions to avoid compounding errors.",
+      "statement": "observe-before-action"
+    },
+    {
+      "applicability": [],
+      "rationale": "Determine if failure is profile-specific, farm-wide, or infrastructure-related by checking multiple profiles and system health.",
+      "statement": "isolate-failure-domain"
+    },
+    {
+      "applicability": [],
+      "rationale": "Leverage farm_state_get/set to coordinate recovery across containers and avoid race conditions during re-expansion.",
+      "statement": "use-shared-state-for-coordination"
+    },
+    {
+      "applicability": [],
+      "rationale": "When profile is in unknown state, stop gracefully before restart rather than forcing start on potentially corrupted state.",
+      "statement": "prefer-graceful-stop-over-force"
+    }
+  ]
+}

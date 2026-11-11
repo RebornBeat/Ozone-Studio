@@ -1,0 +1,23 @@
+{
+ "containers_scanned": 3303,
+ "citations": [
+  {
+   "target": 40252,
+   "container": 40253,
+   "type": "Derived",
+   "name": "AMT re-expansion [InitialBuild] container 40211 \u2014 initial main AMT for this project"
+  },
+  {
+   "target": 40252,
+   "container": 40255,
+   "type": "Blueprint",
+   "name": "AMT Re-Expansion Initial Build Blueprint"
+  },
+  {
+   "target": 40394,
+   "container": 40397,
+   "type": "Blueprint",
+   "name": "AMT Re-expansion Failure Recovery Blueprint for Container 3644"
+  }
+ ]
+}
