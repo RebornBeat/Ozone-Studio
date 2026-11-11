@@ -116,7 +116,7 @@ async fn poll_once(store: &dyn StoreAccess, cache: &mut HashMap<u64, FileState>)
     }
 }
 
-async fn discover_file_references(store: &dyn StoreAccess) -> Vec<(u64, String)> {
+pub(crate) async fn discover_file_references(store: &dyn StoreAccess) -> Vec<(u64, String)> {
     let mut out = Vec::new();
     for &user_id in KNOWN_USER_IDS {
         for workspace_id in query_container_ids(store, &ZSEIQuery::GetUserWorkspaces { user_id }).await {

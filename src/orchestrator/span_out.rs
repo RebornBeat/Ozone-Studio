@@ -207,7 +207,7 @@ struct Rendered {
 }
 
 /// Read a modality graph FILE (`graphs/<modality>_<id>.json`) and digest it per its modality's rule.
-fn read_graph_digest(data_dir: &str, rel: &str) -> Option<super::graph_fanout::GraphDigest> {
+pub(crate) fn read_graph_digest(data_dir: &str, rel: &str) -> Option<super::graph_fanout::GraphDigest> {
     let file = std::path::Path::new(rel).file_name()?.to_str()?;
     if !rel.contains("graphs/") && !rel.starts_with("graphs") {
         return None;

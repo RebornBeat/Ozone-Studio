@@ -673,7 +673,7 @@ export interface WorkOrderItem {
 
 export interface WorkOrderNode {
   task_id: number;
-  /** "wo_branch" | "wo_step" | "wo_capability" for work-order tasks; the walk's own task has its own kind (e.g. "todo"/"task") */
+  /** "wo_branch" | "wo_step" | "wo_capability" | "wo_graph" for work-order tasks; the walk's own task has its own kind (e.g. "todo"/"task") */
   kind: string;
   key?: string | null;
   title?: unknown;
@@ -744,6 +744,35 @@ export function fetchCallGraphSystem(): Promise<CallGraphSystemResponse> {
 export function fetchCallGraphLive(by: { taskId?: number; traceId?: string; latest?: boolean }): Promise<CallGraphLiveResponse> {
   const q = by.traceId ? `trace_id=${encodeURIComponent(by.traceId)}` : by.taskId !== undefined ? `task_id=${by.taskId}` : by.latest ? "latest=1" : "";
   return hostGet<CallGraphLiveResponse>(`/callgraph/live${q ? `?${q}` : ""}`);
+}
+
+// ── Graphs the host created by itself for linked files (GET /callgraph/files) ───────────────────────────
+// One row per linked file: the content hash it processed, the modality, the ModalityGraph container, its entries (explicit entry points for code,
+// otherwise the roots) and the state of the `wo_graph` task that did the work. Rows are as stored — nothing is scored.
+export interface FileGraphRow {
+  file_reference_id: number | null;
+  path: string;
+  project_id: number;
+  hash: string;
+  modality: string;
+  pipeline_id: number;
+  status: string; // complete | graph_created | failed_analyze | failed_create_graph | not_text_readable | file_unreadable
+  trigger: string; // file-linked | file-changed | workspace-load
+  at: number;
+  task_id?: number;
+  task_status?: string;
+  graph_id?: number;
+  nodes?: number;
+  edges?: number;
+  entries?: string[];
+  error?: string;
+  note?: string;
+}
+export interface EntryConcept { modality: string; explicit_entry_points: boolean; entry: string }
+export interface FileGraphsResponse { success: boolean; enabled: boolean; count: number; files: FileGraphRow[]; entry_concepts: EntryConcept[] }
+
+export function fetchFileGraphs(projectId?: number | null): Promise<FileGraphsResponse> {
+  return hostGet<FileGraphsResponse>(`/callgraph/files${projectId ? `?project_id=${projectId}` : ""}`);
 }
 
 // ── Capability gaps (GET /capability/gaps) ──────────────────────────────────────────────────

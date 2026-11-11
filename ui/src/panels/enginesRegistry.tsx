@@ -7,6 +7,7 @@ import type { GraphViewStatus } from "../graphViewTypes";
 import { loadGraphData } from "../graphViewData";
 import CodeCallGraph from "../views/engines/CodeCallGraph";
 import CallGraphView from "../components/CallGraphView";
+import FileGraphsView from "../components/FileGraphsView";
 import CodeEngine from "../views/engines/CodeEngine";
 import ProofEngine from "../views/engines/ProofEngine";
 import TextEntityBrowser from "../views/engines/TextEntityBrowser";
@@ -117,7 +118,13 @@ export const ENGINES: PanelTab[] = [
     // visible with NO prompt: the system's own call graphs; follows the most recent walk when one has run (2026-11-11)
     id: "call-graphs",
     label: "Call graphs",
-    render: () => <CallGraphView follow />,
+    render: (projectId) => (
+      <>
+        <CallGraphView follow />
+        {/* the graphs the host created by itself when files were linked / changed / the workspace loaded, with each modality's entries (2026-11-11) */}
+        <FileGraphsView projectId={projectId} />
+      </>
+    ),
   },
   {
     id: "code",
@@ -128,6 +135,7 @@ export const ENGINES: PanelTab[] = [
         <CodeCallGraph projectId={projectId} />
         {/* the orchestration's own call graph beside the project's code graph; follows the most recent walk (2026-11-11) */}
         <CallGraphView compact follow />
+        <FileGraphsView projectId={projectId} modality="code" compact />
       </>
     ),
   },

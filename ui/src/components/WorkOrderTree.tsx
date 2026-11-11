@@ -21,6 +21,7 @@ const KIND_LABEL: Record<string, string> = {
   wo_branch: "AMT branch",
   wo_step: "Step",
   wo_capability: "Capability gap",
+  wo_graph: "File graph",
 };
 
 function kindLabel(kind: string): string {

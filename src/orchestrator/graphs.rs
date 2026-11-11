@@ -763,37 +763,7 @@ impl PromptOrchestrator {
 
     /// Map modality name string to pipeline ID.
     pub(crate) fn modality_name_to_pipeline_id(&self, modality: &str) -> u64 {
-        match modality {
-            "text" => 100,
-            "code" => 101,
-            "image" => 102,
-            "audio" => 103,
-            "video" => 104,
-            "math" => 105,
-            "chemistry" => 106,
-            "dna" => 107,
-            "eeg" => 108,
-            "3d" => 109,
-            "sound" => 110,
-            "biology" => 111,
-            "proteomics" => 112,
-            "haptic" => 113,
-            "thermal" => 114,
-            "depth" => 115,
-            "imu" => 116,
-            "geospatial" => 117,
-            "electromagnetic" => 118,
-            "bci" => 119,
-            "parametric_cad" => 120,
-            "kinematics" => 121,
-            "control_systems" => 122,
-            "network_topology" => 123,
-            "radar" => 124,
-            "sonar" => 125,
-            "hyperspectral" => 126,
-            "uidocument" => 127,
-            _ => 0,
-        }
+        pipeline_id_for_modality(modality)
     }
 
     /// EDGE SUPPLY — the orchestrator-level post-walk linking pass (2026-10-13,
@@ -1008,5 +978,41 @@ impl PromptOrchestrator {
                 ),
             );
         }
+    }
+}
+
+/// The one modality-name → modality-pipeline-id table (the walk's `modality_name_to_pipeline_id` delegates here; `graph_on_link` uses it
+/// directly). 0 = no pipeline for that name.
+pub(crate) fn pipeline_id_for_modality(modality: &str) -> u64 {
+    match modality {
+        "text" => 100,
+        "code" => 101,
+        "image" => 102,
+        "audio" => 103,
+        "video" => 104,
+        "math" => 105,
+        "chemistry" => 106,
+        "dna" => 107,
+        "eeg" => 108,
+        "3d" => 109,
+        "sound" => 110,
+        "biology" => 111,
+        "proteomics" => 112,
+        "haptic" => 113,
+        "thermal" => 114,
+        "depth" => 115,
+        "imu" => 116,
+        "geospatial" => 117,
+        "electromagnetic" => 118,
+        "bci" => 119,
+        "parametric_cad" => 120,
+        "kinematics" => 121,
+        "control_systems" => 122,
+        "network_topology" => 123,
+        "radar" => 124,
+        "sonar" => 125,
+        "hyperspectral" => 126,
+        "uidocument" => 127,
+        _ => 0,
     }
 }
