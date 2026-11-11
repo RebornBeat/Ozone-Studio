@@ -2557,14 +2557,14 @@ Return ONLY valid JSON with a single one-word answer:
     pub(crate) fn load_methodology_rules_text(container: &serde_json::Value) -> Option<String> {
         // NO-CAP (audit #4, 2026-11-04): this used to load only 5 rules + 3 heuristics; callers fit the text to the reading model's window
         // (render_within_window) like `_full`, so the limited variant is now the same thing.
-        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, &Default::default())
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
     }
 
     /// Every decision rule and heuristic, no per-methodology count cap. The
     /// caller sizes the block against the reading model's window
     /// (`render_within_window`), so nothing is cut silently.
     pub(crate) fn load_methodology_rules_full(container: &serde_json::Value) -> Option<String> {
-        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX, &Default::default())
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
     }
 
     /// The JUDGEABLE rules of a methodology body as (key, text): `r<i>` = decision rule i ("IF cond THEN action", the action being `action` or
@@ -2599,7 +2599,6 @@ Return ONLY valid JSON with a single one-word answer:
         container: &serde_json::Value,
         rule_limit: usize,
         heuristic_limit: usize,
-        skip: &std::collections::HashSet<String>,
     ) -> Option<String> {
         let object_store_path = container
             .get("local_state")
@@ -2615,9 +2614,6 @@ Return ONLY valid JSON with a single one-word answer:
         let items = Self::rule_items(&parsed);
         let (mut n_rules, mut n_heur) = (0usize, 0usize);
         for (key, text) in items {
-            if skip.contains(&key) {
-                continue;
-            }
             if key.starts_with('r') {
                 if n_rules >= rule_limit {
                     continue;

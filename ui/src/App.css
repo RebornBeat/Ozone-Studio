@@ -7606,7 +7606,6 @@ button.gnw-ind-chip:hover, .gnw-ind-chip.on { background: rgba(79,195,247,.1); b
 .owo-items { list-style: none; margin: 4px 0 4px 6px; padding: 0; }
 .owo-item { display: flex; gap: 6px; font-size: 12px; margin: 2px 0; color: #c3cedb; }
 .owo-item.owo-done { color: #8fd19e; }
-.owo-item.owo-await { color: #e3b341; }
 .owo-state { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.85; }
 .owo-evidence { font-size: 11px; color: #8b98ab; }
 .owo-children { margin-left: 4px; }
