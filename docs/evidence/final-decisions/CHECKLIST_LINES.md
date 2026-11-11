@@ -1,0 +1,5 @@
+- L96: duplicate repoint+delete scripts prepared (parse-only, never run).
+- L97: strict-search / paused-settlement interaction recorded; hand-validate after container batches.
+- L98: keyword toggles explained, left OFF.
+- L99: peer-imported methodology recheck decided as none.
+- L100: BUILD_AND_TEST_PLAN reordered with apply phase (§12), suites (§11), push (§13).
