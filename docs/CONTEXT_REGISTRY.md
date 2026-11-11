@@ -292,3 +292,5 @@ The conversation itself is now graph context. Per scope (global / workspace / pr
 
 ## 10. Update 2026-11-07 (uncompiled)
 New per-walk context state: `OrchestrationState.keywords_extracted` / `floor_used` / `closure_attempted` / `replan` / `cross_modal_linked`; the Stage 3 methodology set is now relevance-first (a floor that loads everything is the last resort), so plan size no longer scales with the methodology store. Per-stage metrics are durable in `zsei_data/walk_metrics.jsonl` (trace_id keyed).
+
+> 2026-11-11 note (fork X): `load_methodology_rules_text` (S6 row) is SUPERSEDED as the live loader by `load_methodology_rules_full` and `PromptOrchestrator::rules_text_for` (cited `[m<id>:r<n>]` rules, `state.rule_verdicts`); it has no code caller and is retained only for review (CHECKLIST L83).

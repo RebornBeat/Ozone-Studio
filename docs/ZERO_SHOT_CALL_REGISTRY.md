@@ -855,3 +855,5 @@ Deterministic (no call): the work-order tree (`work_order.rs`, `task/mod.rs` wor
 | # | site | calls | question / output |
 |---|---|---|---|
 | 34 | `capability_tool_draft` (`stages.rs::create_tool_for_capability`, E30) | ONE call per gap judged necessary, after the methodology draft; no strength-N (additive creation) | "specify ONE small, general, reusable tool providing this capability" → `{description, capabilities, language:"javascript", input_contract, output_contract, implementation}` or `{"skip":true}`; parsed by `tool_creation::parse_spec`; samples: `capability_tool_draft` (yes = a real tool was created); hit event `tool_created`. Kill switch `OZONE_TOOL_CREATION=off`. |
+
+> 2026-11-11 note (fork X): rows 31 (`offer_review`, gated by `marketplace_accept_offers`) and 34 (`capability_tool_draft`, kill switch `OZONE_TOOL_CREATION`) stay PARSE-ONLY; per the operator ruling (CHECKLIST L81) their switches default ON in code (the tool-creation kill switch already does; the marketplace gate does not yet). Enable tool creation only after the 7 nonexistent `requires` providers are fixed (CHECKLIST L85).

@@ -57,17 +57,13 @@ cp -a /opt/ozone-studio/pipelines           /opt/ozone-studio/pipelines.bak-$TS 
 cp -a /opt/ozone-studio/config.toml         /opt/ozone-studio/config.toml.bak-$TS
 mkdir -p /opt/backups/p1-$TS && cp -a /etc/systemd/system/ozone-studio.service.d /opt/backups/p1-$TS/
 ```
-**Rollback** (host stopped ~2 s, as in every earlier swap): `systemctl stop ozone-studio; cp -a /opt/ozone-studio/ozone-studio.bak-$TS /opt/ozone-studio/ozone-studio; cp -a /opt/ozone-studio/pipelines.bak-$TS/. /opt/ozone-studio/pipelines/; for n in methodology_create traversal_ml text; do cp -a /opt/ozone-studio/pipelines.bak-$TS/$n /opt/ozone-build/target/pipelines/release/$n; done; rm -f /etc/systemd/system/ozone-studio.service.d/p1-new-features-off.conf; systemctl daemon-reload; systemctl start ozone-studio`. (The shared-target copies must be restored too — they shadow `/opt/ozone-studio/pipelines`; see 3.5.) Data written meanwhile is additive (new files under `zsei_data`, `kind:`/`agent:` tag markers — readers of the OLD binary do not know `has_tag`, see §7 item 4).
+**Rollback** (host stopped ~2 s, as in every earlier swap): `systemctl stop ozone-studio; cp -a /opt/ozone-studio/ozone-studio.bak-$TS /opt/ozone-studio/ozone-studio; cp -a /opt/ozone-studio/pipelines.bak-$TS/. /opt/ozone-studio/pipelines/; for n in methodology_create traversal_ml text; do cp -a /opt/ozone-studio/pipelines.bak-$TS/$n /opt/ozone-build/target/pipelines/release/$n; done; systemctl daemon-reload; systemctl start ozone-studio`. (The shared-target copies must be restored too — they shadow `/opt/ozone-studio/pipelines`; see 3.5.) Data written meanwhile is additive (new files under `zsei_data`, `kind:`/`agent:` tag markers — readers of the OLD binary do not know `has_tag`, see §7 item 4).
 
 ## 5. Install and start (only with `active_tasks == 0`)
 ```bash
-# 5.1 the deploy-OFF drop-in FIRST (see §6) so the new binary never runs a new feature before it is looked at
-cat > /etc/systemd/system/ozone-studio.service.d/p1-new-features-off.conf <<'EOF'
-[Service]
-Environment=OZONE_TOOL_CREATION=off
-Environment=OZONE_REFINEMENT_ACTION=off
-Environment=OZONE_REFINEMENT_RETIRE=off
-EOF
+# 5.1 NO deploy-OFF drop-in (operator ruling 2026-11-11: every switch defaults ON in code and stays ON on the EU). The only EU override that stays is the
+#     operator's explicit pause `keyword-settle-off.conf` (OZONE_KEYWORD_SETTLE=off). A LOCAL host that wants something off sets it in ITS OWN config/env,
+#     never in code (see §6).
 systemctl daemon-reload
 # 5.2 swap
 systemctl stop ozone-studio
@@ -77,17 +73,23 @@ install -m 755 /opt/ozone-build/target/pipelines/release/text /opt/ozone-studio/
 systemctl start ozone-studio; sleep 5
 curl -s localhost:50051/health ; journalctl -u ozone-studio -n 80 --no-pager | grep -E "ERROR|panic|marketplace|P2P"
 ```
-Expect healthy within ~2 s, **0 `ERROR`/panic**, and the line `P2P marketplace: disabled (marketplace_publish / marketplace_accept_offers / auto_broadcast_sync all false, default) — nothing is published or pulled`.
+Expect healthy within ~2 s, **0 `ERROR`/panic**, and the line a marketplace start line (the marketplace is ON by default now; the `disabled …` line must NOT appear on the EU).
 
-## 6. Deploy-OFF switches — exact semantics read from the code
-| Switch | Where | Default (verified) | Deploy value | What it gates |
+## 6. Switches — ALL default ON in code (operator 2026-11-11); local turns some off in its own config
+EU keeps every switch ON (nothing to set). A local host that wants a feature off sets it in its local config/env — the code default never changes. A switch is read where listed; "off" values are honored everywhere.
+| Switch | Where | Code default | Turn off (local only) | What it gates |
 |---|---|---|---|---|
-| `OZONE_TOOL_CREATION` | `tool_creation.rs:35-37` — `enabled() = !matches!(env, "off" \| "0" \| "false")` | **ON when unset or set to anything else** (including `1`, `on`, empty) | `off` | the E30 `capability_tool_draft` call site in the capability closure (one extra model call per necessary gap; writes `zsei_data/created_tools/<name>/` and a stdio registry row; host never runs it) |
-| `OZONE_REFINEMENT_ACTION` | `meta_loop.rs:235` — off only for the exact value `off` (case-insensitive) | **ON when unset** | `off` | the meta-loop refinement VOTE + split (model calls; creates focused methodologies via pipeline 12 `Create`) |
-| `OZONE_REFINEMENT_RETIRE` | `meta_loop.rs:408` — off only for `off` | **ON when unset** | `off` | retiring the moved rule from the original methodology (pipeline 12 `Update` with `remove_*`; needs the rebuilt `methodology_create`) |
-| `OZONE_KEYWORD_SETTLE` | `keyword_loops.rs:82` (off for `off` / `0` / `false`) | already `off` on the EU (`keyword-settle-off.conf`) | keep `off` | keyword settlement passes |
-| `marketplace_publish`, `marketplace_accept_offers` | `[network]` in `config.toml`, `config/mod.rs:608-653` | `false` (struct default AND `#[serde(default)]`; the EU `config.toml` has neither key nor `auto_broadcast_sync`, so both are false) | leave absent, or write `marketplace_publish = false` / `marketplace_accept_offers = false` explicitly | the whole marketplace: bridge, exchange, offer review, peer import. `auto_broadcast_sync = true` would turn BOTH on (deprecated alias) — must stay absent/false. `enable_p2p = true` on the EU is independent: the P2P layer stays up, the marketplace does not. |
-| `OZONE_KEYWORD_REQUIRE_VALIDATED` | `keyword_program::require_validated_keywords` | OFF | leave unset | strict search (`strict_for_type` is a no-op while this is unset) |
+| `OZONE_TOOL_CREATION` | `tool_creation.rs:35-37` | **ON** | `off`/`0`/`false` | E30 `capability_tool_draft` call site; writes `created_tools/<name>/` + stdio registry row (never auto-started) |
+| `OZONE_REFINEMENT_ACTION` | `meta_loop.rs:235` | **ON** | `off` | refinement vote + split via pipeline 12 |
+| `OZONE_REFINEMENT_RETIRE` | `meta_loop.rs:408` | **ON** | `off` | retire the moved rule (needs the rebuilt `methodology_create`) |
+| `OZONE_KEYWORD_SETTLE` | `keyword_loops.rs:82` | **ON** (loop runs) | `off`/`0`/`false` | keyword settlement. **EU: the operator's explicit pause (`keyword-settle-off.conf`) stays until the operator lifts it — it is a state, not a code default.** |
+| `OZONE_KEYWORD_REQUIRE_VALIDATED` | `keyword_program.rs:218` | **ON since 2026-11-11** (was off) | `0`/`off`/`false` | strict search, limited to `GATED_TYPES`. Run the tag backfill and finish validation BEFORE the first search comparison; recall on unvalidated terms is intentionally excluded |
+| `OZONE_OFFER_REVIEW` | `offer_review.rs:194` | **ON** | `off`/`0`/`false` | advisory offer recommendations |
+| `OZONE_KEYWORD_HITS` | `keyword_program.rs:256` | **ON** | `0` | hit/judgment logs (never rotated) |
+| `marketplace_publish`, `marketplace_accept_offers` (`[network]`) | `config/mod.rs:620,628,653` (`default_true`) | **ON** (struct default AND serde default; the EU config has neither key, so both are on) | write `= false` in that host's `config.toml` | publish manifests (one push per batch) / pull peers' manifests as OFFERS. The operator download decision, hash re-verify and "we don't accept anything not allowed" stay the gate; blueprints never leave. `auto_broadcast_sync` stays a deprecated alias (turns both on), default false because the two explicit switches are already on |
+| `refinement_enabled` (`[tasks]`) | `config/mod.rs:539` | **ON** | `false` | meta-loop / AMT re-expansion passes |
+
+**Not feature switches (left as explicit opt-in by design — documented, not flipped):** `OZONE_REQUIRE_SESSION` (auth gate; EU already sets `=1` in `overrides.conf`; off = localhost posture), `OZONE_AUTO_EXECUTE_TASKS` (EU already `=1` in `overrides.conf`), `OZONE_PURGE_ORPHAN_GLOBALS` (destructive one-shot purge, operator-invoked), `OZONE_JURISDICTION_FORCE_SYNC` (overwrites operator edits, one-shot), `OZONE_PROBE_FREE_MODELS` (one-shot, spends quota), `OZONE_KEYWORD_IGNORE_EXPANSION` (measurement ablation), `OZONE_KEYWORD_STOPLIST` (tested baseline only — operator doctrine: off by default), `OZONE_SEARCH_DEFAULT` (strategy name), `OZONE_MCP_DAILY_LIMIT` (0 = unlimited; no quota gating doctrine). Tunables (`OZONE_*_MAX`, `*_SECS`, paths, `OZONE_MIN_AVAIL_MB` host-memory guard) are values, not switches.
 
 **Behaviours of the new binary with NO kill switch** (they run as soon as the binary does — know them before the first walk): the rule gate (`judge_rule_applicability`, extra model calls per walk after the blueprint draft); work-order task records (`wo_*` tasks created per walk; hidden from the UI recent-task list); tag namespacing at the write chokepoint (every NEW write of `CoordinationEvent` / `Derived` run-span / `McpResult` / `McpEntity` / `ChatSession` / `ChatTurn` / `Experience` containers stores `kind:`/`agent:`/`span:`/`tool:`/`node:`/`flag:`/`outcome:` markers instead of plain words — nothing is migrated; `tools/keyword-measure/namespace_backfill.mjs` is a dry-run tool and was not applied); jurisdiction `Log` rules now surface as cited warnings; the quality audit now enumerates EVERY methodology (`list_ids`) and may raise `modify` gaps for the ~43 rule-less ones, which the (unchanged, un-switched) meta-loop gap pass will then try to draft; ranking tie-break (`cmp_v0`: fewer finds first); `GetContainerContent` falls back to the app root for bootstrap-seeded bodies.
 
@@ -95,17 +97,18 @@ Expect healthy within ~2 s, **0 `ERROR`/panic**, and the line `P2P marketplace: 
 Use the same prompt as before so the comparison is real: `WALK_PROMPT` default of `tools/e2e/walk-completion.mjs` ("Explain in two sentences why graph databases suit highly connected data."). The free-tier quota, not the code, decided the duration last time (Stage 2 4,227 s) — judge stages by their own timings, not by wall time.
 1. **Rule gate** (`journalctl`): `rule gate complete (applicability + step fidelity)`, `blueprint gate: rule citations audited`, and Stage 6 "methodologies contributed rules". With one gathered methodology expect one round-trip per strength round (up to `configured_strength`), a failed call drops nothing.
 2. **Work-order tree:** `curl -s localhost:50051/order/work/<task_id>` (task id from the walk's response) — walk root → `wo_branch` per AMT node → `wo_step` per blueprint step with a `run` item; items tick only as steps finish; a node's `complete` is derived, never set. `POST /task/list` rows carry `kind`, `parent_task_id`, `rerun_of`. UI: open the task → "Work order" block; the recent-tasks chip must NOT list `wo_*` rows.
-3. **Capability closure with `OZONE_TOOL_CREATION=off`:** no `tool creation:` log line and no `zsei_data/created_tools/` folder; `capability_gaps.json` rows still get `methodology_drafted` / `not_needed` / `wanted`; `GET /capability/gaps` lists every row.
+3. **Capability closure (tool creation ON):** a necessary gap logs `tool creation:` and writes `zsei_data/created_tools/<slug>/`; `capability_gaps.json` rows get `methodology_drafted` / `not_needed` / `wanted` / `tool_created`; `GET /capability/gaps` lists every row. Check no invented provider name (the 7 nonexistent `requires` providers — see methodology-rules-fixes) triggers creation before those rules are fixed.
 4. **Tag markers:** after the walk, `/zsei/query` a recent `CoordinationEvent` / chat turn: keywords begin with `kind:` / `agent:` (new writes only); the ripple actors still emit findings (`has_tag` accepts both forms) — check the security / coordination findings still appear.
-5. **Marketplace stays dark:** `GET /marketplace/overview` → `exchange.publish_enabled=false`, `accept_offers_enabled=false`; `peer_marketplace_inbox.jsonl` not growing; nothing in `marketplace_published.json`.
-6. **Refinement stays dark:** `GET /methodology/refinement` → `candidates` may grow (the rule gate records evidence) but `actions` stays empty while `OZONE_REFINEMENT_ACTION=off`.
+5. **Marketplace ON:** `GET /marketplace/overview` → `exchange.publish_enabled=true`, `accept_offers_enabled=true`; `marketplace_published.json` holds manifests only (no blueprints, no McpEntity/tool-result nodes); offers appear only from allow-listed peers and nothing downloads without the operator's `download` decision.
+6. **Refinement ON:** `GET /methodology/refinement` → `candidates` grow from rule-gate evidence and `actions` records unanimous splits/retirements (`methodology_refinement_actions.jsonl`); a `refused` retire is the honest result on an old `methodology_create`.
 7. **Search ranking:** a content query returns content before never-used system rows (the `cmp_v0` change); compare with `keyword_hits.jsonl` growth as before.
 8. Memory/CPU of the host for the first hour (the work-order tree adds task records per walk; the bridge `select!` loop only runs when publishing is on).
 
-### 7a. Turning each feature on later (one at a time, each with its own walk)
-* Tool creation: remove `OZONE_TOOL_CREATION=off` (or set `on`), restart, run a request that reports a missing capability. Expect: `tool creation: tool created, registered (stdio, never auto-started) and published as a finding`; `zsei_data/created_tools/<slug>/{tool.json,implementation.mjs,origin.json}`; a row in `mcp_tool_registry.json` with `transport: stdio`, `auto_start: false`; `capability_gaps.json` row gets `tool_created`, `tool_registered`, `satisfied`, `created_tool`; the gap's work-order task ticks `tool` and `register`. Nothing publishes while `marketplace_publish` is false.
-* Refinement: remove `OZONE_REFINEMENT_ACTION=off` while keeping `OZONE_REFINEMENT_RETIRE=off` first (split only), inspect `methodology_refinement_actions.jsonl`, then remove `OZONE_REFINEMENT_RETIRE=off` (retire needs the rebuilt `methodology_create`; an old binary makes the record say `refused` honestly).
-* Marketplace: `marketplace_publish` and `marketplace_accept_offers` separately (MASTER_TEST_GUIDE §27k Q1–Q4; §27k Q3 was corrected in this pass: there is no `offer:` item).
+### 7a. Observing each feature (all ON; verify one at a time per walk, nothing is switched on later)
+* Tool creation: run a request that reports a missing capability. Expect `tool creation: tool created, registered (stdio, never auto-started) and published as a finding`; `created_tools/<slug>/{tool.json,implementation.mjs,origin.json}`; a `mcp_tool_registry.json` row `transport: stdio`, `auto_start: false`; the gap row gets `tool_created`, `tool_registered`, `satisfied`, `created_tool`; the gap's work-order task ticks `tool` and `register`.
+* Refinement: inspect `methodology_refinement_actions.jsonl` after the first rule-gate evidence accumulates.
+* Marketplace: MASTER_TEST_GUIDE §27k Q1–Q4 (two-host test; §27k Q3 was corrected: there is no `offer:` item).
+* Local host that must stay quiet: set the switch off in the LOCAL config/env only (§6 table).
 
 ## 8. Test suites after the swap (EU; device key at `~/.ozone-cli/device-key.pem`, `OZONE_REQUIRE_SESSION=1` is handled by `lib.mjs`)
 ```bash
@@ -114,7 +117,7 @@ export OZONE_DATA=/opt/ozone-studio/zsei_data          # suites default to targe
 node tools/e2e/keyword-program.mjs                      # K1–K9: previous EU result 9 pass / 0 fail / 1 skip. A change here means the tag namespacing or cmp_v0 moved something — read the row, do not re-fit the threshold.
 node tools/e2e/span-walk.mjs                            # scope tests; SPAN_DIR must be a dir the host can read (the service has PrivateTmp)
 WALK_MAX_MS=7200000 node tools/e2e/walk-completion.mjs  # the one real walk (needs quota); writes walk_metrics.jsonl rows
-node tools/e2e/marketplace.mjs                          # with the marketplace OFF: record what it reports honestly; do not turn the switches on to "pass" it
+node tools/e2e/marketplace.mjs                          # marketplace ON by default: record what it reports honestly (needs a second allowed peer for the exchange legs)
 tools/e2e/rerun-all.sh                                  # full ordered list: modalities mcp-contract jurisdiction marketplace fanout meta-ripple methodology-sufficiency provider-step keyword-program span-walk walk-completion; summary in docs/evidence/test-runs/<date>-rerun-summary.md
 ```
 Known interaction to expect: `jurisdiction.mjs` may now see `Log` rules as warnings (intended; unit test updated). Suites that read bookkeeping tags by plain word will see `kind:` markers on NEW rows — `tools/e2e/*.mjs` contain no such assertion (grep), `tools/ozone-shared-context/server.js` reads both forms.
@@ -134,3 +137,7 @@ Removed in this pass, each with its superseder: see STATUS §V. The following lo
 | `on_methodology_created`, `on_blueprint_created`, `on_container_created` | `src/network/mod.rs:1000,1017,1125` | no caller since `spawn_network_hook_bridge` was rewritten to manifests | `on_items_announced` (`AnnounceItem`) | `pub`; `on_blueprint_created` is cited in STATUS §B2 ("no-op — blueprints are private"); their hook-name strings are registered at `network/mod.rs:896,909,933` |
 | `.owo-*` classes other than the ones in use | `ui/src/App.css` ~7595-7615 | — | — | checked: every remaining `owo-*` class is used by `WorkOrderTree.tsx`; nothing else to remove |
 Items the directive listed that were already gone before this pass: `read_json_array_names` (grpc; replaced by `peer_import::LocalOfferIndex::load`, commit 113bf0b — no reference left), `offers_for_gap` and the `offer:` work-order item (removed in e7bbdc5, UI in 881d2ea — no reference left in `src/`, `ui/src`).
+
+## 10b. RESOLUTION of §10 (2026-11-11, fork X, docs only) — see CHECKLIST L83
+All seven items now have an identified superseder; **none were removed**, because each is `pub`/`pub(crate)` and still named in docs/registries (CONTEXT_REGISTRY S6, TOP_DOWN_REVIEW_GUIDE, SESSION_HANDOFF, P2P_AND_SHARED_MCP_COMMUNICATION_GUIDE, STATUS §B2, hook-name strings at network/mod.rs:896/909/919/933). Status: SUPERSEDED, RETAINED-FOR-REVIEW (operator decision to delete, together with the doc edits).
+**§6 supersession:** the "Deploy value = off" column predates the operator ruling "all switches default ON in code; EU leaves on; off is local config only" (CHECKLIST L81). The code change (marketplace defaults, `OZONE_KEYWORD_REQUIRE_VALIDATED`) is not made yet; until it is, §6 describes current code behaviour, not the target.
