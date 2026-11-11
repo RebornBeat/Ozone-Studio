@@ -213,10 +213,10 @@ pub fn strict_for_type(container_type: &str) -> bool {
     require_validated_keywords() && GATED_TYPES.contains(&container_type)
 }
 
-/// STRICT MODE (`OZONE_KEYWORD_REQUIRE_VALIDATED=1`, default OFF): search ignores keywords that have not passed the gate. Off by default
-/// because it empties recall on a store whose backlog is still being validated; flip it once the backlog is done.
+/// STRICT MODE (default ON since 2026-11-11 — operator: every switch defaults on; `OZONE_KEYWORD_REQUIRE_VALIDATED=0|off|false` turns it off,
+/// e.g. on a host whose backlog is not validated yet): search ignores keywords that have not passed the gate, limited to the GATED_TYPES.
 pub fn require_validated_keywords() -> bool {
-    matches!(std::env::var("OZONE_KEYWORD_REQUIRE_VALIDATED").ok().as_deref(), Some("1") | Some("true"))
+    !matches!(std::env::var("OZONE_KEYWORD_REQUIRE_VALIDATED").ok().as_deref(), Some("0") | Some("off") | Some("false"))
 }
 
 /// The keywords a search may match: all of them, or (strict) only markers and validated terms. Markers are scope/provenance data, never

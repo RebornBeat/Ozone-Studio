@@ -1562,7 +1562,7 @@ impl OzoneRuntime {
                 // (the old periodic batch driver is gone: nothing feeds the Normal-priority per-peer queue any more — announcements are a single
                 // marketplace publish, see network::NetworkManager::on_items_announced)
             } else {
-                tracing::info!("P2P marketplace: disabled (marketplace_publish / marketplace_accept_offers / auto_broadcast_sync all false, default) — nothing is published or pulled");
+                tracing::info!("P2P marketplace: disabled (marketplace_publish / marketplace_accept_offers / auto_broadcast_sync all false — turned off in this host's config; the code default is ON) — nothing is published or pulled");
             }
         }
 

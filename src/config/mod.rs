@@ -536,6 +536,10 @@ fn default_refinement_interval_secs() -> u64 {
     1800 // 30 minutes
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_refinement_enabled() -> bool {
     true
 }
@@ -610,15 +614,18 @@ pub struct NetworkConfig {
     /// is published as a MANIFEST (type, name, body hash, keywords — no content) to THIS instance's marketplace listing, and ONE notification
     /// (no names, no content) is pushed to every connected peer on the shared marketplace topic — one push per batch of creations, never a
     /// message per peer. Blueprints, user data, tool-result nodes and every other container are never published. A connected peer that
-    /// asks for an item you published is served it (chunked) only if the operator on THEIR side approved the download. Default false.
-    #[serde(default)]
+    /// asks for an item you published is served it (chunked) only if the operator on THEIR side approved the download. Default TRUE
+    /// (operator 2026-11-11: every switch defaults on in code; a host that wants it off, e.g. the local one, sets `marketplace_publish = false`
+    /// in ITS config).
+    #[serde(default = "default_true")]
     pub marketplace_publish: bool,
     /// MARKETPLACE — ACCEPT OFFERS (operator 2026-11-10). When true, this instance pulls the manifests connected peers have published, lists
     /// each as an OFFER (with a local have / same_name / conflict / new classification and an advisory zero-shot recommendation), and
     /// downloads an item ONLY after the operator decided `download` on that offer; a download is re-verified against the announced hash and
     /// then imported through the normal create path (methodology), staged (jurisdiction) or recorded as approval-only (tools, pipelines).
-    /// Nothing is ever downloaded, applied or synced automatically. Default false.
-    #[serde(default)]
+    /// Nothing is ever downloaded, applied or synced automatically (the operator download decision stays the gate). Default TRUE (operator
+    /// 2026-11-11; a host turns it off in its own config).
+    #[serde(default = "default_true")]
     pub marketplace_accept_offers: bool,
     /// DEPRECATED ALIAS (kept so existing configs behave the same): `auto_broadcast_sync = true` turns on BOTH `marketplace_publish` and
     /// `marketplace_accept_offers`. The name is historical — nothing syncs automatically; use the two explicit switches. Default false.
@@ -648,8 +655,8 @@ impl Default for NetworkConfig {
             max_peers: 50,
             enable_mdns: true,
             batch_sync_interval_secs: 60,
-            marketplace_publish: false,
-            marketplace_accept_offers: false,
+            marketplace_publish: true,
+            marketplace_accept_offers: true,
             auto_broadcast_sync: false,
         }
     }
