@@ -9,8 +9,8 @@
  * final: a finished item is never shown reopened; a rerun is a NEW task (shown as "rerun of #id"), and an item that is still open is simply
  * "not yet completed".
  *
- * The capability gap's `tool` item has no automatic mechanism (nothing creates or acquires the provider): while it is open it is shown as
- * AWAITING THE OPERATOR'S DECISION (marketplace download after review, or a custom pipeline).
+ * The capability gap's `tool` item is ticked by the real event "a tool was created for this need" (automatic, on identification of the need,
+ * then published as a finding); while it is open it is simply "not yet completed" like every other item.
  *
  * REAL DATA ONLY: counts are the host's items_done / items_total (recursed here by plain addition), no percentages, no scores.
  */
@@ -60,16 +60,12 @@ function when(ts?: number | null): string {
 }
 
 const ItemRow: React.FC<{ item: WorkOrderItem }> = ({ item }) => {
-  // `tool` = nothing creates/acquires the tool automatically; `offer:<key>` = a peer's marketplace offer that may satisfy the capability, waiting
-  // for the operator's decision (its text says so). Both are "not yet completed", shown as awaiting the operator.
-  const isOffer = typeof item.key === "string" && item.key.startsWith("offer:");
-  const awaitingOperator = (item.key === "tool" || isOffer) && !item.done;
-  const cls = item.done ? "owo-item owo-done" : awaitingOperator ? "owo-item owo-await" : "owo-item owo-open";
+  const cls = item.done ? "owo-item owo-done" : "owo-item owo-open";
   return (
     <li className={cls}>
       <span className="owo-box" aria-hidden="true">{item.done ? "☑" : "☐"}</span>
       <span className="owo-item-text">
-        <span className="owo-state">{item.done ? "done" : awaitingOperator ? "awaiting operator decision" : "not yet completed"}</span>{" "}
+        <span className="owo-state">{item.done ? "done" : "not yet completed"}</span>{" "}
         {item.text}
         {item.done && (item.evidence || item.completed_at || item.by) && (
           <span className="owo-evidence">
@@ -77,9 +73,6 @@ const ItemRow: React.FC<{ item: WorkOrderItem }> = ({ item }) => {
           </span>
         )}
         {item.ref ? <span className="owo-evidence"> · ref {item.ref}</span> : null}
-        {awaitingOperator && !isOffer && (
-          <span className="owo-evidence"> — nothing creates or acquires this tool automatically: marketplace download after review, or a custom pipeline</span>
-        )}
       </span>
     </li>
   );
