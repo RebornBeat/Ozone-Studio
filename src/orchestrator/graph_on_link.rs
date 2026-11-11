@@ -3,8 +3,9 @@
 //! something like a call graph working with entrypoints").
 //!
 //! WHAT IT RUNS: exactly what `/orchestrate` runs for an attached file (`orchestrator/mod.rs` STEP 0, `graphs.rs::process_modality`):
-//!   modality detection (`ModalityType::from_path`, the one shared extension table) → the modality pipeline's `Analyze` of the WHOLE file
-//!   (never cut, never refused for size) → the same pipeline's `CreateGraph` with `link_to_existing: true` (the durable per-file ModalityGraph
+//!   modality detection (`ModalityType::from_path`, the one shared extension table) → the shared reader (`file_reader.rs`: whole text for text-shaped
+//!   modalities, the typed by-path input for the rest, a recorded reason when a file needs parameters it does not state) → the modality pipeline's `Analyze` of the WHOLE file
+//!   (never cut, never refused for size) → the same pipeline's `CreateGraph` (`link_to_existing: true` where the action has it — text / code / math; the durable per-file ModalityGraph
 //!   container, linked at creation, keywords/validation through the ordinary write path) → the graph's ENTRIES (`graph_fanout::digest_graph`: explicit
 //!   `analysis.entry_points` for code, otherwise the roots — nodes with no inbound structural edge — for every other modality).
 //!   There is no prompt, so the walk's prompt-relative file-role classification does not apply; what applies is recorded (see REPORT).
@@ -267,47 +268,7 @@ fn hash_file(path: &str) -> Result<String, String> {
 
 // ── payloads (the same shapes the walk sends; see graphs.rs::process_modality / mod.rs STEP 0) ────────
 
-fn analyze_input(pipeline_id: u64, text: &str, modality: &str, path: &str) -> Value {
-    if pipeline_id == 105 {
-        // math has no `Analyze`: ParseExpression is its "analyze this raw content" (graphs.rs::process_modality)
-        return json!({"action": {"type": "ParseExpression", "expression": text, "format": "LaTeX", "extract_variables": true, "simplify": false}});
-    }
-    let mut action = json!({
-        "type": "Analyze", "depth": "Standard", "extract_entities": true, "extract_topics": true, "extract_structure": false,
-        "available_modalities": [modality],
-    });
-    action[if pipeline_id == 101 { "code" } else { "text" }] = json!(text);
-    if pipeline_id == 101 {
-        // the keys are required even as null (CodeModalityAction::Analyze has no serde default); the path lets code detect the language by extension
-        action["language"] = Value::Null;
-        action["file_path"] = json!(path);
-    }
-    json!({"action": action})
-}
-
-fn create_graph_input(pipeline_id: u64, analysis: &Value, project_id: u64) -> Value {
-    if pipeline_id == 105 {
-        let parse_result = analysis.get("result").cloned();
-        // absence is 0.0, never an invented value (docs/CONTRACTS.md §5.1) — the field exists only because MathAnalysisResult declares it
-        let confidence = parse_result.as_ref().and_then(|p| p.get("confidence")).and_then(|c| c.as_f64()).unwrap_or(0.0);
-        return json!({"action": {"type": "CreateGraph",
-            "analysis": {"analysis_type": "Expression", "parse_result": parse_result, "proof_analysis": null, "confidence": confidence},
-            "project_id": project_id, "link_to_existing": true}});
-    }
-    json!({"action": {"type": "CreateGraph",
-        "analysis_result": analysis.get("analysis").cloned().unwrap_or_default(),
-        "project_id": project_id, "link_to_existing": true}})
-}
-
-/// The persisted graph id the pipeline returned — never a minted stand-in (the walk's `generate_id_static` fallback is exactly what hides a
-/// failed CreateGraph; here an absent id is a failure and is recorded as one).
-fn graph_id_of(pipeline_id: u64, result: &Value) -> Option<u64> {
-    if pipeline_id == 105 {
-        result.get("result").and_then(|r| r.get("graph_id")).and_then(|g| g.as_u64())
-    } else {
-        result.get("graph_id").and_then(|g| g.as_u64())
-    }
-}
+use super::graphs::file_reader::{self, Prepared};
 
 // ── one job ───────────────────────────────────────────────────────────────────────────────────────────
 
@@ -341,8 +302,8 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
     };
     let prev = load_ledger().get(&job.container_id.to_string()).cloned().unwrap_or(Value::Null);
     let same_content = prev["hash"].as_str() == Some(hash.as_str());
-    if same_content && matches!(prev["status"].as_str(), Some("complete") | Some("not_text_readable")) {
-        return Ok(()); // this content was already processed: the graph exists (or the file cannot be read as text, recorded)
+    if same_content && matches!(prev["status"].as_str(), Some("complete") | Some("unreadable") | Some("not_text_readable")) {
+        return Ok(()); // this content was already processed: the graph exists (or the file has no reader without invented parameters, recorded)
     }
 
     // 2. classify: the one shared extension table → the modality pipeline (unknown → text, exactly as the walk treats it)
@@ -350,15 +311,14 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
     let named_pipeline = super::graphs::pipeline_id_for_modality(&modality);
     let pipeline_id = if named_pipeline == 0 { 100 } else { named_pipeline };
 
-    // 3. read WHOLE (never cut). A file that is not text is recorded, not fed to a pipeline that expects text: the walk's attached-file step has the
-    //    same text-only input today (its binary fallback is an empty preview), so a binary modality graph needs its own input path (REPORT §gaps).
-    let content = match tokio::fs::read_to_string(&job.path).await {
-        Ok(t) => t,
-        Err(e) => {
-            put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "not_text_readable", json!({"error": e.to_string()})));
-            return Ok(());
-        }
-    };
+    // 3. read through the ONE shared reader (file_reader.rs): text-shaped modalities as the WHOLE text (never cut), the rest as the typed input their
+    //    pipeline takes (it opens the file by path itself). A file with no reader that avoids inventing parameters is recorded with the reason, not fed
+    //    to a pipeline that cannot take it and not given made-up values.
+    let prepared = file_reader::prepare(&job.path, pipeline_id).await;
+    if let Prepared::Unreadable(reason) = &prepared {
+        put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "unreadable", json!({"error": reason})));
+        return Ok(());
+    }
 
     // 4. the work-order task for this (file, content): a changed file is a NEW task, `rerun_of` the previous one (completed is final)
     let previous_task = prev["task_id"].as_u64();
@@ -388,7 +348,12 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
 
     // 5. analyze + create the graph (skipped when this content already has its graph)
     if graph_id.is_none() {
-        let analysis = match executor.execute(pipeline_id, analyze_input(pipeline_id, &content, &modality, &job.path)).await {
+        let analyze_in = match prepared {
+            Prepared::Text(text) => file_reader::text_analyze_input(pipeline_id, &text, &[modality.clone()], &job.path),
+            Prepared::Action(a) => a,
+            Prepared::Unreadable(_) => return Ok(()), // handled above
+        };
+        let analysis = match executor.execute(pipeline_id, analyze_in).await {
             Ok(a) => a,
             Err(e) => {
                 put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "failed_analyze", json!({"task_id": task_id, "error": e.clone()})));
@@ -396,14 +361,14 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
             }
         };
         tm.complete_item(task_id, "analyze", "pipeline Analyze returned", "graph-on-link").await;
-        let created = match executor.execute(pipeline_id, create_graph_input(pipeline_id, &analysis, job.project_id)).await {
+        let created = match executor.execute(pipeline_id, file_reader::create_graph_input(pipeline_id, &analysis, job.project_id)).await {
             Ok(g) => g,
             Err(e) => {
                 put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "failed_create_graph", json!({"task_id": task_id, "error": e.clone()})));
                 return Err(format!("CreateGraph failed: {e}"));
             }
         };
-        let Some(gid) = graph_id_of(pipeline_id, &created) else {
+        let Some(gid) = file_reader::graph_id_of(pipeline_id, &created) else {
             let msg = "CreateGraph returned no graph_id".to_string();
             put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "failed_create_graph", json!({"task_id": task_id, "error": msg.clone()})));
             return Err(msg);
@@ -458,23 +423,23 @@ mod tests {
 
     #[test]
     fn payloads_match_the_walk_shapes() {
-        let a = analyze_input(101, "fn main(){}", "code", "/x/a.rs");
+        let a = file_reader::text_analyze_input(101, "fn main(){}", &["code".to_string()], "/x/a.rs");
         assert_eq!(a["action"]["type"], "Analyze");
         assert_eq!(a["action"]["code"], "fn main(){}");
         assert!(a["action"]["language"].is_null());
         assert_eq!(a["action"]["file_path"], "/x/a.rs");
-        let m = analyze_input(105, "x+1", "math", "/x/a.tex");
+        let m = file_reader::text_analyze_input(105, "x+1", &["math".to_string()], "/x/a.tex");
         assert_eq!(m["action"]["type"], "ParseExpression");
-        let g = create_graph_input(100, &json!({"analysis": {"k": 1}}), 7);
+        let g = file_reader::create_graph_input(100, &json!({"analysis": {"k": 1}}), 7);
         assert_eq!(g["action"]["link_to_existing"], true);
         assert_eq!(g["action"]["project_id"], 7);
     }
 
     #[test]
     fn graph_id_is_never_minted() {
-        assert_eq!(graph_id_of(101, &json!({"graph_id": 42})), Some(42));
-        assert_eq!(graph_id_of(105, &json!({"result": {"graph_id": 9}})), Some(9));
-        assert_eq!(graph_id_of(101, &json!({})), None);
+        assert_eq!(file_reader::graph_id_of(101, &json!({"graph_id": 42})), Some(42));
+        assert_eq!(file_reader::graph_id_of(105, &json!({"result": {"graph_id": 9}})), Some(9));
+        assert_eq!(file_reader::graph_id_of(101, &json!({})), None);
     }
 
     #[test]

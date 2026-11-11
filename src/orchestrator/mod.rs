@@ -2301,95 +2301,25 @@ impl PromptOrchestrator {
                     }
                 };
 
-                let analysis_result = self
-                    .process_modality(
+                // The attached file is analysed and graphed through the ONE shared file reader (file_reader.rs, via graphs.rs::graph_attached_file) — the
+                // same code graph_on_link.rs runs. Text / code / math keep the earlier behaviour exactly (whole text through process_modality; math's own
+                // ParseExpression / `analysis` / `result.graph_id` contract lives in file_reader now). Every other modality is given the typed input its
+                // pipeline takes (the pipeline opens the file by path); a file whose pipeline needs parameters it does not state has no graph (logged),
+                // never an invented analysis.
+                if let Some(graph_id) = self
+                    .graph_attached_file(
+                        file_spec,
                         &file_content,
                         effective_pipeline,
                         &available_modalities,
-                        None,
-                        None,
-                        None,
-                        Some(&file_spec.file_path),
+                        state.request.project_id.unwrap_or(0),
                     )
-                    .await?;
-
-                // Math (105) has a fundamentally different output/input
-                // contract than text/code — confirmed live 2026-09-21: its
-                // CreateGraph action requires a field literally named
-                // `analysis` (typed MathAnalysisResult), not `analysis_result`
-                // copied from a generic `.get("analysis")` lookup (math's own
-                // output has no such key — MathModalityOutput has no
-                // top-level "analysis" convenience field, only `result`,
-                // unlike text/code's output shape). Sending the generic
-                // analysis_result-keyed payload failed outright ("missing
-                // field `analysis`"), silently masked downstream (see
-                // graph_id fallback below) rather than surfacing loudly.
-                // ParseExpression's own output (analysis_result here) puts
-                // the real ParseResult directly under "result" (MathResult is
-                // #[serde(untagged)]), so it's wrapped as parse_result and
-                // the rest of MathAnalysisResult is synthesized around it.
-                let graph_input = if effective_pipeline == 105 {
-                    let parse_result = analysis_result.get("result").cloned();
-                    let confidence = parse_result
-                        .as_ref()
-                        .and_then(|p| p.get("confidence"))
-                        .and_then(|c| c.as_f64())
-                        .unwrap_or(0.0) as f32; // absence is 0.0, never an invented 0.5 (docs/CONTRACTS.md §5.1)
-                    serde_json::json!({
-                        "action": {
-                            "type": "CreateGraph",
-                            "analysis": {
-                                "analysis_type": "Expression",
-                                "parse_result": parse_result,
-                                "proof_analysis": null,
-                                "confidence": confidence
-                            },
-                            "project_id": state.request.project_id.unwrap_or(0),
-                            "link_to_existing": true
-                        }
-                    })
-                } else {
-                    serde_json::json!({
-                        "action": {
-                            "type": "CreateGraph",
-                            "analysis_result": analysis_result.get("analysis").cloned().unwrap_or_default(),
-                            "project_id": state.request.project_id.unwrap_or(0),
-                            "link_to_existing": true
-                        }
-                    })
-                };
-
-                let graph_result = self
-                    .executor
-                    .execute(effective_pipeline, graph_input)
-                    .await
-                    .unwrap_or_default();
-
-                // Math's CreateGraph result (MathGraph, via #[serde(untagged)]
-                // MathResult::Graph) nests graph_id under "result" — unlike
-                // code/text's CodeModalityOutput-style shape, which puts
-                // graph_id at the output's top level. Using the top-level
-                // lookup unconditionally previously always missed for math,
-                // silently minting a fresh unlinked id instead of the real
-                // persisted one (the CreateGraph call would fail before this
-                // even mattered, per the analysis/analysis_result bug above —
-                // but this would have bitten separately once that was fixed).
-                let graph_id = if effective_pipeline == 105 {
-                    graph_result
-                        .get("result")
-                        .and_then(|r| r.get("graph_id"))
-                        .and_then(|g| g.as_u64())
-                        .unwrap_or(Self::generate_id_static())
-                } else {
-                    graph_result
-                        .get("graph_id")
-                        .and_then(|g| g.as_u64())
-                        .unwrap_or(Self::generate_id_static())
-                };
-
-                state
-                    .file_graphs
-                    .insert(file_spec.file_path.clone(), graph_id);
+                    .await?
+                {
+                    state
+                        .file_graphs
+                        .insert(file_spec.file_path.clone(), graph_id);
+                }
                 state
                     .attached_file_contents
                     .insert(file_spec.file_path.clone(), file_content);

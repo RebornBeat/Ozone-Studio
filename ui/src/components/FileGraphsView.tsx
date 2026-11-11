@@ -26,6 +26,7 @@ const STATUS_TEXT: Record<string, string> = {
   graph_created: "graph created, entries pending",
   failed_analyze: "analysis failed — will resume on the next trigger",
   failed_create_graph: "graph creation failed — will resume on the next trigger",
+  unreadable: "no reader without inventing parameters the file does not state — no graph (see the note)",
   not_text_readable: "not readable as text — no graph (see the note)",
   file_unreadable: "file missing or unreadable",
 };

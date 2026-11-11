@@ -756,7 +756,7 @@ export interface FileGraphRow {
   hash: string;
   modality: string;
   pipeline_id: number;
-  status: string; // complete | graph_created | failed_analyze | failed_create_graph | not_text_readable | file_unreadable
+  status: string; // complete | graph_created | failed_analyze | failed_create_graph | unreadable | not_text_readable | file_unreadable
   trigger: string; // file-linked | file-changed | workspace-load
   at: number;
   task_id?: number;

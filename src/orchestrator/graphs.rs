@@ -4,6 +4,10 @@
 
 use super::*;
 
+// the ONE file reader (text as whole text; every other modality as the typed input its pipeline takes) — shared with graph_on_link.rs
+#[path = "file_reader.rs"]
+pub(crate) mod file_reader;
+
 /// Modalities with a real `LinkToModality` action handler today — including
 /// fabricated stubs and one-sided local-only implementations, since those
 /// still deserialize and execute without error, just without doing real
@@ -745,6 +749,60 @@ impl PromptOrchestrator {
         self.executor
             .execute(pipeline_id, serde_json::json!({ "action": action }))
             .await
+    }
+
+    /// The walk's attached-file step: analyse the file with its modality pipeline and create its graph, through the shared reader (`file_reader`).
+    ///   * text / code / math — exactly the earlier behaviour: `file_content` (the whole file, or the inline preview) goes through `process_modality`; the
+    ///     minted-id fallback of the old inline code is kept for these three only.
+    ///   * every other modality — the pipeline takes the file BY PATH (or the typed source its reader builds), so nothing is read here; a missing graph id is an
+    ///     error (never a minted stand-in), and a file whose pipeline needs parameters the file does not state is `Ok(None)` with the reason logged — no
+    ///     graph, no invented analysis.
+    /// Returns the file graph id, or `None` when the file has no graph.
+    pub(crate) async fn graph_attached_file(
+        &self,
+        file_spec: &AttachedFileSpec,
+        file_content: &str,
+        pipeline_id: u64,
+        available_modalities: &[String],
+        project_id: u64,
+    ) -> Result<Option<u64>, String> {
+        use file_reader::{Prepared, Shape};
+        match file_reader::shape_of(pipeline_id) {
+            Shape::TextLike | Shape::Math => {
+                let analysis = self
+                    .process_modality(file_content, pipeline_id, available_modalities, None, None, None, Some(&file_spec.file_path))
+                    .await?;
+                let graph_result = self
+                    .executor
+                    .execute(pipeline_id, file_reader::create_graph_input(pipeline_id, &analysis, project_id))
+                    .await
+                    .unwrap_or_default();
+                Ok(Some(file_reader::graph_id_of(pipeline_id, &graph_result).unwrap_or(Self::generate_id_static())))
+            }
+            Shape::Wrapped | Shape::Bare => {
+                if file_spec.is_inline {
+                    tracing::warn!(file_path = %file_spec.file_path, "inline content has no file for a binary modality pipeline — no graph");
+                    return Ok(None);
+                }
+                match file_reader::prepare(&file_spec.file_path, pipeline_id).await {
+                    Prepared::Action(input) => {
+                        let analysis = self.executor.execute(pipeline_id, input).await?;
+                        let created = self
+                            .executor
+                            .execute(pipeline_id, file_reader::create_graph_input(pipeline_id, &analysis, project_id))
+                            .await?;
+                        file_reader::graph_id_of(pipeline_id, &created)
+                            .map(Some)
+                            .ok_or_else(|| format!("CreateGraph returned no graph_id for {}", file_spec.file_path))
+                    }
+                    Prepared::Text(_) => Ok(None),
+                    Prepared::Unreadable(reason) => {
+                        tracing::warn!(file_path = %file_spec.file_path, %reason, "attached file has no reader — no graph (nothing invented)");
+                        Ok(None)
+                    }
+                }
+            }
+        }
     }
 
     /// Detect modality string from a file path using extension and path hints.
