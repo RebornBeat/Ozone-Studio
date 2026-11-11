@@ -8099,9 +8099,13 @@ fn trim_to_sentence_boundary(
 // ============================================================================
 
 /// Stub executor for standalone testing (unit tests only — kept
-/// deterministic, never spawns a real subprocess).
+/// deterministic, never spawns a real subprocess). `#[cfg(test)]` so it is
+/// not part of the production binary (tests-in-code audit 2026-11-11; its
+/// only use is `test_reconstruct_from_chunks` in the test module below).
+#[cfg(test)]
 struct StubExecutor;
 
+#[cfg(test)]
 #[async_trait::async_trait]
 impl PipelineExecutor for StubExecutor {
     async fn execute(
