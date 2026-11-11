@@ -80,3 +80,14 @@ Rules:
 - Task 43 wires the AMT/context-aggregation pull: global + current
   workspace (+ project) events enter stage context as their OWN layer —
   never mixed into project-scoped container context.
+
+## Using Ozone-Studio itself as an MCP client (2026-11-11)
+
+`ozone-shared-context` is coordination only (presence, claims, notes, task routing). To RUN things on Ozone-Studio —
+a walk, file/folder links, call graphs, work orders, gaps, the refinement report, ZSEI reads, marketplace views — an
+agent also connects the sibling server `tools/ozone-mcp/server.mjs` (`.mcp.json` entry `ozone-mcp`; for ZCode add the
+same command with `OZONE_AGENT_NAME=zcode`). Both servers share ONE state dir (`OZONE_CONTEXT_DIR`): every mutating
+`ozone-mcp` call (`ozone_orchestrate`, `ozone_link`) appends a note there (agent, tool, content hash, lengths — never the
+prompt or file text). It talks only to the host's public HTTP surface with the device-key session, never reads the data dir.
+Design, hardening review and options: `docs/evidence/mcp-surface/REPORT.md`; drafted (not run) suite:
+`tools/third-party-verify/mcp/`.
