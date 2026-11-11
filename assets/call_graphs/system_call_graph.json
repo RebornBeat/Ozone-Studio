@@ -1,0 +1,1413 @@
+{
+  "schema": 1,
+  "generator": "tools/call-graph/extract_system_call_graph.mjs",
+  "inputs_sha256": "937b9937d9e84a1705bef871cab5e8c6bfd0c1005b16c33d36782dffd738e944",
+  "notes": [
+    "Static and name-based: reachability follows calls to functions whose name is defined exactly once under src/orchestrator; same-named functions are left out, never guessed.",
+    "26 function name(s) are defined more than once and take no part in reachability.",
+    "An edge is present (found in the source) or absent. Nothing here is scored.",
+    "call_site.in_registry = the label appears in docs/ZERO_SHOT_CALL_REGISTRY.md (a call site with no row there is unregistered)."
+  ],
+  "graphs": [
+    {
+      "key": "walk",
+      "title": "Orchestration walk — stages, the functions that make model calls, and the call sites",
+      "nodes": [
+        {
+          "id": "stage:stage_jurisdiction_gate",
+          "kind": "stage",
+          "label": "stage_jurisdiction_gate",
+          "order": 1,
+          "file": "src/orchestrator/jurisdiction.rs",
+          "line": 348
+        },
+        {
+          "id": "stage:prompt_normalization",
+          "kind": "stage",
+          "label": "prompt_normalization",
+          "order": 2,
+          "file": "src/orchestrator/mod.rs",
+          "line": 2239
+        },
+        {
+          "id": "fn:prompt_normalization",
+          "kind": "fn",
+          "label": "prompt_normalization",
+          "file": "src/orchestrator/mod.rs",
+          "line": 2239
+        },
+        {
+          "id": "site:keyword_reask",
+          "kind": "call_site",
+          "label": "keyword_reask",
+          "file": "src/orchestrator/mod.rs",
+          "line": 2549,
+          "in_registry": true
+        },
+        {
+          "id": "stage:gather_methodologies",
+          "kind": "stage",
+          "label": "gather_methodologies",
+          "order": 3,
+          "file": "src/orchestrator/mod.rs",
+          "line": 2605
+        },
+        {
+          "id": "fn:confirm_yes_no_batch",
+          "kind": "fn",
+          "label": "confirm_yes_no_batch",
+          "file": "src/orchestrator/mod.rs",
+          "line": 5111
+        },
+        {
+          "id": "vote:confirm_yes_no_batch",
+          "kind": "vote_site",
+          "label": "strength-N yes/no votes in confirm_yes_no_batch",
+          "file": "src/orchestrator/mod.rs",
+          "line": 5117
+        },
+        {
+          "id": "fn:gather_methodologies",
+          "kind": "fn",
+          "label": "gather_methodologies",
+          "file": "src/orchestrator/mod.rs",
+          "line": 2605
+        },
+        {
+          "id": "vote:gather_methodologies",
+          "kind": "vote_site",
+          "label": "strength-N yes/no votes in gather_methodologies",
+          "file": "src/orchestrator/mod.rs",
+          "line": 2718
+        },
+        {
+          "id": "stage:classify_file_graphs_post_creation",
+          "kind": "stage",
+          "label": "classify_file_graphs_post_creation",
+          "order": 4,
+          "file": "src/orchestrator/graphs.rs",
+          "line": 476
+        },
+        {
+          "id": "fn:classify_file_graphs_post_creation",
+          "kind": "fn",
+          "label": "classify_file_graphs_post_creation",
+          "file": "src/orchestrator/graphs.rs",
+          "line": 476
+        },
+        {
+          "id": "site:file_role_classification",
+          "kind": "call_site",
+          "label": "file_role_classification",
+          "file": "src/orchestrator/graphs.rs",
+          "line": 568,
+          "in_registry": false
+        },
+        {
+          "id": "stage:build_amt",
+          "kind": "stage",
+          "label": "build_amt",
+          "order": 5,
+          "file": "src/orchestrator/amt.rs",
+          "line": 147
+        },
+        {
+          "id": "fn:build_amt_from_graphs",
+          "kind": "fn",
+          "label": "build_amt_from_graphs",
+          "file": "src/orchestrator/amt.rs",
+          "line": 647
+        },
+        {
+          "id": "vote:build_amt_from_graphs",
+          "kind": "vote_site",
+          "label": "strength-N yes/no votes in build_amt_from_graphs",
+          "file": "src/orchestrator/amt.rs",
+          "line": 870
+        },
+        {
+          "id": "fn:build_amt_layer_by_layer",
+          "kind": "fn",
+          "label": "build_amt_layer_by_layer",
+          "file": "src/orchestrator/amt.rs",
+          "line": 1254
+        },
+        {
+          "id": "site:amt_detail_extraction",
+          "kind": "call_site",
+          "label": "amt_detail_extraction",
+          "file": "src/orchestrator/amt.rs",
+          "line": 1727,
+          "in_registry": true
+        },
+        {
+          "id": "fn:confirm_yes_no_orch",
+          "kind": "fn",
+          "label": "confirm_yes_no_orch",
+          "file": "src/orchestrator/mod.rs",
+          "line": 5096
+        },
+        {
+          "id": "vote:confirm_yes_no_orch",
+          "kind": "vote_site",
+          "label": "strength-N yes/no votes in confirm_yes_no_orch",
+          "file": "src/orchestrator/mod.rs",
+          "line": 5102
+        },
+        {
+          "id": "stage:stage_3_blueprint_assignment",
+          "kind": "stage",
+          "label": "stage_3_blueprint_assignment",
+          "order": 6,
+          "file": "src/orchestrator/stages.rs",
+          "line": 1300
+        },
+        {
+          "id": "fn:stage_3_blueprint_assignment",
+          "kind": "fn",
+          "label": "stage_3_blueprint_assignment",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1300
+        },
+        {
+          "id": "site:blueprint_assignment",
+          "kind": "call_site",
+          "label": "blueprint_assignment",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1665,
+          "in_registry": true
+        },
+        {
+          "id": "stage:close_capability_gaps",
+          "kind": "stage",
+          "label": "close_capability_gaps",
+          "order": 7,
+          "file": "src/orchestrator/stages.rs",
+          "line": 1074
+        },
+        {
+          "id": "fn:close_capability_gaps",
+          "kind": "fn",
+          "label": "close_capability_gaps",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1074
+        },
+        {
+          "id": "vote:close_capability_gaps",
+          "kind": "vote_site",
+          "label": "strength-N yes/no votes in close_capability_gaps",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1109
+        },
+        {
+          "id": "fn:create_tool_for_capability",
+          "kind": "fn",
+          "label": "create_tool_for_capability",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1156
+        },
+        {
+          "id": "site:capability_tool_draft",
+          "kind": "call_site",
+          "label": "capability_tool_draft",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1190,
+          "in_registry": true
+        },
+        {
+          "id": "fn:draft_methodology_for_capability",
+          "kind": "fn",
+          "label": "draft_methodology_for_capability",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1250
+        },
+        {
+          "id": "site:capability_closure_draft",
+          "kind": "call_site",
+          "label": "capability_closure_draft",
+          "file": "src/orchestrator/stages.rs",
+          "line": 1271,
+          "in_registry": true
+        },
+        {
+          "id": "stage:stage_4_zero_shot_simulation",
+          "kind": "stage",
+          "label": "stage_4_zero_shot_simulation",
+          "order": 8,
+          "file": "src/orchestrator/stages.rs",
+          "line": 2161
+        },
+        {
+          "id": "fn:stage_4_zero_shot_simulation",
+          "kind": "fn",
+          "label": "stage_4_zero_shot_simulation",
+          "file": "src/orchestrator/stages.rs",
+          "line": 2161
+        },
+        {
+          "id": "site:zero_shot_simulation",
+          "kind": "call_site",
+          "label": "zero_shot_simulation",
+          "file": "src/orchestrator/stages.rs",
+          "line": 2479,
+          "in_registry": true
+        },
+        {
+          "id": "stage:stage_5_consciousness_gate",
+          "kind": "stage",
+          "label": "stage_5_consciousness_gate",
+          "order": 9,
+          "file": "src/orchestrator/stages.rs",
+          "line": 2645
+        },
+        {
+          "id": "stage:stage_jurisdiction_full_gate",
+          "kind": "stage",
+          "label": "stage_jurisdiction_full_gate",
+          "order": 10,
+          "file": "src/orchestrator/jurisdiction.rs",
+          "line": 503
+        },
+        {
+          "id": "stage:stage_6_to_8_execute_steps",
+          "kind": "stage",
+          "label": "stage_6_to_8_execute_steps",
+          "order": 11,
+          "file": "src/orchestrator/stages.rs",
+          "line": 2902
+        },
+        {
+          "id": "fn:execute_provider_step",
+          "kind": "fn",
+          "label": "execute_provider_step",
+          "file": "src/orchestrator/stages.rs",
+          "line": 3200
+        },
+        {
+          "id": "site:provider_tool_choice",
+          "kind": "call_site",
+          "label": "provider_tool_choice",
+          "file": "src/orchestrator/stages.rs",
+          "line": 3239,
+          "in_registry": true
+        },
+        {
+          "id": "fn:execute_step",
+          "kind": "fn",
+          "label": "execute_step",
+          "file": "src/orchestrator/stages.rs",
+          "line": 3384
+        },
+        {
+          "id": "site:context_compaction",
+          "kind": "call_site",
+          "label": "context_compaction",
+          "file": "src/orchestrator/stages.rs",
+          "line": 3645,
+          "in_registry": true
+        },
+        {
+          "id": "site:methodology_compliance_check",
+          "kind": "call_site",
+          "label": "methodology_compliance_check",
+          "file": "src/orchestrator/stages.rs",
+          "line": 4020,
+          "in_registry": false
+        },
+        {
+          "id": "fn:execute_web_search_step",
+          "kind": "fn",
+          "label": "execute_web_search_step",
+          "file": "src/orchestrator/stages.rs",
+          "line": 3295
+        },
+        {
+          "id": "site:web_search_decompose",
+          "kind": "call_site",
+          "label": "web_search_decompose",
+          "file": "src/orchestrator/stages.rs",
+          "line": 3328,
+          "in_registry": true
+        },
+        {
+          "id": "fn:on_step_complete",
+          "kind": "fn",
+          "label": "on_step_complete",
+          "file": "src/orchestrator/mod.rs",
+          "line": 5228
+        },
+        {
+          "id": "site:on_step_complete_alignment",
+          "kind": "call_site",
+          "label": "on_step_complete_alignment",
+          "file": "src/orchestrator/mod.rs",
+          "line": 5288,
+          "in_registry": true
+        },
+        {
+          "id": "stage:stage_9_result_collection",
+          "kind": "stage",
+          "label": "stage_9_result_collection",
+          "order": 12,
+          "file": "src/orchestrator/stages.rs",
+          "line": 4113
+        },
+        {
+          "id": "stage:stage_10_post_execution",
+          "kind": "stage",
+          "label": "stage_10_post_execution",
+          "order": 13,
+          "file": "src/orchestrator/stages.rs",
+          "line": 4204
+        },
+        {
+          "id": "stage:stage_11_response_delivery",
+          "kind": "stage",
+          "label": "stage_11_response_delivery",
+          "order": 14,
+          "file": "src/orchestrator/response.rs",
+          "line": 380
+        },
+        {
+          "id": "fn:render_response_graph_tier1",
+          "kind": "fn",
+          "label": "render_response_graph_tier1",
+          "file": "src/orchestrator/response.rs",
+          "line": 287
+        },
+        {
+          "id": "site:response_graph_render",
+          "kind": "call_site",
+          "label": "response_graph_render",
+          "file": "src/orchestrator/response.rs",
+          "line": 312,
+          "in_registry": true
+        },
+        {
+          "id": "site:methodology_domain_id",
+          "kind": "call_site",
+          "label": "methodology_domain_id",
+          "file": "src/orchestrator/amt.rs",
+          "line": 3907,
+          "in_registry": true,
+          "attached": false,
+          "fn": "cross_reference_methodologies_for_layer"
+        },
+        {
+          "id": "site:methodology_synthesis",
+          "kind": "call_site",
+          "label": "methodology_synthesis",
+          "file": "src/orchestrator/amt.rs",
+          "line": 3973,
+          "in_registry": true,
+          "attached": false,
+          "fn": "cross_reference_methodologies_for_layer"
+        }
+      ],
+      "edges": [
+        {
+          "from": "stage:stage_jurisdiction_gate",
+          "to": "stage:prompt_normalization",
+          "kind": "order"
+        },
+        {
+          "from": "stage:prompt_normalization",
+          "to": "fn:prompt_normalization",
+          "kind": "reaches",
+          "via": [
+            "prompt_normalization"
+          ]
+        },
+        {
+          "from": "fn:prompt_normalization",
+          "to": "site:keyword_reask",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:prompt_normalization",
+          "to": "stage:gather_methodologies",
+          "kind": "order"
+        },
+        {
+          "from": "stage:gather_methodologies",
+          "to": "fn:confirm_yes_no_batch",
+          "kind": "reaches",
+          "via": [
+            "gather_methodologies",
+            "confirm_yes_no_batch"
+          ]
+        },
+        {
+          "from": "fn:confirm_yes_no_batch",
+          "to": "vote:confirm_yes_no_batch",
+          "kind": "calls_vote"
+        },
+        {
+          "from": "stage:gather_methodologies",
+          "to": "fn:gather_methodologies",
+          "kind": "reaches",
+          "via": [
+            "gather_methodologies"
+          ]
+        },
+        {
+          "from": "fn:gather_methodologies",
+          "to": "vote:gather_methodologies",
+          "kind": "calls_vote"
+        },
+        {
+          "from": "stage:gather_methodologies",
+          "to": "stage:classify_file_graphs_post_creation",
+          "kind": "order"
+        },
+        {
+          "from": "stage:classify_file_graphs_post_creation",
+          "to": "fn:classify_file_graphs_post_creation",
+          "kind": "reaches",
+          "via": [
+            "classify_file_graphs_post_creation"
+          ]
+        },
+        {
+          "from": "fn:classify_file_graphs_post_creation",
+          "to": "site:file_role_classification",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:classify_file_graphs_post_creation",
+          "to": "stage:build_amt",
+          "kind": "order"
+        },
+        {
+          "from": "stage:build_amt",
+          "to": "fn:build_amt_from_graphs",
+          "kind": "reaches",
+          "via": [
+            "build_amt",
+            "build_amt_from_graphs"
+          ]
+        },
+        {
+          "from": "fn:build_amt_from_graphs",
+          "to": "vote:build_amt_from_graphs",
+          "kind": "calls_vote"
+        },
+        {
+          "from": "stage:build_amt",
+          "to": "fn:build_amt_layer_by_layer",
+          "kind": "reaches",
+          "via": [
+            "build_amt",
+            "build_amt_layer_by_layer"
+          ]
+        },
+        {
+          "from": "fn:build_amt_layer_by_layer",
+          "to": "site:amt_detail_extraction",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:build_amt",
+          "to": "fn:confirm_yes_no_orch",
+          "kind": "reaches",
+          "via": [
+            "build_amt",
+            "build_amt_from_graphs",
+            "confirm_yes_no_orch"
+          ]
+        },
+        {
+          "from": "fn:confirm_yes_no_orch",
+          "to": "vote:confirm_yes_no_orch",
+          "kind": "calls_vote"
+        },
+        {
+          "from": "stage:build_amt",
+          "to": "stage:stage_3_blueprint_assignment",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_3_blueprint_assignment",
+          "to": "fn:stage_3_blueprint_assignment",
+          "kind": "reaches",
+          "via": [
+            "stage_3_blueprint_assignment"
+          ]
+        },
+        {
+          "from": "fn:stage_3_blueprint_assignment",
+          "to": "site:blueprint_assignment",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:stage_3_blueprint_assignment",
+          "to": "stage:close_capability_gaps",
+          "kind": "order"
+        },
+        {
+          "from": "stage:close_capability_gaps",
+          "to": "fn:close_capability_gaps",
+          "kind": "reaches",
+          "via": [
+            "close_capability_gaps"
+          ]
+        },
+        {
+          "from": "fn:close_capability_gaps",
+          "to": "vote:close_capability_gaps",
+          "kind": "calls_vote"
+        },
+        {
+          "from": "stage:close_capability_gaps",
+          "to": "fn:confirm_yes_no_batch",
+          "kind": "reaches",
+          "via": [
+            "close_capability_gaps",
+            "confirm_yes_no_batch"
+          ]
+        },
+        {
+          "from": "fn:confirm_yes_no_batch",
+          "to": "vote:confirm_yes_no_batch",
+          "kind": "calls_vote"
+        },
+        {
+          "from": "stage:close_capability_gaps",
+          "to": "fn:create_tool_for_capability",
+          "kind": "reaches",
+          "via": [
+            "close_capability_gaps",
+            "create_tool_for_capability"
+          ]
+        },
+        {
+          "from": "fn:create_tool_for_capability",
+          "to": "site:capability_tool_draft",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:close_capability_gaps",
+          "to": "fn:draft_methodology_for_capability",
+          "kind": "reaches",
+          "via": [
+            "close_capability_gaps",
+            "draft_methodology_for_capability"
+          ]
+        },
+        {
+          "from": "fn:draft_methodology_for_capability",
+          "to": "site:capability_closure_draft",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:close_capability_gaps",
+          "to": "stage:stage_4_zero_shot_simulation",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_4_zero_shot_simulation",
+          "to": "fn:stage_4_zero_shot_simulation",
+          "kind": "reaches",
+          "via": [
+            "stage_4_zero_shot_simulation"
+          ]
+        },
+        {
+          "from": "fn:stage_4_zero_shot_simulation",
+          "to": "site:zero_shot_simulation",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:stage_4_zero_shot_simulation",
+          "to": "stage:stage_5_consciousness_gate",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_5_consciousness_gate",
+          "to": "stage:stage_jurisdiction_full_gate",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_jurisdiction_full_gate",
+          "to": "stage:stage_6_to_8_execute_steps",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_6_to_8_execute_steps",
+          "to": "fn:execute_provider_step",
+          "kind": "reaches",
+          "via": [
+            "stage_6_to_8_execute_steps",
+            "execute_step",
+            "execute_provider_step"
+          ]
+        },
+        {
+          "from": "fn:execute_provider_step",
+          "to": "site:provider_tool_choice",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:stage_6_to_8_execute_steps",
+          "to": "fn:execute_step",
+          "kind": "reaches",
+          "via": [
+            "stage_6_to_8_execute_steps",
+            "execute_step"
+          ]
+        },
+        {
+          "from": "fn:execute_step",
+          "to": "site:context_compaction",
+          "kind": "calls_model"
+        },
+        {
+          "from": "fn:execute_step",
+          "to": "site:methodology_compliance_check",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:stage_6_to_8_execute_steps",
+          "to": "fn:execute_web_search_step",
+          "kind": "reaches",
+          "via": [
+            "stage_6_to_8_execute_steps",
+            "execute_step",
+            "execute_web_search_step"
+          ]
+        },
+        {
+          "from": "fn:execute_web_search_step",
+          "to": "site:web_search_decompose",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:stage_6_to_8_execute_steps",
+          "to": "fn:on_step_complete",
+          "kind": "reaches",
+          "via": [
+            "stage_6_to_8_execute_steps",
+            "execute_step",
+            "on_step_complete"
+          ]
+        },
+        {
+          "from": "fn:on_step_complete",
+          "to": "site:on_step_complete_alignment",
+          "kind": "calls_model"
+        },
+        {
+          "from": "stage:stage_6_to_8_execute_steps",
+          "to": "stage:stage_9_result_collection",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_9_result_collection",
+          "to": "stage:stage_10_post_execution",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_10_post_execution",
+          "to": "stage:stage_11_response_delivery",
+          "kind": "order"
+        },
+        {
+          "from": "stage:stage_11_response_delivery",
+          "to": "fn:render_response_graph_tier1",
+          "kind": "reaches",
+          "via": [
+            "stage_11_response_delivery",
+            "render_response",
+            "render_response_graph_tier1"
+          ]
+        },
+        {
+          "from": "fn:render_response_graph_tier1",
+          "to": "site:response_graph_render",
+          "kind": "calls_model"
+        }
+      ]
+    },
+    {
+      "key": "loops",
+      "title": "Background loops — labelled model-call sites per loop",
+      "nodes": [
+        {
+          "id": "loop:amt_loop",
+          "kind": "loop",
+          "label": "amt_loop",
+          "file": "src/orchestrator/amt_loop.rs"
+        },
+        {
+          "id": "site:amt_reexpansion",
+          "kind": "call_site",
+          "label": "amt_reexpansion",
+          "file": "src/orchestrator/amt_loop.rs",
+          "line": 844,
+          "in_registry": true
+        },
+        {
+          "id": "loop:assistant",
+          "kind": "loop",
+          "label": "assistant",
+          "file": "src/consciousness/assistant.rs"
+        },
+        {
+          "id": "site:assistant_check_up",
+          "kind": "call_site",
+          "label": "assistant_check_up",
+          "file": "src/consciousness/assistant.rs",
+          "line": 678,
+          "in_registry": true
+        },
+        {
+          "id": "loop:i_loop",
+          "kind": "loop",
+          "label": "i_loop",
+          "file": "src/orchestrator/i_loop.rs"
+        },
+        {
+          "id": "site:i_loop_reflection",
+          "kind": "call_site",
+          "label": "i_loop_reflection",
+          "file": "src/orchestrator/i_loop.rs",
+          "line": 373,
+          "in_registry": true
+        },
+        {
+          "id": "loop:keyword_settle",
+          "kind": "loop",
+          "label": "keyword_settle",
+          "file": "src/orchestrator/keyword_settle.rs"
+        },
+        {
+          "id": "site:keyword_settle",
+          "kind": "call_site",
+          "label": "keyword_settle",
+          "file": "src/orchestrator/keyword_settle.rs",
+          "line": 563,
+          "in_registry": true
+        },
+        {
+          "id": "site:keyword_validate",
+          "kind": "call_site",
+          "label": "keyword_validate",
+          "file": "src/orchestrator/keyword_settle.rs",
+          "line": 402,
+          "in_registry": true
+        },
+        {
+          "id": "loop:meta_loop",
+          "kind": "loop",
+          "label": "meta_loop",
+          "file": "src/orchestrator/meta_loop.rs"
+        },
+        {
+          "id": "site:meta_loop_draft",
+          "kind": "call_site",
+          "label": "meta_loop_draft",
+          "file": "src/orchestrator/meta_loop.rs",
+          "line": 1179,
+          "in_registry": true
+        },
+        {
+          "id": "site:meta_loop_methodology_modify",
+          "kind": "call_site",
+          "label": "meta_loop_methodology_modify",
+          "file": "src/orchestrator/meta_loop.rs",
+          "line": 868,
+          "in_registry": true
+        },
+        {
+          "id": "site:meta_loop_methodology_review",
+          "kind": "call_site",
+          "label": "meta_loop_methodology_review",
+          "file": "src/orchestrator/meta_loop.rs",
+          "line": 731,
+          "in_registry": true
+        },
+        {
+          "id": "site:meta_loop_refinement_draft",
+          "kind": "call_site",
+          "label": "meta_loop_refinement_draft",
+          "file": "src/orchestrator/meta_loop.rs",
+          "line": 502,
+          "in_registry": true
+        },
+        {
+          "id": "site:meta_loop_refinement_vote",
+          "kind": "call_site",
+          "label": "meta_loop_refinement_vote",
+          "file": "src/orchestrator/meta_loop.rs",
+          "line": 333,
+          "in_registry": true
+        }
+      ],
+      "edges": [
+        {
+          "from": "loop:amt_loop",
+          "to": "site:amt_reexpansion",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:assistant",
+          "to": "site:assistant_check_up",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:i_loop",
+          "to": "site:i_loop_reflection",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:keyword_settle",
+          "to": "site:keyword_settle",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:keyword_settle",
+          "to": "site:keyword_validate",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:meta_loop",
+          "to": "site:meta_loop_draft",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:meta_loop",
+          "to": "site:meta_loop_methodology_modify",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:meta_loop",
+          "to": "site:meta_loop_methodology_review",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:meta_loop",
+          "to": "site:meta_loop_refinement_draft",
+          "kind": "calls_model"
+        },
+        {
+          "from": "loop:meta_loop",
+          "to": "site:meta_loop_refinement_vote",
+          "kind": "calls_model"
+        }
+      ]
+    },
+    {
+      "key": "routes",
+      "title": "Call routes and the guardrail layers on each (docs/CALL_ROUTE_REGISTRY.md)",
+      "nodes": [
+        {
+          "id": "guard:G1",
+          "kind": "guardrail",
+          "label": "G1 session gate",
+          "where": "grpc::session_gate middleware, PROTECTED list (/mcp/call, /task/, /capture/ingest_*, /mcp/tools, /network/, …)",
+          "detail": "With OZONE_REQUIRE_SESSION=1: bearer / x-oz-session / x-oz-internal required"
+        },
+        {
+          "id": "guard:G2",
+          "kind": "guardrail",
+          "label": "G2 entry gate",
+          "where": "orchestrator::entry_gate (gated, gated_checked, require_identity)",
+          "detail": "trace root/child + one span row per external dispatch; identity precondition"
+        },
+        {
+          "id": "guard:G3",
+          "kind": "guardrail",
+          "label": "G3 jurisdiction (walk)",
+          "where": "stage 0 + stage 8b/14 (full gate)",
+          "detail": "rules (132 files / 648 rules), Block / Warn / RequireConfirmation (human modal only)"
+        },
+        {
+          "id": "guard:G4",
+          "kind": "guardrail",
+          "label": "G4 jurisdiction (per call)",
+          "where": "jurisdiction::build_step_gate → tool_routing::set_step_gate AND mcp::set_call_gate (installed at boot, refreshed every 10 min, lib.rs)",
+          "detail": "same rule snapshot on tool-routing steps, call_global, /pipeline/execute"
+        },
+        {
+          "id": "guard:G5",
+          "kind": "guardrail",
+          "label": "G5 jurisdiction (MCP HTTP)",
+          "where": "grpc::mcp_call full gate before invoke",
+          "detail": "Block refuses, RequireConfirmation → review"
+        },
+        {
+          "id": "guard:G6",
+          "kind": "guardrail",
+          "label": "G6 consciousness / meta gate",
+          "where": "stage 8, stage 12",
+          "detail": "meta-only; cannot judge → AWAIT (durable awaiting_items.jsonl), never fail-open, never a human"
+        },
+        {
+          "id": "guard:G7",
+          "kind": "guardrail",
+          "label": "G7 admission gate",
+          "where": "pipeline::gate (priority tiers Loop, Lane, …, ordered admission)",
+          "detail": "concurrency, not rate"
+        },
+        {
+          "id": "guard:G8",
+          "kind": "guardrail",
+          "label": "G8 rate limiter",
+          "where": "prompt binary, cross-process lock-file bucket (OZONE_OPENROUTER_RPM, default 20)",
+          "detail": "OpenRouter per-minute"
+        },
+        {
+          "id": "guard:G9",
+          "kind": "guardrail",
+          "label": "G9 free-only / paid refusal",
+          "where": "model resolution + zero_shot_simulation policy checks",
+          "detail": "no paid provider reachable"
+        },
+        {
+          "id": "guard:G10",
+          "kind": "guardrail",
+          "label": "G10 usage ledger",
+          "where": "mcp::UsageLedger (per agent/tool/day)",
+          "detail": "MCP daily limits"
+        },
+        {
+          "id": "guard:G11",
+          "kind": "guardrail",
+          "label": "G11 model ledger",
+          "where": "model_ledger (single-write_all rows)",
+          "detail": "outcome / latency / cause per model call"
+        },
+        {
+          "id": "guard:G12",
+          "kind": "guardrail",
+          "label": "G12 call index",
+          "where": "orchestrator::instrumented::InstrumentedExecutor → capture/call_spans.jsonl",
+          "detail": "shape-only row per executor call (trace + span)"
+        },
+        {
+          "id": "guard:G13",
+          "kind": "guardrail",
+          "label": "G13 decision review",
+          "where": "DecisionReviewExecutor (pipeline 39 interception)",
+          "detail": "multi-pass chunked review, safety-first merge"
+        },
+        {
+          "id": "route:R1",
+          "kind": "route",
+          "label": "R1 Walk model calls (metered_execute_resilient/raw) — blueprint, simulation, compaction, web decompose, compliance, file role, AMT detail/domain/synthesis, response render, alignment",
+          "entry": "/orchestrate → orchestrator",
+          "status": "✅"
+        },
+        {
+          "id": "route:R2",
+          "kind": "route",
+          "label": "R2 Walk direct executor.execute(9, …) — lane retry (amt.rs), fallback walk (mod.rs), sub-steps (stages.rs), strength-N votes, graph builders",
+          "entry": "orchestrator",
+          "status": "✅"
+        },
+        {
+          "id": "route:R3",
+          "kind": "route",
+          "label": "R3 Background loops — AMT re-expansion, methodology meta-loop, I-Loop, assistant digest",
+          "entry": "lib.rs boot spawn, with_priority(Loop)",
+          "status": "✅ (cross-pass escalation via meta_fallback, not an in-call walk)"
+        },
+        {
+          "id": "route:R4",
+          "kind": "route",
+          "label": "R4 Pipeline-internal LLM — modality llm_zero_shot / SubprocessExecutor via the prompt binary",
+          "entry": "modality pipeline process",
+          "status": "⚠️ see R4 notes"
+        },
+        {
+          "id": "route:R5",
+          "kind": "route",
+          "label": "R5 /pipeline/execute (external)",
+          "entry": "HTTP, session token",
+          "status": "✅ (was missing jurisdiction)"
+        },
+        {
+          "id": "route:R6",
+          "kind": "route",
+          "label": "R6 /mcp/call (external agents)",
+          "entry": "HTTP",
+          "status": "✅"
+        },
+        {
+          "id": "route:R7",
+          "kind": "route",
+          "label": "R7 mcp::call_global (PROVIDER STEPS, search-based tool routing, sensor tick, approved assistant proposals)",
+          "entry": "in-process",
+          "status": "✅ (the context-mirror coordination ripple is still R6-only — open)"
+        },
+        {
+          "id": "route:R8",
+          "kind": "route",
+          "label": "R8 /task/step/rerun",
+          "entry": "HTTP",
+          "status": "✅"
+        },
+        {
+          "id": "route:R9",
+          "kind": "route",
+          "label": "R9 /capture/ingest_image, /capture/ingest_uidocument",
+          "entry": "HTTP",
+          "status": "✅"
+        },
+        {
+          "id": "route:R10",
+          "kind": "route",
+          "label": "R10 Text modality → document MCP (document_extract)",
+          "entry": "text pipeline → host /mcp/call",
+          "status": "✅ new 2026-11-02"
+        },
+        {
+          "id": "route:R11",
+          "kind": "route",
+          "label": "R11 MCP servers that spawn pipelines or call other services (visual-mcp → image binary, farm/browser MCPs)",
+          "entry": "MCP process",
+          "status": "✅ by construction"
+        },
+        {
+          "id": "route:R12",
+          "kind": "route",
+          "label": "R12 Direct provider HTTP from a non-prompt pipeline",
+          "entry": "—",
+          "status": "❌ none known after the zero_shot_simulation fix (below). Any new openrouter.ai URL outside prompt/main.rs, model_windows.rs, openrouter_quota.rs, model_ledger.rs is a bypass."
+        },
+        {
+          "id": "route:R13",
+          "kind": "route",
+          "label": "R13 POST /context/span_out",
+          "detail": "runs the one span-out algorithm from given seeds; items carry per-modality fanout{entries, sequence_head, class_counts} (graph_fanout.rs)"
+        },
+        {
+          "id": "route:R14",
+          "kind": "route",
+          "label": "R14 GET /ripple/meta/status",
+          "detail": "meta-ripple counters + per-loop wakes/passes + policy (min gap / heartbeat)"
+        },
+        {
+          "id": "route:R15",
+          "kind": "route",
+          "label": "R15 GET /marketplace/overview",
+          "detail": "providers (MCP servers) + their tools/health, paired peers (catalog exchange honestly not_implemented), methodologies with per-rule requires (declared) and keyword-INFERRED providers, blueprints (provider steps), WANTED capabilities, provider health, binding proposals, policy"
+        },
+        {
+          "id": "route:R16",
+          "kind": "route",
+          "label": "R16 Provider step (BlueprintStep.step_type == \"provider\") → execute_provider_step → tool_routing::call_provider_for_step → call_global (R7)",
+          "detail": "calls a PROVIDER (MCP server) chosen from a methodology rule's requires[]; tool chosen at call time from the step text (or pinned); result reaches the carrying step; containers get called_from keywords"
+        },
+        {
+          "id": "route:R17",
+          "kind": "route",
+          "label": "R17 Meta-ripple dispatcher (ripple_class::spawn_meta_ripple_dispatcher)",
+          "detail": "classifies every graph event; meta events wake I-Loop, meta-loop, assistant, AMT loop"
+        },
+        {
+          "id": "route:R18",
+          "kind": "route",
+          "label": "R18 Capability-gap capture (tool_binding::record_capability_gaps)",
+          "detail": "required-but-unregistered providers → capability_gaps.json + CapabilityGap meta ripple + methodology gap"
+        },
+        {
+          "id": "route:R19",
+          "kind": "route",
+          "label": "R19 Capability closure (stages.rs::close_capability_gaps, between Stage 6 and 7) → per gap: strength-N necessity vote (confirm_yes_no_orch → shared k_validation primitive) → draft_methodology_for_capability (pipeline 12 Create) → replan through Stage 6",
+          "detail": "gaps → not_needed / drafted in capability_gaps.json"
+        },
+        {
+          "id": "route:R20",
+          "kind": "route",
+          "label": "R20 Walk metrics (orchestration_events::append_walk_metric)",
+          "detail": "one line per stage event → zsei_data/walk_metrics.jsonl; read by tools/walk-scorecard/scorecard.mjs"
+        },
+        {
+          "id": "route:R21",
+          "kind": "route",
+          "label": "R21 Hit/judgment capture (keyword_program::record_search/record_event/record_judgment)",
+          "detail": "zsei_data/keyword_hits.jsonl, judgment_samples.jsonl; call sites: search door, span-out (packed), Stage 3 (gathered, E13), stages (E14, closure, applied), grpc decision_review (human)"
+        },
+        {
+          "id": "route:R22",
+          "kind": "route",
+          "label": "R22 Rollup (keyword_program::rollup_once, meta loop)",
+          "detail": "log → keyword_meta counts + hints, one write per container"
+        },
+        {
+          "id": "route:R23",
+          "kind": "route",
+          "label": "R23 Keyword settlement (keyword_settle::settle_once, meta loop after the gap pass)",
+          "detail": "verbatim capture → expansion → unanimous-drop judgment"
+        },
+        {
+          "id": "route:R24",
+          "kind": "route",
+          "label": "R24 Model training (keyword_program::train_if_data_grew → pipeline 17 TrainModel)",
+          "detail": "dataset → train → held-out sign test → registry; models are graph citizens"
+        },
+        {
+          "id": "route:R25",
+          "kind": "route",
+          "label": "R25 Ranked search (StoreAccess::search_ranked → SearchContainersByKeywords{strategy:\"token\"} → keyword_program::order_for_search)",
+          "detail": "span-out, context_aggregation, text/code/math linking; interchangeability knobs OZONE_KEYWORD_BACKENDS, OZONE_SEARCH_DEFAULT"
+        },
+        {
+          "id": "route:R26",
+          "kind": "route",
+          "label": "R26 Origin propagation (keyword_program::Origin; orchestrate() installs it with the trace, traced() carries it across spawns, loops install Origin::actor, executor.rs stamps OZONE_ORIGIN, 33+1 pipelines send x-ozone-trace / x-ozone-origin, grpc::query_zsei re-installs both)",
+          "detail": "every created, search and outcome event carries call_site / workspace / project / global / request terms / file ids; a pipeline-originated search joins the walk's trace"
+        },
+        {
+          "id": "route:R27",
+          "kind": "route",
+          "label": "R27 Creation + lifecycle capture (zsei/query.rs::create_container → record_created; update_container → record_keywords_changed)",
+          "detail": "the ONE write door logs created (type, name, keywords, topics, typed scope, parent, provenance, origin) and keywords_changed (added / removed) for every writer; dataset builder turns a methodology/blueprint created event with request terms into a CREATION PAIR"
+        },
+        {
+          "id": "route:R28",
+          "kind": "route",
+          "label": "R28 Write-time keyword gate (zsei/query.rs::create_container / update_container → keyword_program::gate_keywords_on_write)",
+          "detail": "shape rules (empty / sentence-like / case-duplicate never enter) + every new term registered PENDING (created:<call_site>); JurisdictionRuleSet and bookkeeping types are NOT gated (their keywords are routing keys / system tags)"
+        },
+        {
+          "id": "route:R29",
+          "kind": "route",
+          "label": "R29 Keyword validation (keyword_loops settlement actor → keyword_settle::settle_once → validate_terms)",
+          "detail": "validates stored terms and new expansion candidates; kill switch OZONE_KEYWORD_SETTLE=off; strict search OZONE_KEYWORD_REQUIRE_VALIDATED, ablation OZONE_KEYWORD_IGNORE_EXPANSION (both default off)"
+        },
+        {
+          "id": "route:R30",
+          "kind": "route",
+          "label": "R30 Rule gate (after the blueprint draft, before audit_rule_refs → judge_rule_applicability (applicability + step→rule fidelity in ONE call, 2026-11-10 moved); rule text via rules_text_for at the four post-AMT prompt sites)",
+          "detail": "replaces the end-of-Stage-6 E14; verdicts in state.rule_verdicts + provider manifest rows"
+        },
+        {
+          "id": "route:R31",
+          "kind": "route",
+          "label": "R31 Refinement notification (stages::judge_rule_applicability → meta_loop::record_refinement_candidate)",
+          "detail": "durable methodology_refinement_candidates.jsonl: every rule judged inapplicable = a methodology that is too broad (refinement loop input; never a new/modify gap)"
+        },
+        {
+          "id": "route:R32",
+          "kind": "route",
+          "label": "R32 Marketplace publish / pull / fetch / import (bridge (drains every creation event already available) → network::on_items_announced → publish_batch_to_marketplace (ONE listing write, ONE push per batch); network::spawn_marketplace_exchange; orchestrator::peer_import::spawn_peer_import_loop; POST /marketplace/offers/decide)",
+          "detail": "notify (one push, names nothing) → pull listing → operator decides → fetch in chunks → re-verify hash → import a methodology through the create path / stage a jurisdiction file / record approval for tools; all opt-in via auto_broadcast_sync"
+        },
+        {
+          "id": "route:R33",
+          "kind": "route",
+          "label": "R33 The network door + offer review (network swarm handler → sanitize_marketplace_message → peer_marketplace_inbox.jsonl / peer_marketplace_rejected.jsonl; offer_review::spawn_offer_review_loop → peer_offer_reviews.json; both exposed by GET /marketplace/overview as peer_offers[].review, exchange.refused_inbound)",
+          "detail": "nothing not allowed is accepted: only methodology / jurisdiction_rule_set / pipeline / tool, strict shapes, scope markers stripped from peers' keywords, unknown fields dropped; the review only RECOMMENDS"
+        },
+        {
+          "id": "route:R34",
+          "kind": "route",
+          "label": "R34 Work-order tree (work_order::materialize_work_order after task creation in stage_6_to_8_execute_steps; work_order_step_done on both step-success paths; work_order_after_replan; work_order_walk_done; GET /order/work/<task_id>)",
+          "detail": "the walk's structure as wo_* task records (AMT branches, steps, capability-gap checklists); completion = all items done + all children complete, completed is final; items ticked only by the real events (STATUS §K1); PARSE-ONLY"
+        },
+        {
+          "id": "route:R35",
+          "kind": "route",
+          "label": "R35 Refinement action (meta_loop::act_on_refinement_candidates, pass step 1d)",
+          "detail": "splits a rule that is a different concern into a focused methodology via pipeline 12 Create; records methodology_refinement_actions.jsonl; never edits the original; kill switch OZONE_REFINEMENT_ACTION=off; PARSE-ONLY"
+        },
+        {
+          "id": "route:R36",
+          "kind": "route",
+          "label": "R36 Read endpoints for the UI (2026-11-10, no model, no write): GET /capability/gaps (every row of capability_gaps.json, any status; count, by_status), GET /methodology/refinement (methodology_refinement_report.json or {}, the parsed lines of methodology_refinement_actions.jsonl read live, and the candidate-line count), /task/list + /task/get now carry kind, parent_task_id, rerun_of",
+          "detail": "read-only views of ledgers the walk / meta loop already write; nothing derived or scored; grpc/mod.rs (get_capability_gaps, get_methodology_refinement, TaskInfo) — EDITED, PARSE-ONLY"
+        },
+        {
+          "id": "route:R37",
+          "kind": "route",
+          "label": "R37 Tool creation on need (stages::close_capability_gaps → create_tool_for_capability → tool_creation::{parse_spec, write_artifact} → mcp::register_global → tool_binding::mark_gap_tool_created → network::publish_created_tool → bridge on_items_announced)",
+          "detail": "creates <data_dir>/created_tools/<name>/ + a stdio registry row (nothing executed by the host); gap → satisfied with provenance; work-order tool/register ticked by tool_created/tool_registered; the finding is published as a manifest (name + body hash + keywords, item_type tool) while marketplace_publish is on. PARSE-ONLY"
+        }
+      ],
+      "edges": [
+        {
+          "from": "route:R1",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G2",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G3",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G6",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G7",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G8",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G11",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R1",
+          "to": "guard:G12",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R2",
+          "to": "guard:G12",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R3",
+          "to": "guard:G7",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R3",
+          "to": "guard:G8",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R3",
+          "to": "guard:G12",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R4",
+          "to": "guard:G8",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R4",
+          "to": "guard:G9",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R4",
+          "to": "guard:G3",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R4",
+          "to": "guard:G6",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R5",
+          "to": "guard:G2",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R5",
+          "to": "guard:G4",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R6",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R6",
+          "to": "guard:G5",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R6",
+          "to": "guard:G10",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R7",
+          "to": "guard:G10",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R7",
+          "to": "guard:G4",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R8",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R8",
+          "to": "guard:G2",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R9",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R9",
+          "to": "guard:G2",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R10",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R10",
+          "to": "guard:G5",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R10",
+          "to": "guard:G10",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R11",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R11",
+          "to": "guard:G5",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R11",
+          "to": "guard:G10",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R13",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R14",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        },
+        {
+          "from": "route:R15",
+          "to": "guard:G1",
+          "kind": "guarded_by"
+        }
+      ]
+    }
+  ]
+}

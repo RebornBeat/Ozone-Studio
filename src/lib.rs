@@ -1174,6 +1174,15 @@ impl OzoneRuntime {
                 meta_fallback.clone(),
             )));
 
+            // SYSTEM CALL GRAPHS (2026-11-11): the walk / loops / routes call graphs become graph containers at boot (idempotent: existing
+            // containers are kept, a changed asset refreshes the body in place). Best-effort, one-shot, never blocks boot.
+            {
+                let cg_store = store_adapter.clone();
+                tokio::spawn(async move {
+                    let _ = crate::orchestrator::call_graph::ensure_system_call_graphs(&cg_store).await;
+                });
+            }
+
             // KEYWORD PROGRAM ACTORS (2026-11-08): housekeeping (rollup + typed-scope backfill + CONTINUOUS training) and settlement run as their
             // own actors, off the meta pass that settlement used to starve for hours (orchestrator/keyword_loops.rs).
             tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::keyword_loops::run_keyword_housekeeping_loop(

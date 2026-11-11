@@ -59,6 +59,7 @@ pub mod decision_review;
 pub mod jurisdiction;
 pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed step (2026-11-02)
 pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
+pub mod call_graph; // the system's own call graphs as graph containers (walk / loops / routes), created at boot from assets/call_graphs/system_call_graph.json; live overlay reader (2026-11-11)
 pub mod work_order; // the work-order tree: walk → AMT branches → steps, capability-gap checklists; one completion rule, completed is final (2026-11-10)
 pub mod tool_binding; // per-rule tool bindings, missing-capability capture, tool health (2026-11-04)
 pub mod tool_creation; // a tool created on an identified need (E30 `capability_tool_draft`): validated spec, own-folder artifact, stdio registry row, published as a finding (2026-11-10)

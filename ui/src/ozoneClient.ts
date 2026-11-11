@@ -695,6 +695,57 @@ export function fetchWorkOrder(taskId: number): Promise<WorkOrderResponse> {
   return hostGet<WorkOrderResponse>(`/order/work/${taskId}`);
 }
 
+// ── System call graphs (GET /callgraph/system, GET /callgraph/live) ───────────────────────────────────────────────────────
+// The system's own call graphs (orchestration walk, background loops, call routes) from the generated asset, each with its graph container
+// id; and the executed calls / stage events of ONE walk's trace. Edges are present or absent, calls ran or did not — nothing is scored.
+export interface CallGraphNode {
+  id: string;
+  kind: string;
+  label: string;
+  file?: string;
+  line?: number;
+  order?: number;
+  in_registry?: boolean;
+  attached?: boolean;
+  fn?: string | null;
+  entry?: string;
+  status?: string;
+  where?: string;
+  detail?: string;
+}
+export interface CallGraphEdge { from: string; to: string; kind: string; via?: string[] }
+export interface CallGraphDoc { key: string; title: string; nodes: CallGraphNode[]; edges: CallGraphEdge[]; container_id: number | null }
+export interface CallGraphSystemResponse {
+  success: boolean;
+  available: boolean;
+  note?: string;
+  generator?: string;
+  inputs_sha256?: string;
+  notes?: string[];
+  graphs: CallGraphDoc[];
+}
+export interface CallGraphSiteRun { runs: number; failed: number; last_latency_ms: number | null }
+export interface CallGraphStageEvent { ts_ms?: number; stage?: number; stage_name?: string; success?: boolean; duration_ms?: number; summary?: string }
+export interface CallGraphLiveResponse {
+  success: boolean;
+  trace_id: string | null;
+  calls: Array<{ ts?: string; call_site?: string | null; pipeline_id?: number; success?: boolean; latency_ms?: number; span_id?: string }>;
+  stages: CallGraphStageEvent[];
+  by_call_site: Record<string, CallGraphSiteRun>;
+  unlabelled_calls: number;
+  note?: string;
+}
+
+export function fetchCallGraphSystem(): Promise<CallGraphSystemResponse> {
+  return hostGet<CallGraphSystemResponse>("/callgraph/system");
+}
+
+/** `{taskId}` → that task's walk; `{traceId}` → that trace; `{latest:true}` → the most recent walk. */
+export function fetchCallGraphLive(by: { taskId?: number; traceId?: string; latest?: boolean }): Promise<CallGraphLiveResponse> {
+  const q = by.traceId ? `trace_id=${encodeURIComponent(by.traceId)}` : by.taskId !== undefined ? `task_id=${by.taskId}` : by.latest ? "latest=1" : "";
+  return hostGet<CallGraphLiveResponse>(`/callgraph/live${q ? `?${q}` : ""}`);
+}
+
 // ── Capability gaps (GET /capability/gaps) ──────────────────────────────────────────────────
 // EVERY row of capability_gaps.json (the marketplace overview lists only the `wanted` ones).
 export interface CapabilityGapsResponse {

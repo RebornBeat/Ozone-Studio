@@ -15,6 +15,7 @@ import { getGraphEventClient, GraphEventFrame } from "../graphEventClient";
 import { TaskStateIcon, StepPips } from "../graphkit/indicators";
 import { AwaitingBadge } from "./AwaitingBadge";
 import { WorkOrderTree } from "./WorkOrderTree";
+import { CallGraphView } from "./CallGraphView";
 import { fetchAwaiting, resumeTask, resolveReview, resumeRun, parsePause, type AwaitingOrderItem } from "../ozoneClient";
 
 interface TaskStep {
@@ -545,6 +546,8 @@ export const TaskDetailPanel: React.FC = () => {
             refreshKey={`${normalizeStatus(task.status)}:${(task.steps ?? []).length}:${(task.steps ?? []).filter((s) => s.status === "completed").length}`}
             onOpenTask={(id) => setTaskIdInput(String(id))}
           />
+          {/* the orchestration call graph with THIS walk's executed calls overlaid (the task record carries its trace) */}
+          <CallGraphView compact taskId={task.task_id} />
           <TaskInsightSections task={task} />
         </>
       )}

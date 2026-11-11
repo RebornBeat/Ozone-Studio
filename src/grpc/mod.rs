@@ -1712,6 +1712,51 @@ async fn get_work_order(
     }
 }
 
+/// GET /callgraph/system — the system's own call graphs (walk stages → model-call functions → call sites; background-loop call sites; call
+/// routes → guardrail layers), straight from the generated asset (so it works before any prompt and before the containers exist), each with
+/// its graph container id (`null` until the boot pass created it). Read-only; nothing is scored.
+async fn get_callgraph_system() -> Json<serde_json::Value> {
+    Json(crate::orchestrator::call_graph::system_graphs_view())
+}
+
+#[derive(serde::Deserialize)]
+struct CallGraphLiveQuery {
+    task_id: Option<u64>,
+    trace_id: Option<String>,
+    /// `latest=1`: follow the most recent walk (the last trace in `walk_metrics.jsonl`) when neither id is given
+    latest: Option<u8>,
+}
+
+/// GET /callgraph/live?task_id=N | ?trace_id=T | ?latest=1 — what ACTUALLY ran in one walk: its executed calls (`capture/call_spans.jsonl`) and stage events
+/// (`walk_metrics.jsonl`), joined by the walk's trace id (a task records the trace that created it in `inputs.trace_id`). Read-only. A task with
+/// no recorded trace answers `trace_id: null` with empty lists — never a guess at another walk's trace.
+async fn get_callgraph_live(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<CallGraphLiveQuery>,
+) -> Json<serde_json::Value> {
+    let trace_id = match (q.trace_id, q.task_id) {
+        (Some(t), _) if !t.trim().is_empty() => Some(t),
+        (_, Some(task_id)) => {
+            let runtime = state.runtime.read().await;
+            let task_mgr = runtime.task_manager.read().await;
+            task_mgr
+                .get_task(task_id)
+                .await
+                .and_then(|t| t.inputs)
+                .and_then(|i| i.get("trace_id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        }
+        _ if q.latest == Some(1) => crate::orchestrator::call_graph::latest_trace_id(),
+        _ => None,
+    };
+    match trace_id {
+        Some(t) => Json(crate::orchestrator::call_graph::live_for_trace(&t)),
+        None => Json(serde_json::json!({
+            "success": true, "trace_id": null, "calls": [], "stages": [], "by_call_site": {}, "unlabelled_calls": 0,
+            "note": "no trace id: pass ?trace_id=… or a ?task_id=… whose record carries the trace that created it",
+        })),
+    }
+}
+
 /// GET /capability/gaps — EVERY recorded capability gap (`capability_gaps.json`), whatever its status: `missing`, `methodology_drafted`,
 /// `not_needed`, `wanted`. The Marketplace overview lists only the `wanted` ones; this is the full ledger (rows are returned as stored,
 /// including `details` and the `resolutions` history; nothing is derived or scored).
@@ -4936,6 +4981,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/order/global", get(get_global_order))
         .route("/order/work/:task_id", get(get_work_order))
         .route("/capability/gaps", get(get_capability_gaps))
+        .route("/callgraph/system", get(get_callgraph_system))
+        .route("/callgraph/live", get(get_callgraph_live))
         .route("/methodology/refinement", get(get_methodology_refinement))
         .route("/assistant/feed", get(get_assistant_feed))
         .route("/consciousness/review_pass", post(consciousness_review_pass))
