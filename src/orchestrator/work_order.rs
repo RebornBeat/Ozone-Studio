@@ -12,7 +12,7 @@
 //!   step `run` ← the step executed successfully (`work_order_step_done`);
 //!   gap `judge` ← closure recorded its yes/no verdict · `methodology` ← a methodology was drafted for it · `replan` ← the plan was rebuilt
 //!   from the richer set (`work_order_after_replan`) · `register` ← the provider appeared in the MCP registry (`satisfied_at`) ·
-//!   `verify` ← a walk that carried the closed capability completed (`work_order_walk_done`);
+//!   `verify` ← a walk that carried the closed capability ran all of its steps (`work_order_walk_done`, called just before the walk's completion gate);
 //!   `tool` ← the tool was CREATED (`tool_created`, recorded by `tool_creation` — the closure creates the missing tool on the identified need,
 //!   automatically, operator 2026-11-10) · `register` ← it was registered in the MCP registry (`tool_registered`). A provider that appears in the
 //!   registry by any OTHER route (`satisfied_at` with no `tool_created` event) ticks both too, with the evidence worded accordingly.
@@ -30,7 +30,7 @@ const GAP_ITEMS: [(&str, &str); 5] = [
     ("tool", "the tool / provider is created for the capability (automatic on the identified need; artifact + origin recorded)"),
     ("register", "the provider is registered in the MCP registry"),
     ("replan", "the plan is rebuilt from the richer methodology set"),
-    ("verify", "a walk that carried the closed capability completed"),
+    ("verify", "a walk that carried the closed capability ran all of its steps"),
 ];
 
 fn row_of(name: &str) -> Option<serde_json::Value> {
@@ -93,6 +93,8 @@ pub async fn sync_gap_tasks(tm: &TaskManager) {
             sync_one(tm, id, &row).await;
         }
     }
+    // a walk parked as `awaiting_children` whose last child finished while no tick was running (e.g. before a restart) is released here too
+    tm.release_all_awaiting().await;
 }
 
 /// The capability-gap task for `name`: created once; a gap that needs work AGAIN after its task completed (final) gets a NEW task
@@ -149,7 +151,7 @@ impl PromptOrchestrator {
         let Some(walk) = state.task_id else { return };
         let tm = self.task_manager.read().await;
         // 1. AMT branches, nested like the AMT (the AMT root is the walk task itself)
-        let mut anchors: Vec<(TaskID, Vec<u32>, usize)> = Vec::new(); // (branch task, its source chunks, depth)
+        let mut anchors: Vec<(TaskID, Vec<u32>, usize, String)> = Vec::new(); // (branch task, its source chunks, depth, its text)
         if let Some(amt) = &state.amt {
             let mut stack: Vec<(&AMTNode, TaskID, usize)> = amt.children.iter().rev().map(|c| (c, walk, 1usize)).collect();
             while let Some((n, parent, depth)) = stack.pop() {
@@ -161,7 +163,7 @@ impl PromptOrchestrator {
                         None => continue,
                     },
                 };
-                anchors.push((id, n.source_chunk_indices.clone(), depth));
+                anchors.push((id, n.source_chunk_indices.clone(), depth, n.content.clone()));
                 for c in n.children.iter().rev() {
                     stack.push((c, id, depth + 1));
                 }
@@ -173,11 +175,16 @@ impl PromptOrchestrator {
             if tm.find_work_task_any_parent("wo_step", &key).await.is_some() {
                 continue;
             }
+            // a step synthesized for a branch (`Address: <branch>` — blueprint reconciliation and in-walk expansion both write it) belongs under
+            // that branch even when the branch has no source chunks (a branch discovered while the task was open has none)
             let parent = anchors
                 .iter()
-                .filter(|(_, chunks, _)| !chunks.is_empty() && st.source_chunk_indices.iter().any(|c| chunks.contains(c)))
-                .max_by_key(|(_, _, depth)| *depth)
-                .map(|(id, _, _)| *id)
+                .filter(|(_, chunks, _, content)| {
+                    (!chunks.is_empty() && st.source_chunk_indices.iter().any(|c| chunks.contains(c)))
+                        || st.description.trim().eq_ignore_ascii_case(&super::walk_expansion::address_description(content).trim())
+                })
+                .max_by_key(|(_, _, depth, _)| *depth)
+                .map(|(id, _, _, _)| *id)
                 .unwrap_or(walk);
             let title: String = format!("step {pos}: {}", st.description.chars().take(160).collect::<String>());
             tm.create_work_task(Some(parent), "wo_step", &key, &title, &[("run".to_string(), "the step ran to completion".to_string())], None, Some(walk)).await;
@@ -219,14 +226,14 @@ impl PromptOrchestrator {
         }
     }
 
-    /// The walk completed: every gap it carried that was closed (methodology drafted or provider registered) is VERIFIED by this walk.
+    /// The walk ran all its steps (called right before the completion gate): every gap it carried that was closed (methodology drafted or provider registered) is VERIFIED by this walk.
     pub(crate) async fn work_order_walk_done(&self, state: &OrchestrationState) {
         let Some(walk) = state.task_id else { return };
         for name in gap_names(state) {
             let name = name.as_str();
             if let Some(row) = row_of(name) {
                 if resolution(&row, "methodology_drafted", 0).is_some() || resolution(&row, "tool_created", 0).is_some() || row["status"].as_str() == Some("satisfied") {
-                    note_gap_event(name, "verified", &format!("walk {walk} carried the closed capability and completed"), "walk");
+                    note_gap_event(name, "verified", &format!("walk {walk} carried the closed capability and ran all of its steps"), "walk");
                 }
             }
         }

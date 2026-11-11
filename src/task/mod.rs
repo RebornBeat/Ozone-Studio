@@ -1034,7 +1034,15 @@ Ok(task_id)
                 task.progress = 1.0;
             }
         }
+        self.after_completion(task_id, total_tokens).await?;
+        // a parent walk parked as `awaiting_children` may have been waiting for exactly this task (and the work-order nodes above it)
+        self.release_awaiting(task_id).await;
+        Ok(())
+    }
 
+    /// Everything that follows a task becoming "completed": running/queue bookkeeping, log, consciousness observer, save, ripple. Shared by
+    /// `complete_task` and the deferred release of a parked task (`release_awaiting`).
+    async fn after_completion(&self, task_id: TaskID, total_tokens: u32) -> OzoneResult<()> {
         // Remove from running, and from the queue (the queue processor is
         // never started, so without this a finished task would hold a queue
         // slot for the process lifetime).
@@ -1100,6 +1108,159 @@ Ok(task_id)
         tracing::info!("Completed task {}", task_id);
 
         Ok(())
+    }
+
+    // ------------------------------------------------------------------------------------------------------------------------------
+    // COMPLETION GATE (operator 2026-11-11): a task completes only when ALL its steps and child work are complete; completed is FINAL.
+    // ------------------------------------------------------------------------------------------------------------------------------
+
+    /// The child work still blocking `walk`'s completion (all descendants through `parent_task_id`; empty = free to complete):
+    /// - a work-order node (`wo_*`: AMT branch, step) that is not completed — except a node with no items and no children (nothing to settle),
+    ///   and except `wo_capability` subtrees: a capability gap is cross-walk work whose `verify` item needs THIS walk to run, so gating on it would
+    ///   deadlock (and one unfillable gap would hold every walk that reported it open forever); they stay visible in the work-order tree;
+    /// - a child task of any other kind (an AMT re-expansion registered under the walk) that is not completed;
+    ///   `failed` / `interrupted` ones block unless a LATER sibling with the same prompt completed (the re-expansion actor retries by registering
+    ///   a new task per attempt) — a failure is never passed over; `cancelled` is the operator's own decision and does not block.
+    /// Each blocker is `{task_id, kind, status, title}`.
+    fn blockers_in(tasks: &HashMap<TaskID, StoredTask>, walk: TaskID) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut stack: Vec<TaskID> = tasks.values().filter(|t| t.parent_task_id == Some(walk)).map(|t| t.task_id).collect();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(t) = tasks.get(&id) else { continue };
+            if t.kind == "wo_capability" {
+                continue;
+            }
+            let kids: Vec<TaskID> = tasks.values().filter(|c| c.parent_task_id == Some(id)).map(|c| c.task_id).collect();
+            let blocks = if t.kind.starts_with("wo_") {
+                t.status != "completed" && (!t.checklist.is_empty() || !kids.is_empty())
+            } else {
+                match t.status.as_str() {
+                    "completed" | "cancelled" => false,
+                    "failed" | "interrupted" => {
+                        let prompt = t.inputs.as_ref().and_then(|i| i.get("prompt"));
+                        !(prompt.is_some()
+                            && tasks.values().any(|o| {
+                                o.parent_task_id == t.parent_task_id
+                                    && o.task_id > t.task_id
+                                    && o.status == "completed"
+                                    && o.inputs.as_ref().and_then(|i| i.get("prompt")) == prompt
+                            }))
+                    }
+                    _ => true,
+                }
+            };
+            if blocks {
+                out.push(serde_json::json!({
+                    "task_id": t.task_id, "kind": t.kind, "status": t.status,
+                    "title": t.inputs.as_ref().and_then(|i| i.get("title").or_else(|| i.get("prompt"))).cloned(),
+                }));
+            }
+            stack.extend(kids);
+        }
+        out.sort_by_key(|b| b["task_id"].as_u64().unwrap_or(0));
+        out
+    }
+
+    /// The child work blocking this task's completion right now (see `blockers_in`).
+    pub async fn blocking_children(&self, walk: TaskID) -> Vec<serde_json::Value> {
+        let tasks = self.tasks.read().await;
+        Self::blockers_in(&tasks, walk)
+    }
+
+    /// COMPLETION GATE. Complete the task now when nothing blocks it (`Ok(true)`, exactly `complete_task`); otherwise PARK it as
+    /// `awaiting_children` with its outputs and tokens kept (`Ok(false)`): not completed, not failed, no live walk needed — the completion of the
+    /// last blocking child releases it (`release_awaiting`, called from `complete_task` and `complete_item`, and re-checked on every gap sync).
+    /// The check and the park happen under one lock, so a child finishing in between can never be missed. A task that is already completed
+    /// stays exactly as it is (final).
+    pub async fn complete_or_park(&self, task_id: TaskID, outputs: Option<serde_json::Value>, total_tokens: u32) -> OzoneResult<bool> {
+        let parked_on = {
+            let mut tasks = self.tasks.write().await;
+            let blockers = Self::blockers_in(&tasks, task_id);
+            match tasks.get_mut(&task_id) {
+                Some(t) if t.status == "completed" => return Ok(true),
+                Some(t) if !blockers.is_empty() => {
+                    t.status = "awaiting_children".to_string();
+                    t.completed_at = None;
+                    t.outputs = outputs.clone();
+                    t.total_tokens = total_tokens;
+                    Some(blockers)
+                }
+                _ => None,
+            }
+        };
+        match parked_on {
+            None => {
+                self.complete_task(task_id, outputs, total_tokens).await?;
+                Ok(true)
+            }
+            Some(blockers) => {
+                {
+                    let mut running = self.running.write().await;
+                    running.retain(|&id| id != task_id);
+                }
+                self.remove_from_queue(task_id).await;
+                let ids: Vec<String> = blockers.iter().map(|b| format!("{} ({}, {})", b["task_id"], b["kind"].as_str().unwrap_or(""), b["status"].as_str().unwrap_or(""))).collect();
+                self.add_log(
+                    task_id,
+                    LogLevel::Info,
+                    format!("All steps ran; completion waits for open child work: {}", ids.join("; ")),
+                )
+                .await?;
+                let _ = self.save_to_disk().await;
+                let scope = self.tasks.read().await.get(&task_id).map(|t| (t.workspace_id, t.project_id));
+                if let Some((workspace_id, project_id)) = scope {
+                    emit_task_ripple("updated", task_id, workspace_id, project_id);
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    /// Release every task parked as `awaiting_children` that nothing blocks any more — from `start` up through its ancestors (the walk is an
+    /// ancestor of the work-order node or child task that just completed). The release is the deferred `complete_task`: status completed (final),
+    /// the outputs/tokens parked with it, then the same consciousness/ripple tail. Idempotent; the status flip happens under the write lock so
+    /// two concurrent releases cannot both complete the same task.
+    pub async fn release_awaiting(&self, start: TaskID) {
+        let mut cur = Some(start);
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = cur {
+            if !seen.insert(id) {
+                break;
+            }
+            let (parent, released) = {
+                let mut tasks = self.tasks.write().await;
+                let Some(parked) = tasks.get(&id) else { break };
+                let parent = parked.parent_task_id;
+                let free = parked.status == "awaiting_children" && Self::blockers_in(&tasks, id).is_empty();
+                let mut tokens = None;
+                if free {
+                    if let Some(t) = tasks.get_mut(&id) {
+                        t.status = "completed".to_string();
+                        t.completed_at = Some(now());
+                        t.progress = 1.0;
+                        tokens = Some(t.total_tokens);
+                    }
+                }
+                (parent, tokens)
+            };
+            if let Some(tokens) = released {
+                let _ = self.after_completion(id, tokens).await;
+                tracing::info!(task_id = id, "parked task released: its last child work completed — completed (final)");
+            }
+            cur = parent;
+        }
+    }
+
+    /// Re-check every parked task (boot, gap sync) — a child can have completed while no release hook ran.
+    pub async fn release_all_awaiting(&self) {
+        let parked: Vec<TaskID> = self.tasks.read().await.values().filter(|t| t.status == "awaiting_children").map(|t| t.task_id).collect();
+        for id in parked {
+            self.release_awaiting(id).await;
+        }
     }
 
     /// Drop a finished (completed / failed / cancelled) task's entry from the
@@ -2269,6 +2430,7 @@ Ok(task_id)
         }
         if ticked {
             self.settle(task_id).await;
+            self.release_awaiting(task_id).await; // the walk above may have been parked waiting for exactly this item
             let _ = self.save_to_disk().await;
         }
         ticked

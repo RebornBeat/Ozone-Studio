@@ -16,7 +16,7 @@
 //! collection / post-execution / delivery stages as a normal run.
 //!
 //! What is NOT restored (documented, not hidden): the in-memory AMT tree object and the
-//! intent/branch capture lists — steps reach the AMT through its container id and the
+//! intent/branch capture lists (branches discovered mid-walk and not yet expanded ARE kept: `walk_expansion`) — steps reach the AMT through its container id and the
 //! span-out context, and `on_step_complete` alignment reviews degrade to the captured
 //! graph state. The checkpoint file is the record; nothing is capped or truncated.
 
@@ -53,6 +53,9 @@ pub struct RunCheckpoint {
     pub tool_manifest: Vec<serde_json::Value>,
     #[serde(default)]
     pub missing_capabilities: Vec<serde_json::Value>,
+    /// AMT branches discovered mid-walk and not yet expanded into steps (`walk_expansion.rs`); older checkpoints default to empty
+    #[serde(default)]
+    pub walk_expansion: Vec<serde_json::Value>,
     pub attached_file_contents: HashMap<String, String>,
     pub tokens_used_so_far: u32,
     pub completed_steps: Vec<CheckpointStep>,
@@ -101,6 +104,7 @@ impl PromptOrchestrator {
             applicable_tools: state.applicable_tools.clone(),
             tool_manifest: state.tool_manifest.clone(),
             missing_capabilities: state.missing_capabilities.clone(),
+            walk_expansion: state.walk_expansion.clone(),
             attached_file_contents: state.attached_file_contents.clone(),
             tokens_used_so_far: state.tokens_used_so_far,
             completed_steps: state
@@ -289,6 +293,7 @@ impl PromptOrchestrator {
         state.applicable_tools = cp.applicable_tools.clone();
         state.tool_manifest = cp.tool_manifest.clone();
         state.missing_capabilities = cp.missing_capabilities.clone();
+        state.walk_expansion = cp.walk_expansion.clone();
         state.attached_file_contents = cp.attached_file_contents.clone();
         state.tokens_used_so_far = cp.tokens_used_so_far;
         for st in &cp.completed_steps {

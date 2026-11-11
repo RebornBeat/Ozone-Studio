@@ -108,7 +108,7 @@ export function TaskChip() {
       <button
         className={`gnw-ind-chip${open ? " on" : ""}`}
         onClick={() => setOpen((o) => !o)}
-        title={`${tasks.length} most recent tasks — ${running} running, ${awaiting} awaiting a judgment, ${paused} paused by a failed step (resumable), ${queued} queued, ${failed} failed, ${interrupted} interrupted`}
+        title={`${tasks.length} most recent tasks — ${running} running, ${awaiting} awaiting (a judgment, or open child work — all steps ran, completion waits for it), ${paused} paused by a failed step (resumable), ${queued} queued, ${failed} failed, ${interrupted} interrupted`}
       >
         <TaskStateIcon status={lead} size={12} />
         <span>{running ? `${running} running` : tasks.length ? "tasks idle" : "no tasks"}</span>

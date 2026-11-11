@@ -61,6 +61,7 @@ pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed st
 pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
 pub mod graph_on_link; // the full graph creation process on file link / file change / workspace load, as wo_graph work-order tasks; per-modality entry concepts (2026-11-11)
 pub mod call_graph; // the system's own call graphs as graph containers (walk / loops / routes), created at boot from assets/call_graphs/system_call_graph.json; live overlay reader (2026-11-11)
+pub mod walk_expansion; // in-walk AMT expansion: discovered branches become AMT nodes + steps + work-order items while the task is open; the completion gate lives in task/mod.rs (2026-11-11)
 pub mod work_order; // the work-order tree: walk → AMT branches → steps, capability-gap checklists; one completion rule, completed is final (2026-11-10)
 pub mod tool_binding; // per-rule tool bindings, missing-capability capture, tool health (2026-11-04)
 pub mod tool_creation; // a tool created on an identified need (E30 `capability_tool_draft`): validated spec, own-folder artifact, stdio registry row, published as a finding (2026-11-10)
@@ -1301,6 +1302,9 @@ pub(crate) struct OrchestrationState {
     /// Capability gaps already JUDGED by the in-walk closure step this walk (lower-cased names) — each gap is judged once, which also
     /// guarantees the closure/re-plan loop terminates.
     pub closure_attempted: std::collections::HashSet<String>,
+    /// AMT branches a step's alignment review discovered WHILE the task is open, not yet expanded into steps (`walk_expansion.rs`): one JSON
+    /// object each `{branch, node_id, step, closed?, methodology_ids?}`. Persisted in the run checkpoint, so a pause never loses a discovered branch.
+    pub walk_expansion: Vec<serde_json::Value>,
     /// Keyword tracking (operator 2026-11-07: "review all keywords … ensure 100%"): how many keywords the model EXTRACTED, how many
     /// remained USABLE after hygiene, and whether the methodology floor was used — surfaced in the Stage 2/3 summaries and walk_metrics.
     pub keywords_extracted: usize,
@@ -2042,6 +2046,7 @@ impl PromptOrchestrator {
             chunk_graph_ids: Vec::new(),
             cross_modal_linked: std::collections::HashSet::new(),
             closure_attempted: std::collections::HashSet::new(),
+            walk_expansion: Vec::new(),
             keywords_extracted: 0,
             floor_used: false,
             replan: false,
@@ -5225,8 +5230,8 @@ impl PromptOrchestrator {
     // STAGES 6-8: Context Aggregation + Task Creation + Step Execution
     // ========================================================================
 
-    /// Hook fires on step completion. Detects graph changes, reviews AMT,
-    /// synthesizes new steps if AMT expanded. This IS the living system.
+    /// Hook fires on step completion. Detects graph changes and reviews the AMT; a discovered branch is queued in `state.walk_expansion`
+    /// and the step loop expands it into steps / work-order items before the next step (`walk_expansion::expand_walk`). This IS the living system.
     async fn on_step_complete(
         &self,
         state: &mut OrchestrationState,
@@ -5266,9 +5271,10 @@ impl PromptOrchestrator {
     Current branches: {}
 
     Did this step's completion reveal any new intents or requirements not already in the AMT?
+    If it revealed new branches, also name any capability they need that no registered tool or pipeline provides (empty when none).
 
     Return ONLY valid JSON:
-    {{"new_intents": [], "new_branches": [], "amt_needs_expansion": false}}"#,
+    {{"new_intents": [], "new_branches": [], "missing_capabilities": [], "amt_needs_expansion": false}}"#,
             step.step_index,
             graphs_updated.join(", "),
             state.amt.as_ref().map(|a| a.content.as_str()).unwrap_or(""),
@@ -5318,8 +5324,10 @@ impl PromptOrchestrator {
                     .unwrap_or(false);
 
                 if amt_expanded {
-                    // New steps will be synthesized at the next iteration of execute_all_steps
-                    // because new intent/branch captures are added here
+                    // WHILE THE TASK IS OPEN (operator 2026-11-11): each discovered branch is captured here AND queued in `state.walk_expansion`;
+                    // the step loop (`stage_6_to_8_execute_steps`) stops before its next step and runs `expand_walk` (walk_expansion.rs):
+                    // an AMT node, the capability closure for the gaps the review named, a step, work-order items. Nothing is dropped.
+                    let mut discovered_any = false;
                     if let Some(new_branches) = v.get("new_branches").and_then(|nb| nb.as_array()) {
                         for branch_val in new_branches {
                             if let Some(branch_str) = branch_val.as_str() {
@@ -5328,8 +5336,10 @@ impl PromptOrchestrator {
                                 });
                                 if !already_exists {
                                     // EVENT (operator 2026-11-11: expansion while the task is open must be visible): the discovered branch is recorded
-                                    // on the run's intent-event log BEFORE it is captured. NOTE (open, see docs/evidence/tool-creation-lifecycle/REPORT.md §4):
-                                    // this walk does not yet synthesize steps for it or re-run the capability closure for it.
+                                    // on the run's intent-event log BEFORE it is captured; `expand_walk` records what it then built for it.
+                                    let node_id = Self::generate_id_static();
+                                    discovered_any = true;
+                                    state.walk_expansion.push(serde_json::json!({"branch": branch_str, "node_id": node_id, "step": step.step_index}));
                                     crate::orchestrator::amt::record_intent_event(
                                         state,
                                         "amt_branch_discovered_in_walk",
@@ -5349,8 +5359,34 @@ impl PromptOrchestrator {
                                             "Discovered during step {} execution",
                                             step.step_index
                                         )],
-                                        node_id: Self::generate_id_static(),
+                                        node_id,
                                     });
+                                }
+                            }
+                        }
+                    }
+                    // the capabilities the review named for the new branches: recorded durably like every other gap, then judged / closed by the
+                    // same closure (strength-N necessity vote, methodology, tool) inside `expand_walk`
+                    if discovered_any {
+                        let named: Vec<String> = v
+                            .get("missing_capabilities")
+                            .and_then(|m| m.as_array())
+                            .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect())
+                            .unwrap_or_default();
+                        if !named.is_empty() {
+                            let gaps: Vec<crate::orchestrator::tool_binding::GapInput> = named
+                                .iter()
+                                .map(|n| crate::orchestrator::tool_binding::GapInput {
+                                    kind: "capability".to_string(),
+                                    name: n.clone(),
+                                    source: "step".to_string(),
+                                    detail: format!("step {}'s alignment review: the branches discovered while the task was open need it", step.step_index),
+                                })
+                                .collect();
+                            crate::orchestrator::tool_binding::record_capability_gaps(&gaps);
+                            for n in named {
+                                if !state.missing_capabilities.iter().any(|m| m["name"].as_str().map(|x| x.eq_ignore_ascii_case(&n)).unwrap_or(false)) {
+                                    state.missing_capabilities.push(serde_json::json!({ "kind": "capability", "name": n, "source": "step", "status": "missing" }));
                                 }
                             }
                         }

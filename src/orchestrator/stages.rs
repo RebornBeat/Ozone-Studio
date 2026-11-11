@@ -2992,7 +2992,6 @@ Return JSON:
         self.write_checkpoint(state, None);
 
         // STAGES 6 & 8: Execute steps
-        let steps = state.blueprint_steps.clone();
         // RESUME: steps whose output is already recorded (restored from the run checkpoint)
         // are complete and are not re-run; a fresh run starts with both sets empty.
         let mut completed: HashSet<u32> = state.step_outputs.keys().cloned().collect();
@@ -3009,6 +3008,12 @@ Return JSON:
             })
             .collect();
 
+        // EXPANSION ROUNDS (operator 2026-11-11: the AMT grows while the task is open; the task completes only when ALL steps complete): the
+        // step queue is built from the plan as it is NOW. When a step's alignment review discovered branches (`state.walk_expansion`) the inner
+        // loop stops before its next step, `expand_walk` turns them into AMT nodes / closed gaps / appended steps / work-order items, and the
+        // next round picks up the remaining + new steps. A round with nothing queued ends the loop, exactly as before.
+        loop {
+        let steps = state.blueprint_steps.clone();
         // Build dependency order
         let mut step_queue: Vec<&BlueprintStep> =
             steps.iter().filter(|s| !completed.contains(&s.step_index)).collect();
@@ -3027,6 +3032,10 @@ Return JSON:
                     tracing::info!("Task {} cancelled — stopping before next step", task_id);
                     break;
                 }
+            }
+            // a step discovered new AMT branches: expand them (below) before the next step starts
+            if !state.walk_expansion.is_empty() {
+                break;
             }
 
             // Find steps whose dependencies are satisfied
@@ -3184,6 +3193,23 @@ Return JSON:
                     }
                 }
             }
+        }
+
+        // the inner loop ended: cancelled → stop; nothing discovered → the plan is complete; else EXPAND and run another round
+        if let Some(task_id) = state.task_id {
+            if self.task_manager.read().await.is_cancelled(task_id).await {
+                break;
+            }
+        }
+        if state.walk_expansion.is_empty() {
+            break;
+        }
+        let discovered_at = state.walk_expansion.first().and_then(|p| p["step"].as_u64()).unwrap_or(0) as u32;
+        if let Err(e) = self.expand_walk(state).await {
+            // FAILURE DOCTRINE: an expansion that cannot be completed pauses the task (queue + checkpoint kept); it is never skipped
+            return Err(self.pause_on_step_error(&*state, discovered_at, &format!("AMT expansion while the task was open: {e}")).await);
+        }
+        self.write_checkpoint(state, None);
         }
 
         // Combine outputs into final response
@@ -4157,11 +4183,17 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     })
                     .collect::<Vec<_>>();
 
-                let _ = self
+                // every step ran: tick the gap `verify` items first (they say "the walk ran all its steps"), then take the COMPLETION GATE
+                // (operator 2026-11-11: a task completes only when ALL its steps and child work are complete; completed is final). Open child
+                // work — an AMT branch/step item, an AMT re-expansion child task, a failed child not superseded — PARKS the task as
+                // `awaiting_children` with its outputs kept; the last child's completion releases it (`TaskManager::release_awaiting`). It is
+                // never completed early and never failed because of a child that is merely still running.
+                self.work_order_walk_done(state).await;
+                let gate = self
                     .task_manager
                     .read()
                     .await
-                    .complete_task(
+                    .complete_or_park(
                         task_id,
                         Some(serde_json::json!({
                             "response": state.final_response,
@@ -4170,7 +4202,18 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                         state.tokens_used_so_far,
                     )
                     .await;
-                self.work_order_walk_done(state).await;
+                match gate {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        tracing::info!(task_id, "task parked as awaiting_children: its response is delivered, completion waits for open child work");
+                        crate::orchestrator::amt::record_intent_event(
+                            state,
+                            "walk_awaiting_children",
+                            serde_json::json!({"task_id": task_id, "note": "all steps ran; child work is still open — the task completes (final) when it does"}),
+                        );
+                    }
+                    Err(e) => tracing::error!(task_id, error = %e, "completion gate: the task record could not be completed or parked"),
+                }
             } else {
                 // The failure keeps its cause: the walk's last attempt (model,
                 // failure_source tag, outcome, next step) is read from the
