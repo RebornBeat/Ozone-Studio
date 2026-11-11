@@ -78,6 +78,15 @@ New in this audit:
 * **R1** created-tool publish has no leak check beyond the prompt (see §2). **R2** imported methodology has no placeholder/empty-rule check (see §2).
 * **R3** `OZONE_MIN_AVAIL_MB` guards the queued-task executor only (see §2).
 
+## 4b. Resolution of the gap list (2026-11-11, operator decisions, docs only)
+
+* **R1** (created-tool publish leak check): DONE in `d572cee` (`tool_creation::PUBLISH_RULES` + deterministic scan + strength-N unanimous vote + methodology draft `30_tool-publish-privacy.json`).
+* **R2** (imported peer methodology placeholder/empty-rule check): DECIDED — **no recheck.** The marketplace validates before download; the accept path (allow-list → local classification → advisory review → operator `download` decision → hash re-verify + JSON validation) stays as is. Not a gap.
+* **R3** (memory floor on interactive walks): DECIDED — apply `OZONE_MIN_AVAIL_MB` to `/orchestrate`, but it PAUSES and resumes; it never skips or stops the walk (implemented by another fork; see its report).
+* **The "Not flipped on purpose" paragraph in §1 is SUPERSEDED** by `d572cee` (`config::switch_on`): `OZONE_REQUIRE_SESSION`, `OZONE_ZSEI_REQUIRE_SESSION`, `OZONE_AUTO_EXECUTE_TASKS`, `OZONE_PURGE_ORPHAN_GLOBALS`, `OZONE_JURISDICTION_FORCE_SYNC`, `OZONE_PROBE_FREE_MODELS` now default ON. `OZONE_KEYWORD_IGNORE_EXPANSION` and `OZONE_KEYWORD_STOPLIST` stay OFF (inverted-polarity measurement toggles; explained in BUILD_AND_TEST_PLAN §6 "DECIDED 2026-11-11": ON for IGNORE_EXPANSION makes search skip every `keyword_meta.source == "expansion"` term (`keyword_program.rs:225-241`); ON for STOPLIST drops ~90 fixed function words from request terms (`request_terms.rs:10-24`)).
+* **F1/F2 fixed numbers:** decided — remove or replace (visited-set cycle check instead of `depth > 64`; host-memory guards instead of term caps; chunk size derived from the reading model's window, never a fixed byte multiple). Implemented by another fork.
+* **The seven `pub` dead-code items (§4 first bullet):** decided — remove when superseded AND captured AND nothing dropped (each has an identified superseder, CHECKLIST L83); removal is another fork's edit together with the doc/registry references.
+
 ## 5. Third-party interaction note
 
 Everything here was read from code; no EU or local host was touched, nothing compiled. The verification of each row above is a first-compile / first-walk job in the plan (§7).
