@@ -1,0 +1,74 @@
+{
+ "slug": "stubs-fail-never-fabricate",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "these shouldn't have been dropped just made to fail and leave as is",
+  "ICP stub that returned an identity transform and a mock 5 mm error"
+ ],
+ "overlap_check": "method_45 (30045) says an unobservable sensor reports unknown; method_36 measures content depth. Not the same. New.",
+ "memory_links": "feedback_ozone_first_taxonomy_test (verify values differ)",
+ "payload": {
+  "action": "Create",
+  "name": "Stubs Fail and Never Fabricate",
+  "description": "An arm that cannot really compute fails explicitly and stays in the code. It never returns invented values and is not deleted. Work that depends on other modalities is left as it is.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Failure is honest, a fake is not",
+    "description": "A mock result passes for a real one downstream; an explicit failure does not.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a comment says 'simulate', 'mock' or 'placeholder' above returned data",
+    "action": "replace the data with a failure"
+   },
+   {
+    "condition": "a result is flagged valid but has an empty payload (zero vertices, empty file)",
+    "action": "treat it as a failure, not a success"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Fail instead of simulating",
+    "condition": "an arm has no real implementation",
+    "outcome": "make it return an explicit failure with a clear reason, never a simulated or constant result",
+    "requires": []
+   },
+   {
+    "name": "Keep the stub",
+    "condition": "an arm is found to be fabricated",
+    "outcome": "do not delete it; leave it in place as a failing arm and list it as pending work",
+    "requires": []
+   },
+   {
+    "name": "Leave dependent work alone",
+    "condition": "an arm depends on another modality",
+    "outcome": "leave it as it is, still failing, until the dependency is real",
+    "requires": []
+   },
+   {
+    "name": "Verify values differ",
+    "condition": "a result is described as analysis",
+    "outcome": "compare outputs across different inputs to show they are not constants",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "stub",
+   "fabricated",
+   "fail",
+   "modality",
+   "mock",
+   "placeholder"
+  ],
+  "topics": [
+   "honesty",
+   "quality"
+  ]
+ }
+}

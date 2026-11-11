@@ -1,0 +1,30 @@
+{
+ "slug": "refine-measure-before-capping",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Tune From Measured Metrics, Never Preemptive Caps",
+ "target_hint": "30038 (method_38)",
+ "source_quotes": [
+  "The 5 check loop is fine I mean you will waste loops confirming it or how many loops is needed per prompt leave it."
+ ],
+ "overlap_check": "Adds the stop condition to 38's measure-first rule. Lives with 38 instead of a new methodology.",
+ "memory_links": "feedback_dont_oververify_working_params",
+ "payload": {
+  "action": "Update",
+  "add_principles": null,
+  "add_heuristics": [
+   {
+    "condition": "a tuning discussion repeats a count that already works",
+    "action": "move on to the next real issue"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Stop re-tuning a working value",
+    "condition": "a parameter (loop count, interval, pass count) already gives acceptable real behavior after a live check",
+    "outcome": "leave it; do not keep re-verifying or re-pinning its exact value unless it causes errors, timeouts or wrong results",
+    "requires": []
+   }
+  ]
+ }
+}

@@ -1,0 +1,63 @@
+{
+ "slug": "confirm-ambiguous-revert-direction",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "leave the confidence too back to ... keep the code keep what you reverted",
+  "confirm garbled keep/revert; flipped confidence handling 5 times"
+ ],
+ "overlap_check": "No existing methodology. New. Small.",
+ "memory_links": "feedback_confirm_ambiguous_revert_direction",
+ "payload": {
+  "action": "Create",
+  "name": "Confirm Ambiguous Keep or Revert Instructions",
+  "description": "When an instruction to keep, revert or leave something is ambiguous and touches a recorded doctrine, the doctrine's state is kept and one short question is asked, instead of guessing.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A guess re-touches every file",
+    "description": "Flipping a decision back and forth multiplies edits and hides the real state.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "the same area was changed back and forth in this session",
+    "action": "stop and ask before a third change"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Keep the recorded state",
+    "condition": "a keep, revert or leave instruction is unclear and concerns a recorded doctrine",
+    "outcome": "leave the doctrine's current state unchanged",
+    "requires": []
+   },
+   {
+    "name": "Ask one line",
+    "condition": "the instruction stays ambiguous",
+    "outcome": "ask one short question naming both readings, then act on the answer",
+    "requires": []
+   },
+   {
+    "name": "Record the final state",
+    "condition": "the direction is confirmed",
+    "outcome": "record it in the memory and the checklist so the next session does not flip it",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "revert",
+   "ambiguous",
+   "doctrine",
+   "confirm",
+   "keep"
+  ],
+  "topics": [
+   "instructions",
+   "process"
+  ]
+ }
+}

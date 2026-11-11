@@ -1,0 +1,86 @@
+{
+ "slug": "work-order-completion-is-final",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "checklist completion = step completion = task completion; AMT expansion included as new items; completed is final; a rerun is a new task instance, graft or branch",
+  "No auto-continue past a failure. A failed step PAUSES the task"
+ ],
+ "overlap_check": "method_43 (30043) says every failure marks state truthfully; this one is about completion, reruns and pause. Cross-reference only.",
+ "memory_links": "feedback_ozone_doctrines_2026_11; operator prompt [150]",
+ "payload": {
+  "action": "Create",
+  "name": "Work Order Completion Is Final",
+  "description": "A checklist item, a step and a task complete together and stay complete. A rerun is a new task instance or graft. A failure pauses the work at the exact step so it can resume.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Completed is completed",
+    "description": "History is not reopened; a replay or a rerun adds to it.",
+    "priority": 5
+   },
+   {
+    "name": "Failure pauses",
+    "description": "The system does not walk past a failed step.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a UI shows a completed item that can be pressed again",
+    "action": "replace the action with 'rerun as new'"
+   },
+   {
+    "condition": "a task shows two completion states",
+    "action": "check that the checklist and the step are one record"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Completion is one thing",
+    "condition": "a checklist item, step or task finishes",
+    "outcome": "mark them complete together; checklist completion is step completion is task completion",
+    "requires": []
+   },
+   {
+    "name": "Completed is final",
+    "condition": "a completed task or step needs to be done again",
+    "outcome": "do not reopen it; create a new task instance, graft or branch that records its relation to the original (rerun_of)",
+    "requires": []
+   },
+   {
+    "name": "Expansion adds items",
+    "condition": "the AMT expands a step",
+    "outcome": "add the expansion as new checklist items or child tasks under the step",
+    "requires": []
+   },
+   {
+    "name": "Pause at the failed step",
+    "condition": "a step fails",
+    "outcome": "pause the task so it can resume from exactly that step, and never continue past the failure",
+    "requires": []
+   },
+   {
+    "name": "Keep replay possible",
+    "condition": "a task completes",
+    "outcome": "keep its record so it can be replayed and edited as a new instance",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "work order",
+   "checklist",
+   "task",
+   "step",
+   "rerun",
+   "graft",
+   "pause"
+  ],
+  "topics": [
+   "tasks",
+   "orchestration"
+  ]
+ }
+}

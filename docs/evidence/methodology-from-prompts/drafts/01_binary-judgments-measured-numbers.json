@@ -1,0 +1,88 @@
+{
+ "slug": "binary-judgments-measured-numbers",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we do not like using confidence as its a false conficende and its yes or no why we have the loop",
+  "hotness = observed use only; no fabricated metrics anywhere (AGENTS.md)",
+  "the yes/no, NO-confidence version is the state"
+ ],
+ "overlap_check": "method_32 (30032) is about the calibration bar of a self-assessing prompt; method_44 (30044) meters usage. Neither says judgments are binary or that numbers need provenance. New.",
+ "memory_links": "feedback_no_self_reported_confidence; feedback_confirm_ambiguous_revert_direction; AGENTS.md house rules",
+ "payload": {
+  "action": "Create",
+  "name": "Binary Judgments and Measured Numbers",
+  "description": "Judgments are yes or no confirmed by repetition; every stored number is a measured count with provenance or is absent. Covers confidence, importance, hotness, scores and reported figures.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A model's self-score is not evidence",
+    "description": "Repeated binary confirmation is evidence; a 0.0 to 1.0 number the model made up about itself is not.",
+    "priority": 5
+   },
+   {
+    "name": "Absence is honest",
+    "description": "A value nobody measured is stored as absent, never as a default that looks like a measurement.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a threshold such as 'score at least 0.7' appears in code or a prompt",
+    "action": "replace it with a yes or no judgment confirmed by votes or with a count of observed events"
+   },
+   {
+    "condition": "a hotness or importance literal sits in a builder next to real logic",
+    "action": "replace the literal with a value derived from observed use, or remove it"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Judge by yes or no",
+    "condition": "a decision needs a model's judgment (keep, drop, relevant, applicable, safe)",
+    "outcome": "ask a yes or no question and confirm it through the configured strength-N consecutive votes; do not ask for or store a confidence, importance or probability",
+    "requires": []
+   },
+   {
+    "name": "Weigh by class, not by score",
+    "condition": "a relationship, edge or result needs a weight or rank",
+    "outcome": "derive it from the relationship class, from verification, or from counts of observed events; a relationship an affirmed judgment found is present, otherwise absent",
+    "requires": []
+   },
+   {
+    "name": "Store only measured numbers",
+    "condition": "a number is about to be written to a container, ledger, report or document",
+    "outcome": "write it only if a non-model source measured it and record where it came from; if nothing measured it write absent (None, false or no field), never an invented default",
+    "requires": []
+   },
+   {
+    "name": "Remove, do not default",
+    "condition": "a missing confidence or score is reported as a defect",
+    "outcome": "remove the field and its readers instead of supplying a default value such as 0.5",
+    "requires": []
+   },
+   {
+    "name": "Label derived figures",
+    "condition": "a figure in a report is computed or counted from other figures rather than measured on the real system",
+    "outcome": "state in the report that it is derived and from what, so a derived count is not read as a measurement",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "confidence",
+   "yes or no",
+   "strength-N",
+   "provenance",
+   "measured",
+   "hotness",
+   "votes"
+  ],
+  "topics": [
+   "judgment",
+   "validation",
+   "metrics"
+  ]
+ }
+}

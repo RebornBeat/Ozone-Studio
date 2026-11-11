@@ -1,0 +1,75 @@
+{
+ "slug": "model-routing-respects-operator-chain",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we shouldn't replace the fallback chain this is the fallback for openrouter/free itself",
+  "no paid fallback ... quota share no we don't limit per group; it runs out as it runs out",
+  "EU has no bitnet and set EU config to no fallback meaning yes it is meant to pause"
+ ],
+ "overlap_check": "No existing methodology on model routing. New.",
+ "memory_links": "feedback_no_paid_no_quota_policy_train_forever",
+ "payload": {
+  "action": "Create",
+  "name": "Model Routing Respects the Operator's Chain",
+  "description": "The operator defines the model fallback chain. It is not replaced, no paid fallback is added, and quotas are not shared or gated. openrouter/free handles its own rotation inside that chain.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "The chain is the operator's",
+    "description": "Fallbacks and costs are the operator's choice; the system works within them.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "rate limits appear",
+    "action": "read the host logs for the per-minute limit before changing anything"
+   },
+   {
+    "condition": "a proposal adds a model tier or replacement",
+    "action": "check whether it replaces the operator's chain"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Leave the chain alone",
+    "condition": "a change touches model fallbacks",
+    "outcome": "keep the configured chain as it is (local if enabled for local, free for the VPS) and add nothing paid",
+    "requires": []
+   },
+   {
+    "name": "Handle free rotation inside the free route",
+    "condition": "a free model is unusable",
+    "outcome": "mark it unusable within openrouter/free and use the :free identifiers to pick a usable one; do not pull models out of openrouter/free to lead elsewhere",
+    "requires": []
+   },
+   {
+    "name": "Let quotas run out",
+    "condition": "a quota is exhausted",
+    "outcome": "pause and resume when it recovers; do not build sharing, grouping or gating for it",
+    "requires": []
+   },
+   {
+    "name": "No fallback means pause",
+    "condition": "a host is configured with no fallback",
+    "outcome": "let the work pause when the model is unavailable and not interfere",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "fallback chain",
+   "openrouter",
+   "free models",
+   "quota",
+   "pause",
+   "routing"
+  ],
+  "topics": [
+   "models",
+   "configuration"
+  ]
+ }
+}

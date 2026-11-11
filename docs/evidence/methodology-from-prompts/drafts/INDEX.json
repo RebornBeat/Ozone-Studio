@@ -1,0 +1,263 @@
+[
+ {
+  "file": "01_binary-judgments-measured-numbers.json",
+  "slug": "binary-judgments-measured-numbers",
+  "kind": "create",
+  "status": "ready",
+  "name": "Binary Judgments and Measured Numbers",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "02_chunk-to-the-window-never-cap-or-refuse.json",
+  "slug": "chunk-to-the-window-never-cap-or-refuse",
+  "kind": "create",
+  "status": "ready",
+  "name": "Chunk to the Reading Model's Window",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "03_zero-shot-calls-are-never-dropped.json",
+  "slug": "zero-shot-calls-are-never-dropped",
+  "kind": "create",
+  "status": "ready",
+  "name": "Zero-Shot Calls Are Never Dropped",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "04_optimized-routes-are-added-beside.json",
+  "slug": "optimized-routes-are-added-beside",
+  "kind": "create",
+  "status": "ready",
+  "name": "Optimized Routes Sit Beside the Sequential Path",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "05_stored-values-are-read-as-stored.json",
+  "slug": "stored-values-are-read-as-stored",
+  "kind": "create",
+  "status": "ready",
+  "name": "Stored Values Are Read as Stored",
+  "rules": 3,
+  "heuristics": 2
+ },
+ {
+  "file": "06_removal-gates-need-evidence.json",
+  "slug": "removal-gates-need-evidence",
+  "kind": "create",
+  "status": "ready",
+  "name": "Gates That Remove Data Must See Evidence",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "07_keyword-capture-validated-and-hit-driven.json",
+  "slug": "keyword-capture-validated-and-hit-driven",
+  "kind": "create",
+  "status": "ready",
+  "name": "Keyword Capture Validated and Hit Driven",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "08_training-never-stops.json",
+  "slug": "training-never-stops",
+  "kind": "create",
+  "status": "ready",
+  "name": "Learning Models Train Continuously",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "09_p2p-notify-and-gate.json",
+  "slug": "p2p-notify-and-gate",
+  "kind": "create",
+  "status": "ready",
+  "name": "Peer Marketplace Notifies and Gates",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "10_capability-closure-create-on-need.json",
+  "slug": "capability-closure-create-on-need",
+  "kind": "create",
+  "status": "ready",
+  "name": "Create What Is Missing On Identified Need",
+  "rules": 5,
+  "heuristics": 3
+ },
+ {
+  "file": "11_work-order-completion-is-final.json",
+  "slug": "work-order-completion-is-final",
+  "kind": "create",
+  "status": "ready",
+  "name": "Work Order Completion Is Final",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "12_gates-await-never-fail-open.json",
+  "slug": "gates-await-never-fail-open",
+  "kind": "create",
+  "status": "ready",
+  "name": "Gates That Cannot Judge Await",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "13_third-party-verification-through-ozone.json",
+  "slug": "third-party-verification-through-ozone",
+  "kind": "create",
+  "status": "ready",
+  "name": "Verify Ozone Through Ozone as a Third Party",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "14_verification-lives-outside-production-code.json",
+  "slug": "verification-lives-outside-production-code",
+  "kind": "create",
+  "status": "needs_confirm",
+  "name": "Verification Lives Outside Production Code",
+  "rules": 3,
+  "heuristics": 1
+ },
+ {
+  "file": "15_local-first-then-sync-eu.json",
+  "slug": "local-first-then-sync-eu",
+  "kind": "create",
+  "status": "ready",
+  "name": "Local First Then Sync to the EU",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "16_review-uncompiled-edits-like-a-compiler.json",
+  "slug": "review-uncompiled-edits-like-a-compiler",
+  "kind": "create",
+  "status": "ready",
+  "name": "Review Parse-Only Edits Like a Compiler",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "17_remove-only-what-is-superseded.json",
+  "slug": "remove-only-what-is-superseded",
+  "kind": "create",
+  "status": "ready",
+  "name": "Remove Only What Is Shown To Be Superseded",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "18_automatic-behaviors-have-switches-default-on.json",
+  "slug": "automatic-behaviors-have-switches-default-on",
+  "kind": "create",
+  "status": "ready",
+  "name": "Automatic Behaviors Have Switches Default On",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "19_ozone-first-taxonomy-test.json",
+  "slug": "ozone-first-taxonomy-test",
+  "kind": "create",
+  "status": "ready",
+  "name": "Ask What Ozone Already Owns First",
+  "rules": 4,
+  "heuristics": 1
+ },
+ {
+  "file": "20_stubs-fail-never-fabricate.json",
+  "slug": "stubs-fail-never-fabricate",
+  "kind": "create",
+  "status": "ready",
+  "name": "Stubs Fail and Never Fabricate",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "21_methodology-authoring-all-rules-apply.json",
+  "slug": "methodology-authoring-all-rules-apply",
+  "kind": "create",
+  "status": "ready",
+  "name": "Authoring a Sound Methodology",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "22_blueprint-rules-to-steps.json",
+  "slug": "blueprint-rules-to-steps",
+  "kind": "create",
+  "status": "ready",
+  "name": "Blueprint Steps Come From Rules",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "23_model-routing-respects-operator-chain.json",
+  "slug": "model-routing-respects-operator-chain",
+  "kind": "create",
+  "status": "ready",
+  "name": "Model Routing Respects the Operator's Chain",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "24_confirm-ambiguous-revert-direction.json",
+  "slug": "confirm-ambiguous-revert-direction",
+  "kind": "create",
+  "status": "ready",
+  "name": "Confirm Ambiguous Keep or Revert Instructions",
+  "rules": 3,
+  "heuristics": 1
+ },
+ {
+  "file": "25_process-control-by-pid.json",
+  "slug": "process-control-by-pid",
+  "kind": "create",
+  "status": "ready",
+  "name": "Control Processes by PID",
+  "rules": 2,
+  "heuristics": 1
+ },
+ {
+  "file": "26_modality-call-graph-rule-and-fan-out.json",
+  "slug": "modality-call-graph-rule-and-fan-out",
+  "kind": "create",
+  "status": "needs_confirm",
+  "name": "Every Modality Has a Call Graph Rule",
+  "rules": 3,
+  "heuristics": 1
+ },
+ {
+  "file": "27_refine-contextual-awareness.json",
+  "slug": "refine-contextual-awareness",
+  "kind": "update",
+  "status": "ready",
+  "name": "Contextual Awareness",
+  "rules": 3,
+  "heuristics": 1
+ },
+ {
+  "file": "28_refine-measure-before-capping.json",
+  "slug": "refine-measure-before-capping",
+  "kind": "update",
+  "status": "ready",
+  "name": "Tune From Measured Metrics, Never Preemptive Caps",
+  "rules": 1,
+  "heuristics": 1
+ },
+ {
+  "file": "29_refine-enforcement-actions-act.json",
+  "slug": "refine-enforcement-actions-act",
+  "kind": "update",
+  "status": "ready",
+  "name": "Enforcement Actions Need Real Behavior, Not Just Labels",
+  "rules": 1,
+  "heuristics": 1
+ }
+]

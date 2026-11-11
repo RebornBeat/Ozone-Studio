@@ -1,0 +1,74 @@
+{
+ "slug": "gates-await-never-fail-open",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "Consciousness/meta gates are decided only by meta. If meta cannot judge the walk AWAITS durably and re-judges only unjudged chunks — never fail open, never a human",
+  "the gate isn't per rule all rules we aggregate ... we notify the refinement meta loop"
+ ],
+ "overlap_check": "method_30 (30030) is about enforcement severity; nothing covers awaiting gates. New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11; project_sound_methodology_all_rules_apply",
+ "payload": {
+  "action": "Create",
+  "name": "Gates That Cannot Judge Await",
+  "description": "A gate decided by meta awaits durably when it cannot judge and re-judges only what was not judged. It never fails open and never hands a meta decision to a human, except for jurisdiction confirmation.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A gate is a decision",
+    "description": "If it cannot decide, the answer is not 'allow'; the walk waits.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a gate has a default for when the model fails",
+    "action": "remove the default and make it await"
+   },
+   {
+    "condition": "a rule is judged inapplicable repeatedly",
+    "action": "notify the refinement meta loop; it is a signal to split or refine the methodology"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Never fail open",
+    "condition": "a meta gate cannot judge (rate limit, empty response, all calls failed)",
+    "outcome": "await durably and retry; do not allow, deny or skip",
+    "requires": []
+   },
+   {
+    "name": "Re-judge only the unjudged",
+    "condition": "a gate resumes after waiting",
+    "outcome": "re-judge only the chunks that have no judgment, keeping the ones already judged",
+    "requires": []
+   },
+   {
+    "name": "Humans only for jurisdiction",
+    "condition": "a gate decision is needed",
+    "outcome": "let meta decide; ask a human only for a jurisdiction RequireConfirmation, through the modal",
+    "requires": []
+   },
+   {
+    "name": "Record uncovered rules",
+    "condition": "a rule was never judged applicable or inapplicable",
+    "outcome": "record the uncovered rule as an event for the refinement loop",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "gate",
+   "await",
+   "meta",
+   "jurisdiction",
+   "fail open",
+   "refinement"
+  ],
+  "topics": [
+   "gates",
+   "reliability"
+  ]
+ }
+}

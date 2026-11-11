@@ -1,0 +1,81 @@
+{
+ "slug": "local-first-then-sync-eu",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "the fixes you are making local first and then syncing to EU correct?",
+  "fixes again fixes while testing EU go local first and then sync even though EU is running no fallback",
+  "local first then sync EU (diff EU vs local before deploy)"
+ ],
+ "overlap_check": "method_16 (30016) host lifecycle and method_17 build sequencing cover restart and builds; vps_secure_deployment_eu covers hardening. None says local first. New.",
+ "memory_links": "feedback_local_first_then_sync_eu",
+ "payload": {
+  "action": "Create",
+  "name": "Local First Then Sync to the EU",
+  "description": "Source edits happen on the local tree. The EU host is synced from local and built there only when needed. Before any EU deploy the two are diffed so nothing that exists only on the EU is lost.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "One source of truth",
+    "description": "Editing the EU first leaves local outdated and drops work later.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "the EU has pipelines built that local lacks",
+    "action": "expect this and reconcile through the diff, not by dropping them"
+   },
+   {
+    "condition": "a deploy needs a restart",
+    "action": "back up the running binary under a timestamped name first and record the rollback"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Edit local first",
+    "condition": "a source change is needed",
+    "outcome": "make it in the local tree; never edit the EU first, even while the EU is under test",
+    "requires": []
+   },
+   {
+    "name": "Diff before deploy",
+    "condition": "a deploy to the EU is about to start",
+    "outcome": "diff the EU tree against local by hash, and bring anything present or newer only on the EU into local first",
+    "requires": []
+   },
+   {
+    "name": "Never overwrite blindly",
+    "condition": "local and EU differ",
+    "outcome": "do not copy EU over local without a reviewed diff; list EU-only files without deleting them",
+    "requires": []
+   },
+   {
+    "name": "Ship paired parts together",
+    "condition": "a host binary or tool changes",
+    "outcome": "deploy it together with the shared files it depends on (for example tools/shared/guard.mjs)",
+    "requires": []
+   },
+   {
+    "name": "Keep data changes reversible",
+    "condition": "data on the EU is changed",
+    "outcome": "save before-copies under docs/evidence and note how to restore them, and change nothing the operator did not allow",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "local first",
+   "EU sync",
+   "deploy",
+   "diff",
+   "rollback",
+   "before-copy"
+  ],
+  "topics": [
+   "deployment",
+   "operations"
+  ]
+ }
+}

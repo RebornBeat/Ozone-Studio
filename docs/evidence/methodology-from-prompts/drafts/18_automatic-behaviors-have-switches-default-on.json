@@ -1,0 +1,85 @@
+{
+ "slug": "automatic-behaviors-have-switches-default-on",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "all switches should be default to on, I know the ones in local we have some off but that's config settings for local only ... all switches we leave on in EU and leave the ones off for local",
+  "ensure everything has guardrails running through it ... step action blueprints once created goes through reviews in the following stages"
+ ],
+ "overlap_check": "method_31 (30031) says verify what is actually active; that is the check side of this. Cross-reference. New.",
+ "memory_links": "",
+ "payload": {
+  "action": "Create",
+  "name": "Automatic Behaviors Have Switches Default On",
+  "description": "Every automatic behavior passes through the guardrail path and has a named kill switch that defaults to on. A host turns a behavior off in its own configuration; the shipped default stays on.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Defaults are the product",
+    "description": "What ships is on; an off state is a local choice recorded in config.",
+    "priority": 5
+   },
+   {
+    "name": "A switch never changes a guard",
+    "description": "Turning a behavior off stops it from running; it never changes what a guard decides.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a behavior has no way to turn it off",
+    "action": "add the switch before it is deployed"
+   },
+   {
+    "condition": "a plan says 'deploy with the switches off'",
+    "action": "check the operator's ruling: the shipped default stays on and the hosts opt out in their config"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Give it a switch",
+    "condition": "an automatic behavior is added (a loop, publisher, creator, gate or actor)",
+    "outcome": "give it a named switch read from configuration or environment, documented with the behavior",
+    "requires": []
+   },
+   {
+    "name": "Default on",
+    "condition": "the switch is defined",
+    "outcome": "make the default on; a host that wants it off sets it off in its own config",
+    "requires": []
+   },
+   {
+    "name": "Pass through guardrails",
+    "condition": "the behavior acts",
+    "outcome": "route the action through the guardrail path (rule gate, jurisdiction, approval, review stages) before it has effect",
+    "requires": []
+   },
+   {
+    "name": "Record host state",
+    "condition": "a host runs with a switch off",
+    "outcome": "note which switches are off on which host and why, so the state is known and not assumed",
+    "requires": []
+   },
+   {
+    "name": "Review created actions",
+    "condition": "a blueprint step or action is created",
+    "outcome": "let it pass each review stage that follows creation, and capture each review result",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "kill switch",
+   "default on",
+   "guardrails",
+   "configuration",
+   "review stages",
+   "behaviors"
+  ],
+  "topics": [
+   "configuration",
+   "safety"
+  ]
+ }
+}

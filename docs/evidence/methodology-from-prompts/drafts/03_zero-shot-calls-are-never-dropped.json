@@ -1,0 +1,80 @@
+{
+ "slug": "zero-shot-calls-are-never-dropped",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we do not drop intelligence we do not drop zero shot calls",
+  "never skip due to no methodology",
+  "An empty/missing response is a failed call, never a silent {}"
+ ],
+ "overlap_check": "method_43 (30043) names failure states for background runs; method_35 (30035) rescues JSON from noise. Neither forbids dropping or defaulting a call. New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11; AGENTS.md; ZERO_SHOT_EXPANSION_GUIDE",
+ "payload": {
+  "action": "Create",
+  "name": "Zero-Shot Calls Are Never Dropped",
+  "description": "A model call that supplies intelligence is kept. A missing or empty answer is a failed call. Speed comes from batching, concurrency and reuse that keep every judgment, never from skipping the call.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Do not drop intelligence",
+    "description": "Removing a judgment to save time silently lowers what the system understands.",
+    "priority": 5
+   },
+   {
+    "name": "An empty answer is a failure",
+    "description": "An empty, missing or unparseable response carries no judgment and must not be read as one.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a stage reports success with no model output",
+    "action": "verify the stage was not given a silent default for an empty response"
+   },
+   {
+    "condition": "a prompt template drops instructions to fit",
+    "action": "stop and fix the fit by chunking; instructions are never the part that is dropped"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Empty is a failed call",
+    "condition": "a model response is empty, missing, unparseable or all-failed",
+    "outcome": "record the failure, retry or await it, and fail or pause the stage; never substitute {}, [], a default or 'nothing found'",
+    "requires": []
+   },
+   {
+    "name": "Keep the call",
+    "condition": "a call is slow or costly and someone proposes skipping or shortcutting it",
+    "outcome": "keep the call and shorten the time by batching several independent yes or no questions into one call, reusing stored analyses, or running independent calls concurrently, with each judgment still separate",
+    "requires": []
+   },
+   {
+    "name": "Keep the vote semantics",
+    "condition": "calls are batched or concurrent",
+    "outcome": "preserve each question's own strength-N confirmation and the unanimity needed to drop, so batching never turns many judgments into one",
+    "requires": []
+   },
+   {
+    "name": "Register a new call site",
+    "condition": "a new zero-shot call is added",
+    "outcome": "register it in the zero-shot call registry, the call route registry and the zero-shot expansion guide, with its prompt, route and failure handling",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "zero-shot",
+   "model calls",
+   "empty response",
+   "batching",
+   "call registry",
+   "expansion guide"
+  ],
+  "topics": [
+   "zero-shot",
+   "reliability"
+  ]
+ }
+}

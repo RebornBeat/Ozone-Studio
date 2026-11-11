@@ -1,0 +1,80 @@
+{
+ "slug": "review-uncompiled-edits-like-a-compiler",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "review all, finalize all edits, ensure all captured while builds/tests were locked",
+  "no build no test ... ensure everything is aligned"
+ ],
+ "overlap_check": "method_4 (30004) is general code review; method_7 and method_28 are test practice. None addresses reviewing unbuilt edits. New.",
+ "memory_links": "feedback_review_uncompiled_diffs_like_a_compiler",
+ "payload": {
+  "action": "Create",
+  "name": "Review Parse-Only Edits Like a Compiler",
+  "description": "Edits that were only parsed are not verified. Before they are called final, the whole diff is read for what a compiler and a test would find, and every bug class found is searched for everywhere.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Parsing proves syntax",
+    "description": "A formatter passes code a compiler would reject or a test would fail.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "edits are described as finalized while the build is locked",
+    "action": "list what has never compiled and expect errors on the first real check"
+   },
+   {
+    "condition": "a data reader looks only in one directory",
+    "action": "check every reader of the same stored path for the same blind spot"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Diff against the last good build",
+    "condition": "edits exist that were never compiled or tested",
+    "outcome": "diff them against the last commit that was compiled and deployed and read every hunk",
+    "requires": []
+   },
+   {
+    "name": "Read for compiler faults",
+    "condition": "each hunk is read",
+    "outcome": "check await inside non-async closures, values moved then reused, wrong argument counts, missing module declarations, imports and struct fields, and dependencies that were never added",
+    "requires": []
+   },
+   {
+    "name": "Search the same class everywhere",
+    "condition": "a defect is found",
+    "outcome": "grep for the same pattern in every other place (every reader of a path, every await in a closure) before moving on",
+    "requires": []
+   },
+   {
+    "name": "Check what a removed helper guaranteed",
+    "condition": "a helper or reader is deleted",
+    "outcome": "find what it used to guarantee and where that guarantee now lives",
+    "requires": []
+   },
+   {
+    "name": "Capture the review",
+    "condition": "the review is done",
+    "outcome": "record it with the checklist and the status document, and say it was a reading, not a build",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "code review",
+   "uncompiled",
+   "compiler",
+   "diff",
+   "parse-only",
+   "bug class"
+  ],
+  "topics": [
+   "code review",
+   "quality"
+  ]
+ }
+}

@@ -1,0 +1,64 @@
+{
+ "slug": "modality-call-graph-rule-and-fan-out",
+ "kind": "create",
+ "status": "needs_confirm",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "with coding we have the call graphs and then entries ... we need to identify the rule of the callgraph for all others as well and relationships",
+  "I want in the UI to see the call graphs even without running a prompt ... these are created on workspace load or should all be automatically no?"
+ ],
+ "overlap_check": "Not covered. NEEDS CONFIRM: 'should all be automatically no?' is a question; whether call graphs are built on load is for the operator.",
+ "memory_links": "",
+ "payload": {
+  "action": "Create",
+  "name": "Every Modality Has a Call Graph Rule",
+  "description": "Each modality defines its entry points, its call graph and its relationships as the rule for how work fans out, so they can be shown and animated before any prompt is run.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Fan-out follows the modality's own structure",
+    "description": "Code has call graphs and entries; every other modality needs the equivalent rule.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a modality has no fan-out rule",
+    "action": "list it as pending work and do not invent one"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Define the rule per modality",
+    "condition": "a modality graph is built",
+    "outcome": "identify its entries, call graph and relationships and store them as that modality's fan-out rule",
+    "requires": []
+   },
+   {
+    "name": "Build on load",
+    "condition": "a workspace is loaded",
+    "outcome": "create the call graph containers for its modalities as part of load, not only when a prompt arrives",
+    "requires": []
+   },
+   {
+    "name": "Show it without a prompt",
+    "condition": "the UI opens a workspace",
+    "outcome": "display the call graphs and fan-out from stored containers; a prompt adds the live view on top",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "call graph",
+   "fan-out",
+   "modality",
+   "entries",
+   "workspace load",
+   "visualization"
+  ],
+  "topics": [
+   "modalities",
+   "UI"
+  ]
+ }
+}

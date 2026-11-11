@@ -1,0 +1,57 @@
+{
+ "slug": "process-control-by-pid",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "never pkill -f / pgrep -f own text (killed my shell 3 times)"
+ ],
+ "overlap_check": "method_16 (30016) covers host lifecycle; its R0 already covers not spawning host processes (not repeated). New otherwise.",
+ "memory_links": "feedback_confirm_ambiguous_revert_direction",
+ "payload": {
+  "action": "Create",
+  "name": "Control Processes by PID",
+  "description": "Processes are found and stopped by exact name or PID, never by matching text that also appears in the command that is searching, which can kill the shell itself.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A search can match itself",
+    "description": "Matching on command text finds the searching shell too.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a shell dies right after a pkill or pgrep -f",
+    "action": "suspect a self-match before suspecting anything else"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Match exact",
+    "condition": "a process must be found",
+    "outcome": "use an exact-name match (pgrep -x) or a PID from a pid file, not -f with text that appears in the command",
+    "requires": []
+   },
+   {
+    "name": "Kill by pid",
+    "condition": "a process must be stopped",
+    "outcome": "kill the PID that was found and confirm it is the intended process first",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "pgrep",
+   "pkill",
+   "process",
+   "pid",
+   "shell",
+   "kill"
+  ],
+  "topics": [
+   "operations",
+   "safety"
+  ]
+ }
+}

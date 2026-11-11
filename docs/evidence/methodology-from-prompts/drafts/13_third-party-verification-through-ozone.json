@@ -1,0 +1,86 @@
+{
+ "slug": "third-party-verification-through-ozone",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "this isn't a test for you this is a Ozone-Studio test directly",
+  "you should now be working evidenced through Ozone-Studio you have a MCP set up as well ... you are interacting with Ozone-Studio as a 3rd party",
+  "Ozone does the work natively"
+ ],
+ "overlap_check": "method_20 (30020) already covers verifying other agents' claims, method_49 (30049) real substrate, method_50 acting through the network. R2-R4 here lean on them; they are kept so this methodology stands alone but should be merged into 30020/30049 at review if the operator prefers.",
+ "memory_links": "feedback_ozone_does_the_work_native; feedback_no_mocks_test_real; persistent_cache_and_verification_discipline",
+ "payload": {
+  "action": "Create",
+  "name": "Verify Ozone Through Ozone as a Third Party",
+  "description": "A test of Ozone-Studio is an Ozone test: the work is submitted through the orchestrate route and Ozone's own modalities, graphs and tools do it. The agent observes and verifies independently as a third party.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "The test is Ozone's",
+    "description": "Calling a tool directly proves the tool, not Ozone.",
+    "priority": 5
+   },
+   {
+    "name": "Reports are claims",
+    "description": "A fork's, another agent's or one's own report is checked against real data before it is repeated.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a result appears only in an agent's own summary",
+    "action": "find the file, row or log line that proves it"
+   },
+   {
+    "condition": "a tool is called directly for convenience",
+    "action": "ask what it proves about Ozone before continuing"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Drive through Ozone",
+    "condition": "a mini project or end-to-end check is run",
+    "outcome": "submit the request through /orchestrate and let Ozone use its modalities, graphs and tools; direct tool runs are only prototypes of tool code",
+    "requires": []
+   },
+   {
+    "name": "Observe as a third party",
+    "condition": "work is in progress",
+    "outcome": "read results through the same interfaces any outside party has (routes, MCP tools, ledgers, logs) and edit code only through the normal edit path",
+    "requires": []
+   },
+   {
+    "name": "Verify on real data",
+    "condition": "a report says something is done",
+    "outcome": "check it against real data, a real run or a fresh read before stating it as fact",
+    "requires": []
+   },
+   {
+    "name": "Label what was not run",
+    "condition": "a check was parse-only, derived or mock based",
+    "outcome": "say so in the result and schedule the real run",
+    "requires": []
+   },
+   {
+    "name": "Record the evidence",
+    "condition": "a verification finishes",
+    "outcome": "write what was run, the real output and what was not run to a docs evidence file",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "verification",
+   "orchestrate",
+   "third party",
+   "evidence",
+   "real data",
+   "end to end"
+  ],
+  "topics": [
+   "testing",
+   "verification"
+  ]
+ }
+}

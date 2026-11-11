@@ -1,0 +1,67 @@
+{
+ "slug": "stored-values-are-read-as-stored",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "WHY WOULDN'T we trust a stored value if we stored it and or already reviewed it for it to be stored? wouldn't this add computational cost for no reason?"
+ ],
+ "overlap_check": "method_22/23/25/40 cover durable-versus-cache parity and write/read path tracing; they do not say to trust stored values or fix the writer. Write/read path tracing is left to method_25 (not repeated here).",
+ "memory_links": "feedback_trust_stored_hotness; persistent_cache_and_verification_discipline",
+ "payload": {
+  "action": "Create",
+  "name": "Stored Values Are Read as Stored",
+  "description": "A value that was stored after review is trusted when read. A wrong stored value is corrected at its writer and in the stored data, not recomputed on every read.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Storing is the commitment",
+    "description": "If a value was reviewed to be stored, recomputing it at read time costs work and hides the real defect.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a reader contains a fallback that recomputes a stored field",
+    "action": "replace the fallback by a fix to the writer"
+   },
+   {
+    "condition": "a cache holds a field that the durable record lacks",
+    "action": "persist the field or remove the cache"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Read stored values as they are",
+    "condition": "code reads a value that a writer stored",
+    "outcome": "use it unchanged; do not recompute, rescale or second-guess it at read time",
+    "requires": []
+   },
+   {
+    "name": "Fix the writer",
+    "condition": "a stored value is found wrong",
+    "outcome": "find the writer that produced it and correct that, then scrub the legacy data that already holds the bad value",
+    "requires": []
+   },
+   {
+    "name": "Scrub with a before-copy",
+    "condition": "stored data is corrected in bulk",
+    "outcome": "save a before-copy of what is changed and record what was changed so it can be restored",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "stored value",
+   "writer",
+   "legacy data",
+   "scrub",
+   "read time",
+   "persistence"
+  ],
+  "topics": [
+   "storage",
+   "data integrity"
+  ]
+ }
+}

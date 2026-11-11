@@ -1,0 +1,31 @@
+{
+ "slug": "refine-enforcement-actions-act",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Enforcement Actions Need Real Behavior, Not Just Labels",
+ "target_hint": "30030 (method_30)",
+ "source_quotes": [
+  "jurisdiction all should not just log all should be actionable fix all",
+  "jurisdiction all should be able to act we want all to be allowed to act now"
+ ],
+ "overlap_check": "Adds the operator's ruling to 30's verification rules. No duplicate.",
+ "memory_links": "",
+ "payload": {
+  "action": "Update",
+  "add_principles": null,
+  "add_heuristics": [
+   {
+    "condition": "a rule's outcome is Log",
+    "action": "check the warning is surfaced to the person, and raise it for review if it is not"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Every jurisdiction rule acts",
+    "condition": "a jurisdiction rule is stored or reviewed",
+    "outcome": "give it an action with real runtime effect (a surfaced warning, a required confirmation or a block); a rule that only logs is incomplete",
+    "requires": []
+   }
+  ]
+ }
+}

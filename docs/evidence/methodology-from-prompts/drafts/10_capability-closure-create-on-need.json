@@ -1,0 +1,90 @@
+{
+ "slug": "capability-closure-create-on-need",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "one thing to note we should never skip due to no methodology we should have and should be creating all methodologies necessary",
+  "the missing tool is CREATED AUTOMATICALLY on identification of the need via its own zero-shot call site",
+  "we publish the findings ... we don't publish offers on the marketplace at all for filling"
+ ],
+ "overlap_check": "40349 Capability Declarations / 40383 MCP Capability Management are about declaring capabilities; none is about creation on need. New.",
+ "memory_links": "feedback_tool_creation_automatic_publish_findings; project_methodology_tools_marketplace_direction",
+ "payload": {
+  "action": "Create",
+  "name": "Create What Is Missing On Identified Need",
+  "description": "When a methodology, tool, MCP or jurisdiction need is identified and nothing covers it, it is created on the spot through its own call site and the finding is published. Even when something is found, the need for a new or changed one is still judged.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Closure, not skipping",
+    "description": "A missing capability is made, not worked around; a step that cannot run is a defect to close.",
+    "priority": 5
+   },
+   {
+    "name": "Findings travel, offers do not",
+    "description": "What was created is published as a finding; gaps are never filled from offers.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a finding was just created",
+    "action": "hand it to the marketplace methodology so it is published as a finding, not an offer"
+   },
+   {
+    "condition": "a plan arrives with many missing capabilities for a small question",
+    "action": "check whether the gaps are real or came from invented provider names in rules"
+   },
+   {
+    "condition": "a tool is listed by guessing the first few available",
+    "action": "do not list; a tool is either registered or it is a gap"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Never skip for lack of knowledge",
+    "condition": "a request needs a methodology and none is found",
+    "outcome": "create the methodology through its zero-shot call site instead of skipping or answering without one",
+    "requires": []
+   },
+   {
+    "name": "Judge need even when something is found",
+    "condition": "methodologies or tools were found for the request",
+    "outcome": "still judge whether a new one or a change to an existing one is needed from the new insight, and act on a yes",
+    "requires": []
+   },
+   {
+    "name": "Create tools on identified need",
+    "condition": "a tool or MCP the work needs is not registered",
+    "outcome": "create it automatically through the tool-creation call site as an artifact plus a registry row that is not auto-started; the host spawns nothing",
+    "requires": []
+   },
+   {
+    "name": "Record real gaps",
+    "condition": "a real action has no registered provider",
+    "outcome": "list it in missing_capabilities with provenance, and mark the gap when the tool is created",
+    "requires": []
+   },
+   {
+    "name": "Steps are pipeline 9 or provider",
+    "condition": "a blueprint step is written for a created or missing capability",
+    "outcome": "use pipeline 9 or a provider step only; a provider is a step type, not a new pipeline",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "missing capability",
+   "tool creation",
+   "methodology creation",
+   "marketplace",
+   "provider step",
+   "gap"
+  ],
+  "topics": [
+   "capability",
+   "creation"
+  ]
+ }
+}

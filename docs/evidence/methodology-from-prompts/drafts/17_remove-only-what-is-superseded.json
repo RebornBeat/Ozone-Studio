@@ -1,0 +1,74 @@
+{
+ "slug": "remove-only-what-is-superseded",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we shouldn't just be reviewing dead code without identifying if it was superseded if not leave for review",
+  "identifying all superseded and status of all and any dead code not superseded we capture for review"
+ ],
+ "overlap_check": "method_24 (30024) reconciles incremental layers by removing the superseded original; this adds the cite-or-leave-for-review rule and the capture list. 30024 could be extended instead; kept separate because its trigger is adding a layer, not removing dead code.",
+ "memory_links": "",
+ "payload": {
+  "action": "Create",
+  "name": "Remove Only What Is Shown To Be Superseded",
+  "description": "Code, rules or records are removed only when what replaced them is identified and cited. Anything that cannot be shown superseded is left in place and listed for review.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A removal needs a successor",
+    "description": "Without one, 'dead' is a guess and the thing may be docs-registered, public or load bearing.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "an item is public or documented in a registry",
+    "action": "treat it as live until the registry entry is also superseded"
+   },
+   {
+    "condition": "old and new versions of the same logic sit side by side",
+    "action": "apply the incremental layering reconciliation: remove the superseded original with its citation"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Name the superseder",
+    "condition": "an item looks dead, stale or replaced",
+    "outcome": "identify the item that replaced it (symbol, commit, status section or ruling) and cite it in the removal note",
+    "requires": []
+   },
+   {
+    "name": "Leave the rest for review",
+    "condition": "no superseder can be identified",
+    "outcome": "do not remove it; list it with file and line and why it looks dead",
+    "requires": []
+   },
+   {
+    "name": "Capture what was superseded",
+    "condition": "an item is superseded",
+    "outcome": "record it in the checklist and the status document with its successor, so the supersession list stays complete",
+    "requires": []
+   },
+   {
+    "name": "Check references first",
+    "condition": "an item is removed",
+    "outcome": "search code, documents, registries and data for references and update or confirm there are none",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "dead code",
+   "superseded",
+   "cleanup",
+   "review",
+   "checklist",
+   "stale"
+  ],
+  "topics": [
+   "maintenance",
+   "code review"
+  ]
+ }
+}

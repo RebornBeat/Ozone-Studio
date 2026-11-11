@@ -1,0 +1,50 @@
+{
+ "slug": "refine-contextual-awareness",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Contextual Awareness",
+ "target_hint": "30002 (method_2)",
+ "source_quotes": [
+  "Context spans out, it is never assigned (doctrines)",
+  "and it should know current time as well as assistant etc",
+  "Span-out scoping: a span-out inside a project or workspace now skips containers under a different project or workspace"
+ ],
+ "overlap_check": "Extends method_2 which has one rule; no duplication of its content.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "payload": {
+  "action": "Update",
+  "add_principles": [
+   {
+    "name": "Time is context",
+    "description": "A prompt that does not know the current time or the task's timing reasons about the wrong now.",
+    "priority": 5
+   }
+  ],
+  "add_heuristics": [
+   {
+    "condition": "context is handed to a step as a summary",
+    "action": "resolve it from the graph instead"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Span out from seeds",
+    "condition": "context is needed for a step, loop or ripple",
+    "outcome": "fan out from captured seeds along captured relationships, bounded by the reading model's window; never assign context or fix a count",
+    "requires": []
+   },
+   {
+    "name": "Respect scope",
+    "condition": "a span-out runs inside a project or workspace",
+    "outcome": "skip containers that live under a different project or workspace and include global knowledge such as methodologies",
+    "requires": []
+   },
+   {
+    "name": "Supply current time",
+    "condition": "a prompt is built for a model",
+    "outcome": "include the current time and the task's timing as the host knows them, so the model does not guess",
+    "requires": []
+   }
+  ]
+ }
+}

@@ -1,0 +1,94 @@
+{
+ "slug": "keyword-capture-validated-and-hit-driven",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "no not by rarity no point in most rare first now hits we did or do track hits",
+  "the zero-shot expansion ... is to be left at the end",
+  "all keywords stored need to be validated if not remove all unvalidated keywords",
+  "why are keyword hits being archived when they should be persistent no matter size?"
+ ],
+ "overlap_check": "method_27 (30027) is type-blind discovery search; nothing in the 98 EU methodologies covers keyword capture. New.",
+ "memory_links": "feedback_keyword_hits_ml_doctrine; docs/KEYWORD_CAPTURE_AND_ML_GUIDE.md",
+ "payload": {
+  "action": "Create",
+  "name": "Keyword Capture Validated and Hit Driven",
+  "description": "Keywords are captured deterministically first, expanded by a zero-shot call last, stored only after validation, and ranked by observed hits, not by rarity or word lists.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Keywords earn their place",
+    "description": "A term stays because observed use confirms it, not because it was proposed.",
+    "priority": 5
+   },
+   {
+    "name": "Language neutrality belongs to the model",
+    "description": "Filler handling is done by the judgment and the learned ranker, not by hand-kept word lists.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a search returns a flood for a common word",
+    "action": "look for substring matching or flat seed scores before blaming the word list"
+   },
+   {
+    "condition": "a model is proposed to rank keywords",
+    "action": "require real labelled hit groups and a held-out yes or no evaluation first"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Capture first, expand last",
+    "condition": "keywords are created for a container",
+    "outcome": "capture the deterministic terms first and run the zero-shot expansion last to identify the true keywords, validate hits, and then score",
+    "requires": []
+   },
+   {
+    "name": "Store only validated terms",
+    "condition": "a keyword is about to be stored",
+    "outcome": "store it only after the validation gate confirms it with every round's yes; an unvalidated stored keyword is removed or sent back to validation",
+    "requires": []
+   },
+   {
+    "name": "Expansion terms start unvalidated",
+    "condition": "a term comes from zero-shot expansion",
+    "outcome": "mark it unvalidated and promote it only through observed hits (kept or applied)",
+    "requires": []
+   },
+   {
+    "name": "Rank by hits, not rarity",
+    "condition": "search results are scored",
+    "outcome": "rank by observed hit events (returned, packed, kept, applied) and never by rarity or inverse frequency; keep substring and stoplist strategies only as selectable tested baselines, off by default",
+    "requires": []
+   },
+   {
+    "name": "Keep hit logs whole",
+    "condition": "a hit or judgment is recorded",
+    "outcome": "persist it as a real event and never rotate or archive away the log, whatever its size",
+    "requires": []
+   },
+   {
+    "name": "Keep bookkeeping out of the meaning pool",
+    "condition": "a tag is a marker (kind, agent, span, tool, node, flag, outcome, scope)",
+    "outcome": "namespace it so it never competes with meaning keywords",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "keywords",
+   "hits",
+   "validation",
+   "expansion",
+   "ranking",
+   "hit log"
+  ],
+  "topics": [
+   "search",
+   "keywords",
+   "learning"
+  ]
+ }
+}

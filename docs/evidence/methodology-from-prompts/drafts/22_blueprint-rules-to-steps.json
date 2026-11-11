@@ -1,0 +1,81 @@
+{
+ "slug": "blueprint-rules-to-steps",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "blueprint steps are built around ... we based on rules and steps turn rules to steps",
+  "provider is just a step type",
+  "blueprints we don't share"
+ ],
+ "overlap_check": "Blueprint authoring REPORT (docs/evidence/blueprint-authoring) records the conversion. No methodology states it. New.",
+ "memory_links": "feedback_tool_creation_automatic_publish_findings; project_methodology_tools_marketplace_direction",
+ "payload": {
+  "action": "Create",
+  "name": "Blueprint Steps Come From Rules",
+  "description": "A blueprint turns the aggregated methodology rules into steps. Each step cites the rule it carries out, runs as pipeline 9 or a provider, and any unmet real need goes to missing capabilities. Blueprints stay private.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Rules become steps",
+    "description": "The methodology says what must hold; the step is how the walk acts on it.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a step cites a rule position that has shifted after a retirement",
+    "action": "re-audit the citation; remove a citation that no longer exists"
+   },
+   {
+    "condition": "a legacy step type has no current equivalent",
+    "action": "map it to pipeline 9 and note it for review rather than inventing an action"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "One rule, cited step",
+    "condition": "a blueprint is drafted from the aggregated rules",
+    "outcome": "give each step the rule it carries out by methodology and rule position, and check by a unanimous batched vote that the step does carry it out before keeping the citation",
+    "requires": []
+   },
+   {
+    "name": "Step types",
+    "condition": "a step is written",
+    "outcome": "use pipeline 9 for model work or a provider step for a registered provider's action; the walk coerces any other pipeline to 9",
+    "requires": []
+   },
+   {
+    "name": "Providers from rules",
+    "condition": "a rule declares a provider",
+    "outcome": "translate it into a provider step; do not search for or list tools by guessing",
+    "requires": []
+   },
+   {
+    "name": "Missing capabilities, not fiction",
+    "condition": "a step needs an action with no registered provider",
+    "outcome": "record it in missing_capabilities and let capability closure create it",
+    "requires": []
+   },
+   {
+    "name": "Keep blueprints private",
+    "condition": "a blueprint is stored or a manifest is announced",
+    "outcome": "exclude blueprints from announcements",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "blueprint",
+   "steps",
+   "rules",
+   "provider step",
+   "pipeline 9",
+   "missing capabilities"
+  ],
+  "topics": [
+   "blueprints",
+   "orchestration"
+  ]
+ }
+}

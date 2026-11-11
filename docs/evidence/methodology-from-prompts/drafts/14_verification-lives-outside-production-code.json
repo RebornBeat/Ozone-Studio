@@ -1,0 +1,63 @@
+{
+ "slug": "verification-lives-outside-production-code",
+ "kind": "create",
+ "status": "needs_confirm",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "what tests do we have in the code itself like dryruns shouldn't all these be scripts outside of the code? and have the code ready for deployment production not inserting what are to be scripts in code"
+ ],
+ "overlap_check": "method_4/7/28 cover test practice in general. Nothing says drivers live outside the product. New. NEEDS CONFIRM: the operator phrased it as a question.",
+ "memory_links": "",
+ "payload": {
+  "action": "Create",
+  "name": "Verification Lives Outside Production Code",
+  "description": "Dry runs, probes and end-to-end drivers are scripts outside the product code that call the real routes. Production source carries behavior and its focused unit tests.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Production code is deployment code",
+    "description": "A product build should not carry drivers whose only job is to test it.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a code path named dry_run, demo or probe is found in production source",
+    "action": "decide whether it moves to a script or is real behavior, and record the decision"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Put drivers in scripts",
+    "condition": "a dry run, probe, seeding step or end-to-end driver is needed",
+    "outcome": "write it as a script under tools that calls the real route and writes evidence, not as a mode inside the product",
+    "requires": []
+   },
+   {
+    "name": "Keep product tests focused",
+    "condition": "a test is added to product source",
+    "outcome": "keep it a unit test of real logic under cfg(test), not a harness that stands in for a real run",
+    "requires": []
+   },
+   {
+    "name": "Defaults are production",
+    "condition": "a switch or code path exists only to support testing",
+    "outcome": "remove it or move it to the script, so the shipped default is the production behavior",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "dry run",
+   "scripts",
+   "production code",
+   "tests",
+   "tools",
+   "deployment"
+  ],
+  "topics": [
+   "testing",
+   "deployment"
+  ]
+ }
+}

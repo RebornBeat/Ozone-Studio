@@ -1,0 +1,75 @@
+{
+ "slug": "ozone-first-taxonomy-test",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "the operator rejected a large rewrite of reasoning/extraction/recovery as recreating redundant parts, then ordered the whole domorpher tree ... archived",
+  "never call constants real analysis"
+ ],
+ "overlap_check": "method_6 (30006) is impact first. Not covered otherwise. New.",
+ "memory_links": "feedback_ozone_first_taxonomy_test",
+ "payload": {
+  "action": "Create",
+  "name": "Ask What Ozone Already Owns First",
+  "description": "Before adding, porting or rewriting anything, test whether Ozone-Studio already owns the role. Keep only what Ozone lacks, and retire what has a named Ozone owner.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Do not recreate Ozone",
+    "description": "Stripping model calls and keeping the machinery around them rebuilds what Ozone already does.",
+    "priority": 5
+   },
+   {
+    "name": "Geometry is shared",
+    "description": "Geometry is intrinsic to nodes and relations span graphs; it is not a per-modality extra.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a rewrite reintroduces reasoning, extraction or recovery code",
+    "action": "stop and map each part to Ozone's owner"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Run the taxonomy test",
+    "condition": "code from outside or from legacy is proposed for porting",
+    "outcome": "ask for each module whether Ozone already owns the role (reasoning, traversal, multi-pass, recovery, extraction, schema) and keep only what it lacks",
+    "requires": []
+   },
+   {
+    "name": "Name the Ozone owner",
+    "condition": "something is retired as redundant",
+    "outcome": "name the Ozone component that owns its role",
+    "requires": []
+   },
+   {
+    "name": "Start fresh over carrying baggage",
+    "condition": "a design is built",
+    "outcome": "prefer a README-first, Ozone-first design to adapting legacy structure",
+    "requires": []
+   },
+   {
+    "name": "Do not call constants analysis",
+    "condition": "an output is described as analysis",
+    "outcome": "verify its values differ across inputs; a constant or stub is not analysis",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "taxonomy",
+   "porting",
+   "legacy",
+   "redundant",
+   "owner",
+   "Ozone-first"
+  ],
+  "topics": [
+   "architecture",
+   "design"
+  ]
+ }
+}

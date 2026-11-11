@@ -1,0 +1,75 @@
+{
+ "slug": "training-never-stops",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "training must never stop and must not wait for a promotion",
+  "hashed character ngram encoder plus a ranker in pure rust ... each interchangeable or used along with each other",
+  "keep long jobs in their own actors"
+ ],
+ "overlap_check": "No existing methodology on learning models. New.",
+ "memory_links": "feedback_no_paid_no_quota_policy_train_forever; project_quota_economics_and_meta_starvation",
+ "payload": {
+  "action": "Create",
+  "name": "Learning Models Train Continuously",
+  "description": "The ranking and keyword models are pipelines that train every cycle on any usable labelled group. Promotion only decides which versioned copy serves, judged by a yes or no held-out evaluation.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Training is continuous",
+    "description": "Waiting for a promotion or a data threshold throws away learning.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a held-out split cannot be made because too few groups exist",
+    "action": "keep training and report that evaluation is pending; do not stop"
+   },
+   {
+    "condition": "training is proposed to wait for something",
+    "action": "ask what it protects and use the versioned serving copy for that"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Train every cycle",
+    "condition": "a labelled group exists, however small",
+    "outcome": "warm-start the rolling candidate and train it; keep the requirements for training low",
+    "requires": []
+   },
+   {
+    "name": "Promotion decides serving only",
+    "condition": "a candidate is evaluated",
+    "outcome": "promote it by a yes or no held-out evaluation, serve a versioned copy, and never let the promotion step gate training",
+    "requires": []
+   },
+   {
+    "name": "Models are pipelines",
+    "condition": "a new model, encoder or ranker is added",
+    "outcome": "place it as a pipeline that can be swapped or used alongside others as they come online",
+    "requires": []
+   },
+   {
+    "name": "Keep long jobs in their own actor",
+    "condition": "a long training or settlement job runs",
+    "outcome": "run it in its own actor, not inside a pass that gates other work, so the meta loop is not starved",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "training",
+   "ranker",
+   "promotion",
+   "held-out",
+   "pipeline",
+   "actor"
+  ],
+  "topics": [
+   "machine learning",
+   "learning"
+  ]
+ }
+}

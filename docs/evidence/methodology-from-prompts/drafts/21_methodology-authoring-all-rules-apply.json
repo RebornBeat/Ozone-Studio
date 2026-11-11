@@ -1,0 +1,92 @@
+{
+ "slug": "methodology-authoring-all-rules-apply",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "a sound methodology is one where all rules apply",
+  "if rules can or are optional it means it can be broken down and now this is where our refinement meta loops come in",
+  "methodologies list providers with rules and blueprint creation translates these"
+ ],
+ "overlap_check": "Rules review (docs/evidence/methodology-rules-review) found each defect class this addresses. No existing methodology states authoring rules. New; P3's meta-loop generalization is separate and not touched.",
+ "memory_links": "project_sound_methodology_all_rules_apply; project_methodology_tools_marketplace_direction",
+ "payload": {
+  "action": "Create",
+  "name": "Authoring a Sound Methodology",
+  "description": "A methodology is sound when every rule applies every time it is gathered. Rules are single concern, free of incident literals, invented providers and fixed caps, and name what they need per rule.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "All rules apply",
+    "description": "A rule that is optional is a sign the methodology should be split or refined.",
+    "priority": 5
+   },
+   {
+    "name": "Rules become steps",
+    "description": "Providers and tools are declared per rule so blueprint creation can turn each into a step.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a rule is judged inapplicable by the rule gate",
+    "action": "treat it as a refinement candidate for the methodology, not as an exception"
+   },
+   {
+    "condition": "two rules in one methodology contradict",
+    "action": "resolve the contradiction before storing; a methodology cannot hold both"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Test every rule against every use",
+    "condition": "a rule is added to a methodology",
+    "outcome": "check that it holds whenever the methodology is gathered; if it applies only sometimes, split the methodology or refine it",
+    "requires": []
+   },
+   {
+    "name": "Keep one concern",
+    "condition": "a methodology is drafted",
+    "outcome": "keep it to one concern and put the description's words where the gather step matches on them, so a name used in another sense does not pull it in",
+    "requires": []
+   },
+   {
+    "name": "No incident literals",
+    "condition": "a rule is drawn from an incident",
+    "outcome": "generalize it; do not carry container ids, task ids or one-off names",
+    "requires": []
+   },
+   {
+    "name": "Declare real needs per rule",
+    "condition": "a rule needs a provider, tool or pipeline",
+    "outcome": "list it in that rule's requires with the right kind (provider for a server, tool for a tool name) and only names that are registered; anything else is a gap, not a requirement",
+    "requires": []
+   },
+   {
+    "name": "Merge before adding",
+    "condition": "a methodology on the same topic exists",
+    "outcome": "add or refine in the existing one instead of creating a near duplicate, and send the overlap to the refinement loop",
+    "requires": []
+   },
+   {
+    "name": "No unmeasured caps",
+    "condition": "a rule states a numeric limit",
+    "outcome": "remove it or state the measurement behind it",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "methodology",
+   "rules",
+   "refinement",
+   "providers",
+   "requires",
+   "split"
+  ],
+  "topics": [
+   "methodology",
+   "authoring"
+  ]
+ }
+}

@@ -1,0 +1,87 @@
+{
+ "slug": "chunk-to-the-window-never-cap-or-refuse",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we work on a graph based chunkable system where we can switch models anytime, work with any models, any context size",
+  "so when it comes to chunking all remember we don't set limits at all, we work by model size",
+  "never cap a response (doctrines 2026-11)"
+ ],
+ "overlap_check": "method_38 (30038) is about not adding caps to slow loops before measuring; this one is about content size, windows and refusal. Different trigger, cross-reference only.",
+ "memory_links": "feedback_never_refuse_for_size_chunk; feedback_ozone_doctrines_2026_11",
+ "payload": {
+  "action": "Create",
+  "name": "Chunk to the Reading Model's Window",
+  "description": "Content of any size is chunked to the window of the model that reads it. Nothing is capped, truncated or refused by size; the only bounds are named host-memory guards.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "The system is chunkable and model agnostic",
+    "description": "Any model and any context size can be used; a size is a reason to chunk, never a reason to stop.",
+    "priority": 5
+   },
+   {
+    "name": "A response is data",
+    "description": "What a model produces is stored and graphed whole; previews are for logs only.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "code contains a numeric cut such as take(N), a fixed byte length or a fixed item count on content",
+    "action": "find what the cut protects and replace it with chunking by the reading model's window, or record why it is a host guard"
+   },
+   {
+    "condition": "a summary says a prompt was 'too long'",
+    "action": "check whether it was chunked; a prompt may be as long as the content needs"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Chunk instead of cutting",
+    "condition": "input, context or output is larger than the reading model's window",
+    "outcome": "split it into chunks sized to that model's window and process each chunk (or send numbered parts whole); never cut the content or return an error because of its size",
+    "requires": []
+   },
+   {
+    "name": "Work by the model's size",
+    "condition": "the model that reads or writes changes",
+    "outcome": "size the chunks and windows from the model now in use and keep any derived data keyed by model size so a return to that size reuses it",
+    "requires": []
+   },
+   {
+    "name": "Never truncate stored text",
+    "condition": "a text is stored, graphed or handed to another stage",
+    "outcome": "store the whole text; shorten only inside log previews, and say so in the log line",
+    "requires": []
+   },
+   {
+    "name": "Do not cap a response",
+    "condition": "a call to a model is built",
+    "outcome": "send no maximum token value to the provider; a caller's length is a hint to the model about the answer's shape, and a local runtime may use half its window as a physical limit",
+    "requires": []
+   },
+   {
+    "name": "Name a host guard honestly",
+    "condition": "a bound is unavoidable because of host memory or transport",
+    "outcome": "make it an explicit tunable guard, reply with a clear error that says it is a host guard, and describe it as a guard, not as a limit of the system",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "chunking",
+   "token window",
+   "model agnostic",
+   "truncation",
+   "host guard",
+   "context size"
+  ],
+  "topics": [
+   "windowing",
+   "context",
+   "limits"
+  ]
+ }
+}

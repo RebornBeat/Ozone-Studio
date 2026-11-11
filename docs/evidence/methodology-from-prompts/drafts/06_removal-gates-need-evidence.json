@@ -1,0 +1,85 @@
+{
+ "slug": "removal-gates-need-evidence",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "First live run of the keyword validation gate rejected ufw/fail2ban/loopback ... the judge had NO content",
+  "a sound removal gate: real content, unanimity to remove, no evidence = no removal, probe real model first, kill switch"
+ ],
+ "overlap_check": "method_36 (30036) measures content depth for persist gates; method_30 covers enforcement severity. Neither covers removal gates. New.",
+ "memory_links": "feedback_gate_must_see_evidence_asymmetric",
+ "payload": {
+  "action": "Create",
+  "name": "Gates That Remove Data Must See Evidence",
+  "description": "A gate that can remove stored data sees the real content, needs unanimity to remove, removes nothing without evidence, is probed on the real model first, and has a kill switch.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Absence of evidence is not a verdict",
+    "description": "A model given only a title says no to specific terms it cannot verify, so a single no must not delete.",
+    "priority": 5
+   },
+   {
+    "name": "Removal is asymmetric",
+    "description": "Keeping a wrong item costs little; deleting a right one loses real value.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "the same list gets different answers on repeated rounds",
+    "action": "treat the difference as a reason for the unanimity rule, not a reason to average"
+   },
+   {
+    "condition": "a gate's first live run removes a valuable specific term",
+    "action": "stop, restore from the before-copy, and fix what the judge could not see"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Give the judge the content",
+    "condition": "a gate judges whether stored data should be removed",
+    "outcome": "provide the real content, read from wherever it is stored (data directory and application root), not only a name or title",
+    "requires": []
+   },
+   {
+    "name": "Remove only on unanimity",
+    "condition": "a gate runs several rounds on a stored item",
+    "outcome": "remove an existing item only if every round says no, and store a new item only if every round says yes",
+    "requires": []
+   },
+   {
+    "name": "No content means no removal",
+    "condition": "the content cannot be read",
+    "outcome": "leave the item untouched and report that it was not judged",
+    "requires": []
+   },
+   {
+    "name": "Probe before deploy",
+    "condition": "a removal gate is about to be deployed",
+    "outcome": "run its exact prompt against the real model on a real container and read the result before it is allowed to remove anything",
+    "requires": []
+   },
+   {
+    "name": "Provide a kill switch",
+    "condition": "a removal gate is deployed",
+    "outcome": "give it a named switch that turns removal off without a rebuild",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "gate",
+   "unanimity",
+   "removal",
+   "evidence",
+   "kill switch",
+   "validation"
+  ],
+  "topics": [
+   "validation",
+   "data safety"
+  ]
+ }
+}

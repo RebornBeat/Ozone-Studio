@@ -1,0 +1,80 @@
+{
+ "slug": "optimized-routes-are-added-beside",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we keep both paths just now add the optimization route",
+  "did it make calls 1x1 ... now doing it concurrently are we now skipping stuff by accident?",
+  "the 300 s watchdog is it not updated on each progress making it progressive?"
+ ],
+ "overlap_check": "method_38 (30038) says measure before capping; this one governs how a faster route is added. Cross-reference only.",
+ "memory_links": "feedback_dont_oververify_working_params (related); operator prompts [56][87]",
+ "payload": {
+  "action": "Create",
+  "name": "Optimized Routes Sit Beside the Sequential Path",
+  "description": "A faster route for capable hardware is added next to the sequential one and chosen by configuration. It must give the same output and must not skip something the sequence relied on.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Both paths stay",
+    "description": "Local or constrained setups still need the sequential path; the optimization is an extra, not a replacement.",
+    "priority": 5
+   },
+   {
+    "name": "Order can be load bearing",
+    "description": "A call that awaited another may have needed its result, so concurrency has to be proven safe.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "many small host calls are made one after another on fresh connections",
+    "action": "share one client and run them concurrently only after the independence proof"
+   },
+   {
+    "condition": "an optimization removes a wait",
+    "action": "look for the thing that wait was protecting before accepting the change"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Keep both routes",
+    "condition": "a concurrent, batched or otherwise faster route is introduced",
+    "outcome": "keep the existing sequential route and select between them by configuration, with the optimized route documented as an option for capable hardware",
+    "requires": []
+   },
+   {
+    "name": "Prove independence",
+    "condition": "calls are made concurrent",
+    "outcome": "show for each call that it does not read what another produces or depend on its ordering, and keep the original order for results",
+    "requires": []
+   },
+   {
+    "name": "Identical output",
+    "condition": "an optimized route is added",
+    "outcome": "check that the same input gives the same output as the sequential route on real data before it is the configured default",
+    "requires": []
+   },
+   {
+    "name": "Watchdogs follow progress",
+    "condition": "a long step is guarded by a time watchdog",
+    "outcome": "reset the watchdog on each real progress event instead of a single fixed deadline",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "concurrency",
+   "optimized route",
+   "sequential",
+   "watchdog",
+   "batching",
+   "hardware"
+  ],
+  "topics": [
+   "performance",
+   "safety"
+  ]
+ }
+}

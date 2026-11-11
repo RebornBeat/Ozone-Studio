@@ -1,0 +1,94 @@
+{
+ "slug": "p2p-notify-and-gate",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we don't auto sync with p2p we notify and allow others to act via gate",
+  "announcements go through marketplace because we won't announce to each user 1x1",
+  "we don't accept anything not allowed",
+  "blueprints we don't share"
+ ],
+ "overlap_check": "method_50 (30050) says agents act through the living network; method_48 covers MCP port registration. No EU methodology covers the marketplace. New.",
+ "memory_links": "project_p2p_notify_and_gate; feedback_sync_no_action_is_paired_devices_not_p2p; feedback_tool_creation_automatic_publish_findings",
+ "payload": {
+  "action": "Create",
+  "name": "Peer Marketplace Notifies and Gates",
+  "description": "Findings reach other instances only as manifests announced once through the marketplace to approved peers. The receiver classifies and decides through its own gate. Nothing is applied automatically and blueprints are never shared.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Notify, never auto-apply",
+    "description": "A peer's announcement is information; acting on it is the receiver's choice through a gate.",
+    "priority": 5
+   },
+   {
+    "name": "Paired devices and peers are different",
+    "description": "Paired devices sync natively; the marketplace is a separate gated path and gets its own care.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a change touches pairing code",
+    "action": "check which meaning of pairing is meant: the approved-peer list here, not device pairing"
+   },
+   {
+    "condition": "something is announced that nobody asked for",
+    "action": "check the allow-list and the privacy exclusions before sending"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Announce manifests once",
+    "condition": "a methodology, tool, pipeline or jurisdiction finding is created",
+    "outcome": "announce its manifest (name and hash) through the marketplace in one push to connected approved peers, never one message per peer",
+    "requires": []
+   },
+   {
+    "name": "Never share blueprints",
+    "condition": "an item is about to be announced",
+    "outcome": "exclude blueprints and exclude ingest or bookkeeping nodes that were not meant to leave the instance",
+    "requires": []
+   },
+   {
+    "name": "Accept only what is allowed",
+    "condition": "an announcement or offer arrives",
+    "outcome": "accept it only from an operator-approved peer and only for a kind the operator allows",
+    "requires": []
+   },
+   {
+    "name": "Classify locally before the gate",
+    "condition": "an incoming manifest is received",
+    "outcome": "classify it against local data as have, conflict, same name, new or not checked, and show that classification at the gate",
+    "requires": []
+   },
+   {
+    "name": "Apply only through the gate",
+    "condition": "an operator or rule is deciding on an incoming item",
+    "outcome": "download and apply only after the gate allows it and the item has been reviewed; never sync automatically",
+    "requires": []
+   },
+   {
+    "name": "Publish findings, not offers",
+    "condition": "a gap was filled by creating something",
+    "outcome": "publish the created finding; do not use offers to fill gaps",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "marketplace",
+   "peers",
+   "announce",
+   "gate",
+   "manifest",
+   "blueprints private"
+  ],
+  "topics": [
+   "p2p",
+   "sharing",
+   "privacy"
+  ]
+ }
+}
