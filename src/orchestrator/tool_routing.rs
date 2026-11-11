@@ -351,10 +351,12 @@ pub async fn call_provider_for_step(
     let mine: Vec<&crate::mcp::McpTool> = entries
         .iter()
         .filter(|t| crate::mcp_supervisor::provider_for_endpoint(&t.endpoint).eq_ignore_ascii_case(provider))
-        .filter(|t| t.endpoint.starts_with("http://") || t.endpoint.starts_with("https://"))
+        // an AGENT provider (transport agent, endpoint `agent:<name>`) is callable too: the call creates a durable request and
+        // awaits the agent's report (src/agent_requests.rs) — the step completes on report, never by delegation-and-move-on
+        .filter(|t| t.endpoint.starts_with("http://") || t.endpoint.starts_with("https://") || t.endpoint.starts_with("agent:"))
         .collect();
     if mine.is_empty() {
-        return Err(format!("provider '{provider}' has no registered HTTP tools — it is not installed/registered on this host"));
+        return Err(format!("provider '{provider}' has no registered HTTP or agent tools — it is not installed/registered on this host"));
     }
     let verdict = step_verdict(&installed_step_gate(), step_description);
     if let Err(reason) = &verdict {

@@ -159,19 +159,18 @@ rules exactly:
 > - User Data: NEVER sync (local only)"
 
 This maps onto the real `SyncPriority` enum (`High` / `Normal` / `Low` /
-`Never`) and the real `on_methodology_created` / `on_blueprint_created` /
-`on_container_created` / `on_pipeline_completed` methods — not aspirational
-naming, these are the actual call sites. High-priority items trigger an
-immediate `broadcast_high_priority()`; normal-priority items queue and
-flush on `process_batch_sync()` (driven by `batch_sync_interval_secs`);
+`Never`). 2026-11-11 correction: the per-container methods `on_methodology_created` /
+`on_blueprint_created` / `on_container_created` and the periodic `process_batch_sync()`
+were REMOVED (no caller; superseded by `NetworkManager::on_items_announced`, which publishes
+manifests to the marketplace with one push and never announces blueprints). `on_pipeline_completed`
+remains. High-priority items still trigger an immediate `broadcast_high_priority()`;
 low-priority (pipeline results) only sync when a caller explicitly passes
 `share_requested = true`; `Never` items are simply never queued.
 
 The domain-level wiring from live graph activity into this sync queue is
 real and already connected: `orchestrator::amt_loop::spawn_network_hook_bridge`
 subscribes to the `GraphEventHub` and, on every `"created"` event, calls
-the matching `on_methodology_created` / `on_blueprint_created` /
-`on_container_created` method based on the container's real type — gated
+the single `on_items_announced` batch call (manifests of the allowed kinds only; the removed per-type methods are described above) — gated
 by `NetworkConfig::marketplace_publish` / `marketplace_accept_offers`
 (deprecated alias `auto_broadcast_sync` = both; 2026-11-10: the bridge now
 announces only manifests of the allowed kinds, coalesced into one push) at its
@@ -646,15 +645,14 @@ third party in the same conversation.
   (`src/orchestrator/amt_loop.rs:1720-1729`) has exactly three arms —
   `"Methodology"`, `"Blueprint"`, and a catch-all `_` that calls
   `on_container_created` for everything else, including
-  `"CoordinationEvent"`. `on_container_created` (`src/network/mod.rs:
-  503-517`) builds a `SyncItemType::Container` / `SyncPriority::Normal`
+  `"CoordinationEvent"`. (Historical, superseded 2026-11-11: `on_container_created`, removed, built a `SyncItemType::Container` / `SyncPriority::Normal`
   item — precisely the module doc's own "New Container Findings: ALWAYS
   sync (queue for batch)" category. Verified by reading the real match
   arms and the real `SyncPriority` assignment, not assumed: **a local
   coordination finding that becomes a real ZSEI container already rides
   the exact same existing findings-sync pathway any other new container
   does** — no new git-sync, no second network-exposed MCP server needed.
-  This is conditional, not live today (see 5.6.3).
+  This is conditional, not live today (see 5.6.3). Since 2026-11-11 this per-container findings path no longer exists: container creation reaches peers only as an allowed-kind marketplace manifest.)
 
 ### 5.6.3 Real limits — local and EU-VPS participation are not the same case
 

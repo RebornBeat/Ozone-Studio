@@ -674,6 +674,18 @@ ipcMain.handle("auth:authenticate", async (event, { publicKey, signature }) => {
   });
 });
 
+// Real device session for the renderer: the main process signs the host's challenge with the device key (ensureSessionToken) and keeps
+// the token; the renderer only learns whether the session exists. Never a forged key or signature.
+ipcMain.handle("auth:ensure", async () => {
+  try {
+    requireConnection();
+    await ensureSessionToken();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String((err && err.message) || err) };
+  }
+});
+
 // Pipeline execution -
 ipcMain.handle(
   "pipeline:execute",

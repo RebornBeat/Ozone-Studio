@@ -67,6 +67,15 @@ pub mod k_registry;
 /// MCP TOOL registry — external tool connection surface.
 pub mod mcp;
 
+/// Agent provider: walk steps handed to participating MCP agents, answered by their report.
+pub mod agent_requests;
+
+/// Walk feed + participants: what the agents taking part in a walk read about it.
+pub mod walk_feed;
+
+/// Host-side link-path guard (hardening H4).
+pub mod link_guard;
+
 /// MCP TOOL-SERVER process supervisor — real start/stop/crash-restart of
 /// registered tools' backing Node processes, gated by the operator's
 /// per-tool `auto_start` choice and each tool's real device/credential
@@ -1995,6 +2004,33 @@ impl std::io::Write for PersistentLogWriter {
 /// allocatable memory (free + reclaimable caches), the right signal for
 /// "can this box survive another walk fan-out". 0 when unreadable (gate
 /// then stays CLOSED: refuse-to-launch beats silent death).
+/// The memory floor (MB): `OZONE_MIN_AVAIL_MB`, default 1536 — the one guard every walk-sized fan-out respects.
+pub(crate) fn mem_floor_mb() -> u64 {
+    std::env::var("OZONE_MIN_AVAIL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1536)
+}
+
+/// MEMORY FLOOR WAIT (operator 2026-11-11): interactive walks respect the floor too — they PAUSE here until MemAvailable clears it and then
+/// RESUME. Never skip the work, never stop it, never fail it (a wait, not an error; the wait is logged once and again when it ends).
+/// An unreadable `/proc/meminfo` (reads 0 — not a Linux host) means memory cannot be measured, so there is nothing to wait for.
+pub(crate) async fn wait_for_memory_floor(label: &str) {
+    let floor = mem_floor_mb();
+    let mut waited_ms: u64 = 0;
+    loop {
+        let avail = mem_available_mb();
+        if avail == 0 || avail >= floor {
+            break;
+        }
+        if waited_ms == 0 {
+            tracing::warn!(label, avail_mb = avail, floor, "memory floor: {label} is PAUSED until MemAvailable clears the floor (it resumes by itself; nothing is skipped or failed)");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        waited_ms += 5_000;
+    }
+    if waited_ms > 0 {
+        tracing::info!(label, waited_ms, "memory floor cleared: {label} resumes");
+    }
+}
+
 fn mem_available_mb() -> u64 {
     std::fs::read_to_string("/proc/meminfo")
         .ok()

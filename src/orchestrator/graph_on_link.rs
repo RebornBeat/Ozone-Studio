@@ -388,15 +388,7 @@ pub fn spawn(store: Arc<dyn StoreAccess>, executor: Arc<dyn PipelineExecutor>, t
 }
 
 async fn wait_for_memory() {
-    let floor: u64 = std::env::var("OZONE_MIN_AVAIL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1536);
-    let mut warned = false;
-    while crate::mem_available_mb() < floor {
-        if !warned {
-            tracing::warn!(floor, "graph-on-link: memory floor — waiting (jobs are never dropped)");
-            warned = true;
-        }
-        tokio::time::sleep(Duration::from_secs(15)).await;
-    }
+    crate::wait_for_memory_floor("graph-on-link job").await;
 }
 
 /// A job for one FileReference container: its real path (the `File: <path>` naming every linking pipeline writes) and its project.

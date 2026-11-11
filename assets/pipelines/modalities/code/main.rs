@@ -299,6 +299,7 @@ async fn assemble_dependency_graph(project_id: u64, include_external: bool) -> R
 
     let mut files = Vec::new();
     let mut dependencies = Vec::new();
+    let mut internal_imports: Vec<(String, String, ImportDef)> = Vec::new();
     let mut external_map: std::collections::HashMap<String, ExternalDependency> = std::collections::HashMap::new();
 
     for graph_id in &graph_ids {
@@ -338,14 +339,25 @@ async fn assemble_dependency_graph(project_id: u64, include_external: bool) -> R
                         });
                 }
             } else {
-                dependencies.push(FileDependency {
-                    from_file: file_path.clone(),
-                    to_file: import.module.clone(),
-                    dependency_type: DependencyType::Direct,
-                    imports: import.items.clone(),
-                });
+                internal_imports.push((file_path.clone(), analysis.language.clone(), import.clone()));
             }
         }
+    }
+
+    // `to_file` is the project file the import resolves to by the language's own module-path rules (same resolver as the structural
+    // cross-file call layer); only when that cannot be determined does it stay the raw module string the import named — never a guess.
+    let known_files: Vec<String> = files.iter().map(|f: &FileNode| norm_path(&f.path)).collect();
+    for (from_file, language, import) in internal_imports {
+        let to_file = match resolve_module_path(&language, &from_file, &import.module, &known_files) {
+            Ok((target, _)) => files.iter().find(|f| norm_path(&f.path) == target).map(|f| f.path.clone()).unwrap_or_else(|| import.module.clone()),
+            Err(_) => import.module.clone(),
+        };
+        dependencies.push(FileDependency {
+            from_file,
+            to_file,
+            dependency_type: DependencyType::Direct,
+            imports: import.items.clone(),
+        });
     }
 
     Ok(DependencyGraph {
@@ -354,6 +366,387 @@ async fn assemble_dependency_graph(project_id: u64, include_external: bool) -> R
         dependencies,
         external_deps: external_map.into_values().collect(),
     })
+}
+
+/// The (module, imported name) pairs one Rust `use` path introduces: `a::b::name` -> ("a::b", "name"); `a::b::{x, y}` -> ("a::b", "x"),
+/// ("a::b", "y"). Aliases (`as`), globs and nested groups introduce a name the call extractor cannot match back to its symbol, so they are
+/// skipped rather than guessed.
+fn rust_use_pairs(path: &str) -> Vec<(String, String)> {
+    let path = path.trim();
+    let mut out = Vec::new();
+    if let (Some(open), Some(close)) = (path.find('{'), path.rfind('}')) {
+        let prefix = path[..open].trim().trim_end_matches("::").to_string();
+        if prefix.is_empty() {
+            return out;
+        }
+        for item in path[open + 1..close].split(',') {
+            let item = item.trim();
+            if item.is_empty() || item.contains('{') || item.contains(" as ") || item == "*" || item == "self" {
+                continue;
+            }
+            out.push((prefix.clone(), item.to_string()));
+        }
+    } else if let Some((module, name)) = path.rsplit_once("::") {
+        let name = name.trim();
+        if !module.is_empty() && !name.is_empty() && name != "*" && !name.contains(" as ") {
+            out.push((module.trim().to_string(), name.to_string()));
+        }
+    }
+    out
+}
+
+// ============================================================================
+// STRUCTURAL CROSS-FILE CALL RESOLUTION (non-semantic layer)
+// ============================================================================
+//
+// Per-file graphs already hold an external Function node "<module>.<symbol>" for every call to an imported name. This layer resolves
+// those nodes to the OTHER file's own Function node, deterministically, from the import/module path rules of each parsed language
+// (rust, python, javascript/typescript) — no model, no keyword guess, no confidence. What cannot be resolved by path (external packages,
+// ambiguous suffixes, a re-exported symbol) is RECORDED as unresolved with the reason; no edge is ever invented.
+//
+// LAYER SEPARATION (operator ruling: structural creation must never interfere with the semantic layers that fill in later, and vice
+// versa): the result lives in its OWN derived sidecar `graphs/code_xfile_<project_id>.json` (`"layer": "structural"`). The per-file
+// graph files and containers are never written by this layer, and semantic enrichment never reads or writes this sidecar. A changed file
+// replaces only its own index entry (keyed by file path); the resolutions are re-derived wholesale from the index, so re-running
+// structural creation is idempotent and leaves every semantic record untouched.
+
+/// One external-call node of a file's graph: the callee is imported from `module` under the name `symbol`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct XfileExternal {
+    node_id: u64,
+    module: String,
+    symbol: String,
+}
+
+/// What the resolver needs to know about one file's graph (structural facts only).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct XfileIndexEntry {
+    graph_id: u64,
+    file_path: String,
+    language: String,
+    /// Function name -> its node id in that file's graph (external call nodes excluded).
+    functions: HashMap<String, u64>,
+    externals: Vec<XfileExternal>,
+}
+
+/// The resolution of one external-call node. Resolved = `to_node_id` is Some; otherwise `unresolved_reason` says why.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct XfileResolution {
+    from_graph_id: u64,
+    from_file: String,
+    external_node_id: u64,
+    module: String,
+    symbol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    to_graph_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    to_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    to_node_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unresolved_reason: Option<String>,
+}
+
+fn xfile_entry(graph_id: u64, nodes: &[CodeGraphNode], analysis: &CodeAnalysisResult) -> XfileIndexEntry {
+    let mut functions = HashMap::new();
+    let mut externals = Vec::new();
+    for n in nodes {
+        if !matches!(n.node_type, CodeNodeType::Function) {
+            continue;
+        }
+        if n.properties.get("external").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let module = n.properties.get("module").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let symbol = n.properties.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if !module.is_empty() && !symbol.is_empty() {
+                externals.push(XfileExternal { node_id: n.node_id, module, symbol });
+            }
+        } else {
+            functions.insert(n.name.clone(), n.node_id);
+        }
+    }
+    XfileIndexEntry {
+        graph_id,
+        file_path: analysis.file_path.clone().unwrap_or_default(),
+        language: analysis.language.clone(),
+        functions,
+        externals,
+    }
+}
+
+/// Lexical path normalisation: forward slashes, "." and ".." collapsed (no filesystem access).
+fn norm_path(p: &str) -> String {
+    let p = p.replace('\\', "/");
+    let abs = p.starts_with('/');
+    let mut out: Vec<&str> = Vec::new();
+    for seg in p.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                if matches!(out.last(), Some(l) if *l != "..") {
+                    out.pop();
+                } else if !abs {
+                    out.push("..");
+                }
+            }
+            s => out.push(s),
+        }
+    }
+    format!("{}{}", if abs { "/" } else { "" }, out.join("/"))
+}
+
+fn dir_of(p: &str) -> String {
+    match p.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => p[..i].to_string(),
+        None => String::new(),
+    }
+}
+
+fn join_path(dir: &str, rest: &str) -> String {
+    if dir.is_empty() { norm_path(rest) } else { norm_path(&format!("{}/{}", dir, rest)) }
+}
+
+fn file_stem_of(p: &str) -> String {
+    let name = p.rsplit('/').next().unwrap_or(p);
+    name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name).to_string()
+}
+
+/// Resolve the module a file imports to exactly ONE project file, by the language's own path rules. `files` are normalised project file
+/// paths. Err = the reason it is not resolvable by path (external package, no such project file, ambiguous, unsupported language).
+fn resolve_module_path(language: &str, from_file: &str, module: &str, files: &[String]) -> Result<(String, &'static str), String> {
+    let from = norm_path(from_file);
+    let dir = dir_of(&from);
+    let exact = |cands: &[String]| -> Vec<String> {
+        let mut hits: Vec<String> = cands.iter().filter(|c| files.iter().any(|f| f == *c)).cloned().collect();
+        hits.dedup();
+        hits
+    };
+    let by_suffix = |cands: &[String]| -> Vec<String> {
+        let mut hits: Vec<String> = files
+            .iter()
+            .filter(|f| cands.iter().any(|c| *f == c || f.ends_with(&format!("/{}", c))))
+            .cloned()
+            .collect();
+        hits.sort();
+        hits.dedup();
+        hits
+    };
+    let one = |hits: Vec<String>, method: &'static str| -> Result<(String, &'static str), String> {
+        match hits.len() {
+            0 => Err("no project file matches the module path (external package or not linked)".to_string()),
+            1 => Ok((hits.into_iter().next().unwrap(), method)),
+            n => Err(format!("ambiguous: {} project files match the module path", n)),
+        }
+    };
+    match language {
+        "javascript" | "typescript" => {
+            if !module.starts_with('.') {
+                return Err("bare package specifier (external package or an alias): not resolvable by path rules".to_string());
+            }
+            let base = join_path(&dir, module);
+            let mut cands = vec![base.clone()];
+            for e in [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"] {
+                cands.push(format!("{}{}", base, e));
+                cands.push(format!("{}/index{}", base, e));
+            }
+            one(exact(&cands), "relative_path")
+        }
+        "python" => {
+            let dots = module.chars().take_while(|c| *c == '.').count();
+            let rel = module[dots..].replace('.', "/");
+            if dots > 0 {
+                let mut base = dir.clone();
+                for _ in 1..dots {
+                    base = dir_of(&base);
+                }
+                let b = if rel.is_empty() { base } else { join_path(&base, &rel) };
+                let cands = vec![format!("{}.py", b), format!("{}/__init__.py", b)];
+                one(exact(&cands), "relative_path")
+            } else {
+                if rel.is_empty() {
+                    return Err("empty module path".to_string());
+                }
+                // a sibling of the importing file wins (python's own implicit-relative layout); otherwise a unique path suffix
+                let local_cands = vec![join_path(&dir, &format!("{}.py", rel)), join_path(&dir, &format!("{}/__init__.py", rel))];
+                let local = exact(&local_cands);
+                if local.len() == 1 {
+                    return one(local, "dotted_module");
+                }
+                let suffix_cands = vec![format!("{}.py", rel), format!("{}/__init__.py", rel)];
+                one(by_suffix(&suffix_cands), "dotted_module")
+            }
+        }
+        "rust" => {
+            let segs: Vec<&str> = module.split("::").filter(|s| !s.is_empty()).collect();
+            if segs.is_empty() {
+                return Err("empty module path".to_string());
+            }
+            let stem = file_stem_of(&from);
+            let is_root_file = matches!(stem.as_str(), "mod" | "lib" | "main");
+            // (directory the remaining segments hang under, remaining segments, is this the crate root directory)
+            let (base, rest, crate_root): (String, &[&str], bool) = match segs[0] {
+                "crate" => match from.rfind("/src/") {
+                    Some(i) => (from[..i + 4].to_string(), &segs[1..], true),
+                    None => return Err("crate root not found above the file (no /src/ segment)".to_string()),
+                },
+                "self" => (if is_root_file { dir.clone() } else { join_path(&dir, &stem) }, &segs[1..], false),
+                "super" => {
+                    let mut b = if is_root_file { dir_of(&dir) } else { dir.clone() };
+                    let mut i = 1;
+                    while i < segs.len() && segs[i] == "super" {
+                        b = dir_of(&b);
+                        i += 1;
+                    }
+                    (b, &segs[i..], false)
+                }
+                // a bare path names an external crate unless it is a child module of this file's own module
+                _ => (if is_root_file { dir.clone() } else { join_path(&dir, &stem) }, &segs[..], false),
+            };
+            let mut cands: Vec<String> = Vec::new();
+            if rest.is_empty() {
+                cands.push(join_path(&base, "mod.rs"));
+                cands.push(format!("{}.rs", base));
+                if crate_root {
+                    cands.push(join_path(&base, "lib.rs"));
+                    cands.push(join_path(&base, "main.rs"));
+                }
+            } else {
+                let tail = rest.join("/");
+                cands.push(join_path(&base, &format!("{}.rs", tail)));
+                cands.push(join_path(&base, &format!("{}/mod.rs", tail)));
+            }
+            one(exact(&cands), "rust_module_path")
+        }
+        other => Err(format!("cross-file resolution is not defined for language '{}'", other)),
+    }
+}
+
+/// Resolve every external-call node of every indexed file. Pure: the same index always gives the same resolutions.
+fn derive_xfile_resolutions(index: &HashMap<String, XfileIndexEntry>) -> Vec<XfileResolution> {
+    let files: Vec<String> = index.values().filter(|e| !e.file_path.is_empty()).map(|e| norm_path(&e.file_path)).collect();
+    let by_file: HashMap<String, &XfileIndexEntry> =
+        index.values().filter(|e| !e.file_path.is_empty()).map(|e| (norm_path(&e.file_path), e)).collect();
+    let mut keys: Vec<&String> = index.keys().collect();
+    keys.sort();
+    let mut out = Vec::new();
+    for k in keys {
+        let e = &index[k];
+        for x in &e.externals {
+            let mut r = XfileResolution {
+                from_graph_id: e.graph_id,
+                from_file: e.file_path.clone(),
+                external_node_id: x.node_id,
+                module: x.module.clone(),
+                symbol: x.symbol.clone(),
+                to_graph_id: None,
+                to_file: None,
+                to_node_id: None,
+                method: None,
+                unresolved_reason: None,
+            };
+            if e.file_path.is_empty() {
+                r.unresolved_reason = Some("the importing file has no path (analysed from raw text), so a module path cannot be anchored".to_string());
+            } else {
+                match resolve_module_path(&e.language, &e.file_path, &x.module, &files) {
+                    Err(reason) => r.unresolved_reason = Some(reason),
+                    Ok((target, method)) => match by_file.get(&target) {
+                        Some(t) => match t.functions.get(&x.symbol) {
+                            Some(&node_id) => {
+                                r.to_graph_id = Some(t.graph_id);
+                                r.to_file = Some(t.file_path.clone());
+                                r.to_node_id = Some(node_id);
+                                r.method = Some(method.to_string());
+                            }
+                            None => {
+                                r.unresolved_reason = Some(format!(
+                                    "module resolves to {} but it defines no function named '{}' (a re-export or a non-function symbol)",
+                                    t.file_path, x.symbol
+                                ))
+                            }
+                        },
+                        None => r.unresolved_reason = Some("resolved file is not indexed".to_string()),
+                    },
+                }
+            }
+            out.push(r);
+        }
+    }
+    out
+}
+
+fn xfile_sidecar_path(project_id: u64) -> String {
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    format!("{}/graphs/code_xfile_{}.json", data_dir, project_id)
+}
+
+fn load_xfile_index(project_id: u64) -> HashMap<String, XfileIndexEntry> {
+    std::fs::read_to_string(xfile_sidecar_path(project_id))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.get("index").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+/// Write the structural sidecar atomically (temp file + rename), so a concurrent reader never sees half a file.
+fn save_xfile(project_id: u64, index: &HashMap<String, XfileIndexEntry>) -> Result<Value, String> {
+    let resolutions = derive_xfile_resolutions(index);
+    let resolved = resolutions.iter().filter(|r| r.to_node_id.is_some()).count();
+    let summary = serde_json::json!({
+        "layer": "structural",
+        "kind": "cross_file_calls",
+        "project_id": project_id,
+        "files": index.len(),
+        "resolved": resolved,
+        "unresolved": resolutions.len() - resolved,
+    });
+    let body = serde_json::json!({
+        "layer": "structural",
+        "kind": "cross_file_calls",
+        "project_id": project_id,
+        "derived_at": chrono::Utc::now().to_rfc3339(),
+        "index": index,
+        "resolutions": resolutions,
+    });
+    let path = xfile_sidecar_path(project_id);
+    let _ = std::fs::create_dir_all(dir_of(&path));
+    let tmp = format!("{}.tmp{}", path, std::process::id());
+    std::fs::write(&tmp, serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(summary)
+}
+
+fn xfile_key(e: &XfileIndexEntry) -> String {
+    if e.file_path.is_empty() { format!("graph:{}", e.graph_id) } else { norm_path(&e.file_path) }
+}
+
+/// Add (or replace, for a changed file) one file's entry and re-derive the project's resolutions.
+fn upsert_xfile(project_id: u64, entry: XfileIndexEntry) -> Result<Value, String> {
+    let mut index = load_xfile_index(project_id);
+    index.insert(xfile_key(&entry), entry);
+    save_xfile(project_id, &index)
+}
+
+/// Rebuild the whole structural index from the project's persisted graph containers (the repair path; also the first resolution of a
+/// project whose files were linked before this layer existed). A path present twice keeps the newest container (highest id).
+async fn rebuild_xfile_from_project(project_id: u64) -> Result<Value, String> {
+    let mut graph_ids = find_project_code_graphs(project_id).await?;
+    graph_ids.sort();
+    let mut index: HashMap<String, XfileIndexEntry> = HashMap::new();
+    for gid in graph_ids {
+        let persisted = match read_code_graph(gid).await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("rebuild_xfile_from_project: skipping container {} ({})", gid, e);
+                continue;
+            }
+        };
+        let entry = xfile_entry(gid, &persisted.nodes, &persisted.analysis);
+        index.insert(xfile_key(&entry), entry);
+    }
+    save_xfile(project_id, &index)
 }
 
 /// Cross-relationship linking — mirrors text modality pipeline 100's
@@ -735,6 +1128,12 @@ pub enum CodeModalityAction {
         include_external: bool,
     },
     
+    /// Re-derive the STRUCTURAL cross-file call layer of a project from its persisted graphs (repair / first resolution).
+    /// `CreateGraph` already keeps it current per file; this rebuilds it wholesale. Never touches any semantic layer.
+    ResolveCrossFileCalls {
+        project_id: u64,
+    },
+
     /// Compute reverse dependencies
     ComputeReverseDependencies {
         project_id: u64,
@@ -840,6 +1239,10 @@ pub struct CodeModalityOutput {
     /// tune from measured numbers, never preemptive caps).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link_metrics: Option<Value>,
+
+    /// Summary of the STRUCTURAL cross-file call layer (files indexed, calls resolved/unresolved) — see `resolve_module_path`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cross_file: Option<Value>,
 }
 
 impl Default for CodeModalityOutput {
@@ -858,6 +1261,7 @@ impl Default for CodeModalityOutput {
             hook_result: None,
             query_result: None,
             link_metrics: None,
+            cross_file: None,
         }
     }
 }
@@ -1479,6 +1883,11 @@ impl CodeModalityPipeline {
                 self.check_conflicts(project_id, proposed_structure).await
             }
             
+            CodeModalityAction::ResolveCrossFileCalls { project_id } => match rebuild_xfile_from_project(project_id).await {
+                Ok(summary) => CodeModalityOutput { success: true, cross_file: Some(summary), ..Default::default() },
+                Err(e) => CodeModalityOutput { success: false, error: Some(format!("resolve_cross_file_calls failed: {}", e)), ..Default::default() },
+            },
+
             CodeModalityAction::TriggerSemanticHook { graph_id, hook_type } => {
                 self.trigger_semantic_hook(graph_id, hook_type).await
             }
@@ -1946,16 +2355,25 @@ impl CodeModalityPipeline {
         comments
     }
     
-    fn extract_function_calls(&self, code: &str, _language: &str, functions: &[FunctionDef], imports: &[ImportDef]) -> Vec<FunctionCall> {
+    fn extract_function_calls(&self, code: &str, language: &str, functions: &[FunctionDef], imports: &[ImportDef]) -> Vec<FunctionCall> {
         let mut calls = Vec::new();
         let function_names: HashSet<_> = functions.iter().map(|f| f.name.as_str()).collect();
         // names this file imports (`from util import tokenize` -> tokenize => util)
-        let mut imported: HashMap<&str, &str> = HashMap::new();
+        let mut imported: HashMap<String, String> = HashMap::new();
         for im in imports {
+            if language == "rust" {
+                // a Rust import's `module` is the whole `use` path, so the imported names come from the path itself
+                for (module, name) in rust_use_pairs(&im.module) {
+                    if !function_names.contains(name.as_str()) {
+                        imported.insert(name, module);
+                    }
+                }
+                continue;
+            }
             for it in &im.items {
                 let name = it.split_whitespace().next().unwrap_or("").trim();
                 if !name.is_empty() && name != "*" && !function_names.contains(name) {
-                    imported.insert(name, im.module.as_str());
+                    imported.insert(name.to_string(), im.module.clone());
                 }
             }
         }
@@ -1996,7 +2414,7 @@ impl CodeModalityPipeline {
                             callee: callee.to_string(),
                             line: line_num + 1,
                             is_method: line.contains(&format!(".{}", callee)),
-                            module: Some((*module).to_string()),
+                            module: Some(module.clone()),
                         });
                     }
                 }
@@ -2231,9 +2649,19 @@ impl CodeModalityPipeline {
         // analysis — same graceful-degradation posture as text modality's
         // identical call.
         let mut link_metrics: Option<Value> = None;
+        let mut cross_file: Option<Value> = None;
         match persist_graph_container(&graph.nodes, &graph.edges, &analysis, graph.graph_id, project_id).await {
             Ok((container_id, keywords, topics)) => {
                 graph.graph_id = container_id;
+                // STRUCTURAL cross-file layer: index this file and re-resolve the project's calls (own sidecar; never touches the graph
+                // file, the container, or any semantic layer). Best effort — a failure is reported, never fails graph creation.
+                if project_id != 0 {
+                    let entry = xfile_entry(container_id, &graph.nodes, &analysis);
+                    match upsert_xfile(project_id, entry) {
+                        Ok(summary) => cross_file = Some(summary),
+                        Err(e) => eprintln!("cross-file index not updated for container {}: {}", container_id, e),
+                    }
+                }
                 if link_to_existing {
                     let (wired, metrics) = link_related_containers(container_id, project_id, &keywords, &topics).await;
                     eprintln!(
@@ -2253,6 +2681,7 @@ impl CodeModalityPipeline {
             graph_id: Some(graph.graph_id),
             graph: Some(graph),
             link_metrics,
+            cross_file,
             ..Default::default()
         }
     }
@@ -3280,5 +3709,71 @@ mod callgraph_tests {
         assert!(nodes.iter().any(|n| n.name == "util.tokenize"), "external node present");
         let ext_node = nodes.iter().find(|n| n.name == "util.tokenize").unwrap().node_id;
         assert!(edges.iter().any(|ed| ed.to_node == ext_node && matches!(ed.edge_type, CodeEdgeType::Calls)));
+    }
+
+    // ---- structural cross-file resolution -------------------------------------------------------------------------------------
+
+    fn files(v: &[&str]) -> Vec<String> { v.iter().map(|f| norm_path(f)).collect() }
+
+    #[test]
+    fn js_relative_imports_resolve_to_the_exact_project_file_and_externals_stay_unresolved() {
+        let fs = files(&["/p/src/app.ts", "/p/src/util.ts", "/p/src/lib/index.ts"]);
+        assert_eq!(resolve_module_path("typescript", "/p/src/app.ts", "./util", &fs).unwrap().0, "/p/src/util.ts");
+        assert_eq!(resolve_module_path("typescript", "/p/src/app.ts", "./lib", &fs).unwrap().0, "/p/src/lib/index.ts");
+        assert!(resolve_module_path("typescript", "/p/src/app.ts", "react", &fs).is_err(), "a bare package is external, not guessed");
+        assert!(resolve_module_path("typescript", "/p/src/app.ts", "./missing", &fs).is_err());
+    }
+
+    #[test]
+    fn python_dotted_and_relative_imports_resolve_and_ambiguity_is_reported_not_guessed() {
+        let fs = files(&["/p/app/main.py", "/p/app/util.py", "/p/app/pkg/__init__.py", "/p/other/util.py"]);
+        assert_eq!(resolve_module_path("python", "/p/app/main.py", "util", &fs).unwrap().0, "/p/app/util.py", "the sibling wins");
+        assert_eq!(resolve_module_path("python", "/p/app/main.py", ".util", &fs).unwrap().0, "/p/app/util.py");
+        assert_eq!(resolve_module_path("python", "/p/app/main.py", "pkg", &fs).unwrap().0, "/p/app/pkg/__init__.py");
+        let amb = files(&["/p/a/x/util.py", "/p/b/x/util.py", "/p/main.py"]);
+        assert!(resolve_module_path("python", "/p/main.py", "x.util", &amb).unwrap_err().contains("ambiguous"));
+    }
+
+    #[test]
+    fn rust_crate_self_and_super_paths_resolve_by_module_file_rules() {
+        let fs = files(&["/c/src/lib.rs", "/c/src/auth.rs", "/c/src/net/mod.rs", "/c/src/net/peer.rs", "/c/src/net/wire.rs"]);
+        assert_eq!(resolve_module_path("rust", "/c/src/net/peer.rs", "crate::auth", &fs).unwrap().0, "/c/src/auth.rs");
+        assert_eq!(resolve_module_path("rust", "/c/src/net/peer.rs", "super::wire", &fs).unwrap().0, "/c/src/net/wire.rs");
+        assert_eq!(resolve_module_path("rust", "/c/src/net/peer.rs", "super", &fs).unwrap().0, "/c/src/net/mod.rs");
+        assert_eq!(resolve_module_path("rust", "/c/src/net/mod.rs", "crate::net::peer", &fs).unwrap().0, "/c/src/net/peer.rs");
+        assert_eq!(resolve_module_path("rust", "/c/src/net/peer.rs", "crate", &fs).unwrap().0, "/c/src/lib.rs");
+        assert!(resolve_module_path("rust", "/c/src/net/peer.rs", "serde::de", &fs).is_err(), "an external crate is not a project file");
+    }
+
+    #[test]
+    fn rust_use_paths_yield_module_and_name_pairs() {
+        assert_eq!(rust_use_pairs("crate::util::tokenize"), vec![("crate::util".to_string(), "tokenize".to_string())]);
+        assert_eq!(
+            rust_use_pairs("crate::util::{tokenize, fmt_line as f, Thing}"),
+            vec![("crate::util".to_string(), "tokenize".to_string()), ("crate::util".to_string(), "Thing".to_string())]
+        );
+        assert!(rust_use_pairs("crate::util::*").is_empty());
+    }
+
+    #[test]
+    fn cross_file_resolution_links_the_external_node_to_the_other_files_function_and_records_the_rest_as_unresolved() {
+        let mut index: HashMap<String, XfileIndexEntry> = HashMap::new();
+        let util = XfileIndexEntry { graph_id: 7, file_path: "/p/util.py".into(), language: "python".into(), functions: HashMap::from([("tokenize".to_string(), 3u64)]), externals: vec![] };
+        let app = XfileIndexEntry {
+            graph_id: 8, file_path: "/p/app.py".into(), language: "python".into(), functions: HashMap::new(),
+            externals: vec![
+                XfileExternal { node_id: 11, module: "util".into(), symbol: "tokenize".into() },
+                XfileExternal { node_id: 12, module: "util".into(), symbol: "gone".into() },
+                XfileExternal { node_id: 13, module: "requests".into(), symbol: "get".into() },
+            ],
+        };
+        index.insert(xfile_key(&util), util);
+        index.insert(xfile_key(&app), app);
+        let r = derive_xfile_resolutions(&index);
+        let by = |n: u64| r.iter().find(|x| x.external_node_id == n).unwrap();
+        assert_eq!((by(11).to_graph_id, by(11).to_node_id), (Some(7), Some(3)));
+        assert!(by(12).to_node_id.is_none() && by(12).unresolved_reason.as_deref().unwrap().contains("no function named 'gone'"));
+        assert!(by(13).to_node_id.is_none() && by(13).unresolved_reason.is_some());
+        assert_eq!(derive_xfile_resolutions(&index).len(), r.len(), "pure: the same index derives the same resolutions");
     }
 }

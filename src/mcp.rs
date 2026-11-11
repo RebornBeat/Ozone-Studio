@@ -28,6 +28,9 @@ pub enum McpTransport {
     Stdio,
     Http,
     Sse,
+    /// A participating MCP AGENT is the provider (endpoint `agent:<name>` or `agent:*`). A call creates a durable
+    /// request and AWAITS the agent's report — see `src/agent_requests.rs`.
+    Agent,
 }
 
 impl McpTransport {
@@ -36,6 +39,7 @@ impl McpTransport {
             "stdio" => Some(Self::Stdio),
             "http" => Some(Self::Http),
             "sse" => Some(Self::Sse),
+            "agent" => Some(Self::Agent),
             _ => None,
         }
     }
@@ -45,6 +49,7 @@ impl McpTransport {
             Self::Stdio => "stdio",
             Self::Http => "http",
             Self::Sse => "sse",
+            Self::Agent => "agent",
         }
     }
 }
@@ -646,6 +651,26 @@ impl McpRegistry {
                     },
                     Ok(r) => Err(format!("tool returned HTTP {}", r.status())),
                     Err(e) => Err(format!("tool unreachable: {}", e)),
+                }
+            }
+            McpTransport::Agent => {
+                // The provider is a participating agent: create (or adopt) the durable request and await its report.
+                // No timeout and no fail-open — the step waits like any gate that awaits (src/agent_requests.rs).
+                match crate::agent_requests::request_and_await(
+                    &call.tool,
+                    &tool.endpoint,
+                    &call.agent,
+                    &call.input,
+                    call.context.as_ref(),
+                )
+                .await
+                {
+                    Ok(v) => Ok(if v.get("success").is_some() || v.get("error").is_some() {
+                        v
+                    } else {
+                        serde_json::json!({ "success": true, "output": v })
+                    }),
+                    Err(e) => Err(e),
                 }
             }
             McpTransport::Stdio => {

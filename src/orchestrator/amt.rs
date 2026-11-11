@@ -238,6 +238,47 @@ impl PromptOrchestrator {
         Ok(())
     }
 
+    /// NEW VERSION of the persisted AMT after an in-walk expansion round (operator 2026-11-11: "rewrite as new version"). The container keeps its id
+    /// and is updated through the store (`update_container` bumps the version and records the snapshot in its version history); the tree is written to a
+    /// NEW body file (`amt_p{project}_{ts}_{id}_v{n}.json` — the timestamp stays the second field, so the main-AMT scan in `merge_back_to_main` still
+    /// orders by it) and the container's `object_store_path` is pointed at it. The previous body file is KEPT, and the history snapshot still
+    /// references it. No container yet (the AMT was never validated/persisted) = nothing to version.
+    pub(crate) async fn persist_amt_version(&self, state: &mut OrchestrationState, reason: &str) -> Result<(), String> {
+        let (Some(container_id), Some(amt)) = (state.amt_container_id, state.amt.clone()) else {
+            return Ok(());
+        };
+        let current = self
+            .store
+            .get_container(container_id)
+            .await?
+            .ok_or_else(|| format!("AMT container {container_id} no longer exists — cannot write a new version"))?;
+        let next_version = current["global_state"]["version"].as_u64().unwrap_or(1) + 1;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let amt_dir = format!("{}/amt", data_dir);
+        std::fs::create_dir_all(&amt_dir).map_err(|e| format!("create {amt_dir}: {e}"))?;
+        let file_name = match state.request.project_id {
+            Some(project_id) => format!("amt_p{}_{}_{}_v{}.json", project_id, now, amt.id, next_version),
+            None => format!("amt_{}_{}_v{}.json", now, amt.id, next_version),
+        };
+        let json = serde_json::to_string_pretty(&amt).map_err(|e| format!("serialize AMT: {e}"))?;
+        std::fs::write(format!("{}/{}", amt_dir, file_name), json).map_err(|e| format!("write AMT version file: {e}"))?;
+        let mut storage = current["local_state"]["storage"].clone();
+        if !storage.is_object() {
+            storage = serde_json::json!({"db_shard_id": null, "vector_index_ref": null, "compression_type": "None"});
+        }
+        storage["object_store_path"] = serde_json::json!(format!("amt/{}", file_name));
+        self.store
+            .update_container(container_id, serde_json::json!({"metadata": null, "context": null, "storage": storage, "hints": null}))
+            .await?;
+        record_intent_event(
+            state,
+            "amt_version_written",
+            serde_json::json!({"container_id": container_id, "version": next_version, "file": file_name, "reason": reason}),
+        );
+        Ok(())
+    }
+
     /// Write the AMT's full node/edge tree to disk (Container has no generic
     /// slot for arbitrary nested tree content, same constraint pipeline
     /// 100's modality graphs hit) and create a real ZSEI container
@@ -2554,12 +2595,7 @@ Return ONLY valid JSON with a single one-word answer:
     /// file exists yet (the container is keyword/name-only) rather than
     /// fabricating rule content — most of the 15 bootstrap methodologies are
     /// still in that state; only a few have real content written so far.
-    pub(crate) fn load_methodology_rules_text(container: &serde_json::Value) -> Option<String> {
-        // NO-CAP (audit #4, 2026-11-04): this used to load only 5 rules + 3 heuristics; callers fit the text to the reading model's window
-        // (render_within_window) like `_full`, so the limited variant is now the same thing.
-        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
-    }
-
+    ///
     /// Every decision rule and heuristic, no per-methodology count cap. The
     /// caller sizes the block against the reading model's window
     /// (`render_within_window`), so nothing is cut silently.

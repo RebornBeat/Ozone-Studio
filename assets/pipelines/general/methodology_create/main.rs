@@ -256,7 +256,7 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
         } => {
             // Stored in the canonical shape src/types/methodology.rs's
             // Principle/Heuristic/DecisionRule use (and that
-            // PromptOrchestrator::load_methodology_rules_text, added this
+            // PromptOrchestrator::load_methodology_rules_full, added this
             // session, actually reads back) rather than a raw dump of this
             // action's own PrincipleInput/HeuristicInput/DecisionRuleInput
             // DTOs. Those DTOs use different field names for the same

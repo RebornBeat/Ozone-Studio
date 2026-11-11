@@ -336,14 +336,10 @@ async fn review_amt_candidates_once(
 
     let mut any_change = false;
 
-    // PER-PASS BOUND (the one hang/speed sink the session reviews could not
-    // verify): a burst of fresh candidates used to fire an unbounded number
-    // of sequential model calls in ONE pass — a long pass, and a burst
-    // starving everything queued behind it. Doctrine #48 ordering: each pass
-    // covers a bounded batch (oldest first — store order), the rest wait for
-    // the next tick. Structural failures terminal-classify in one attempt,
-    // so the backlog drains fast; the leftover count is named loudly.
-    const MAX_CANDIDATES_PER_PASS: usize = 12;
+    // NO PER-PASS CANDIDATE BOUND (operator 2026-11-11: no fixed limits). A pass used to stop after 12 candidates and leave the rest for the next
+    // tick. A burst of fresh candidates now drains in ONE pass, oldest first (store order) — the only guard is the host-memory floor, waited on
+    // before each attempt (a pause, never a skip). Failure isolation below (per-container fail count, parked backoff) is a retry policy for
+    // BROKEN candidates, not a traversal limit: what it defers is deferred, counted and logged, never dropped.
     let mut attempted_this_pass = 0usize;
     let mut left_for_next_pass = 0usize;
     // FAILURE ISOLATION (starvation fix, 2026-11-01): one bad container (40560
@@ -379,10 +375,7 @@ async fn review_amt_candidates_once(
             left_for_next_pass += 1;
             continue; // this container already failed enough this pass
         }
-        if attempted_this_pass >= MAX_CANDIDATES_PER_PASS {
-            left_for_next_pass += 1;
-            continue;
-        }
+        crate::wait_for_memory_floor("AMT re-expansion candidate").await;
         attempted_this_pass += 1;
         let attempts_before = candidate.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
 
@@ -565,8 +558,7 @@ async fn review_amt_candidates_once(
         tracing::info!(
             attempted = attempted_this_pass,
             left_for_next_pass,
-            bound = MAX_CANDIDATES_PER_PASS,
-            "AMT re-expansion pass hit its per-pass candidate bound — the rest run on the next tick (batch coverage, nothing dropped)"
+            "AMT re-expansion pass: candidates left for the next pass by failure isolation only (their container already failed this pass) — nothing dropped"
         );
     }
 
@@ -670,7 +662,7 @@ async fn try_reexpand_one(
     // branch "naked" (root_content + target_content only), never reading the
     // real methodology_ids/relationships already populated on the node
     // being deepened, even though the exact mechanism to use them
-    // (load_methodology_rules_text) already exists and is correctly wired
+    // (load_methodology_rules_full) already exists and is correctly wired
     // into regular orchestration steps (stages.rs). Confirmed live
     // 2026-09-15 as a real, previously-uncaptured gap (task 62) — this is
     // the fix: pull real decision_rules/heuristics text for every
@@ -908,7 +900,7 @@ If nothing substantive can be added, return: {{"details": []}}"#,
     // (created_at/metadata) is left untouched; content-file-backed
     // containers in this codebase are read by following object_store_path,
     // not by re-fetching the container object itself (see
-    // load_methodology_rules_text, persist_amt_container).
+    // load_methodology_rules_full, persist_amt_container).
     let updated = serde_json::to_string_pretty(&amt).map_err(|e| e.to_string())?;
     std::fs::write(&full_path, updated).map_err(|e| e.to_string())?;
     tracing::info!(container_id, path = %full_path, "AMT expansion: branch deepened and persisted");
@@ -1523,7 +1515,7 @@ Instruction with added constraints: IPv4 and IPv6..."#);
     // just root_content + target_content (task 62 — confirmed live
     // 2026-09-15 that this call never read either field despite both
     // already existing on AMTNode and the guidance mechanism
-    // (load_methodology_rules_text) already working correctly elsewhere).
+    // (load_methodology_rules_full) already working correctly elsewhere).
     // A purpose-built store is used here rather than the shared MockStore —
     // that one hardcodes single project/AMT ids and can't represent a
     // methodology container at a third id, so reusing it would produce a
@@ -1965,6 +1957,7 @@ pub fn spawn_network_hook_bridge(
         // methodology — automatically, as a manifest). They do not come from a container event (a created tool has no container; McpEntity rows
         // are tool-RESULT nodes and are never announced), so they arrive on their own channel (`network::publish_created_tool`).
         let mut tool_rx = crate::network::subscribe_created_tools();
+        let mut tool_open = tool_rx.is_some();
         loop {
             let mut batch: Vec<AnnounceItem> = Vec::new();
             tokio::select! {
@@ -1976,18 +1969,16 @@ pub fn spawn_network_hook_bridge(
                     }
                     Err(_) => break,
                 },
-                got = tool_rx.recv() => match got {
-                    Ok(f) => batch.push((*f).clone().into_announce_item()),
-                    Err(RecvError::Lagged(n)) => {
-                        tracing::warn!(lagged = n, "Network hook bridge: missed created-tool findings");
-                        continue;
-                    }
-                    Err(_) => {} // the tool channel never closes while the process runs; ignore
+                got = async { match tool_rx.as_mut() { Some(r) => r.recv().await, None => None } }, if tool_open => match got {
+                    Some(f) => batch.push((*f).clone().into_announce_item()),
+                    None => { tool_open = false; } // no receiver was available (another bridge holds it): stop polling this arm
                 },
             }
             // created-tool findings that arrived meanwhile join the same batch (no timer: only what is already available)
-            while let Ok(f) = tool_rx.try_recv() {
-                batch.push((*f).clone().into_announce_item());
+            if let Some(r) = tool_rx.as_mut() {
+                while let Ok(f) = r.try_recv() {
+                    batch.push((*f).clone().into_announce_item());
+                }
             }
             let mut closed = false;
             // everything that arrived meanwhile joins the SAME batch (no timer: only what is already available)

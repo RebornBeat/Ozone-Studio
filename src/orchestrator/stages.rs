@@ -294,7 +294,7 @@ impl PromptOrchestrator {
 
         // STAGE 6: Blueprint Assignment
         tracing::info!(stage = 6, "Stage 6 (Blueprint Assignment) starting — applicable tools carried: {}", state.applicable_tools.len());
-        self.stage_3_blueprint_assignment(state).await?;
+        self.stage_3_validated(state).await?;
 
         // CAPABILITY CLOSURE (operator 2026-11-06: "we are supposed to be acting on them right then and there … we create them on the spot …
         // we increase feasibility"). A blueprint that reports missing capabilities is no longer recorded-and-carried-on: each gap is JUDGED
@@ -311,7 +311,7 @@ impl PromptOrchestrator {
                 last_needed = needed;
                 tracing::info!(stage = 6, created, needed, "capability closure: methodologies created on the spot — re-planning from the richer set");
                 state.replan = true;
-                let replanned = self.stage_3_blueprint_assignment(state).await;
+                let replanned = self.stage_3_validated(state).await;
                 state.replan = false;
                 replanned?;
                 self.work_order_after_replan(state).await;
@@ -353,7 +353,7 @@ impl PromptOrchestrator {
                 }
                 tracing::info!(stage = 7, created, needed, "feasibility LOW — re-planning and re-simulating");
                 state.replan = true;
-                let replanned = self.stage_3_blueprint_assignment(state).await;
+                let replanned = self.stage_3_validated(state).await;
                 state.replan = false;
                 replanned?;
                 self.work_order_after_replan(state).await;
@@ -1319,6 +1319,44 @@ impl PromptOrchestrator {
         self.executor.execute(12, create).await.ok()?.get("methodology_id").and_then(|m| m.as_u64())
     }
 
+    /// DUPLICATE STEP INDICES in a plan (operator 2026-11-11): the step loop keys completion by `step_index`, so a second step with an index
+    /// already used would never run. Returns every index that more than one step carries (sorted, each once); empty = the plan is valid.
+    pub(crate) fn duplicate_step_indices(steps: &[BlueprintStep]) -> Vec<u32> {
+        let mut seen: HashSet<u32> = HashSet::new();
+        let mut dups: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for s in steps {
+            if !seen.insert(s.step_index) {
+                dups.insert(s.step_index);
+            }
+        }
+        dups.into_iter().collect()
+    }
+
+    /// Stage 3 + PLAN VALIDATION. A plan whose steps do not each have a unique `step_index` is INVALID: it is recorded
+    /// (`plan_invalid_duplicate_step_index`), REPLANNED from scratch (no stored-blueprint reuse — the reused plan is the one that failed), and
+    /// if the fresh plan is invalid too the walk fails here (the failure doctrine pauses it; resuming replans). Indices are never silently
+    /// renumbered and no step is ever silently skipped.
+    async fn stage_3_validated(&self, state: &mut OrchestrationState) -> Result<(), String> {
+        self.stage_3_blueprint_assignment(state).await?;
+        let dups = Self::duplicate_step_indices(&state.blueprint_steps);
+        if dups.is_empty() {
+            return Ok(());
+        }
+        super::amt::record_intent_event(state, "plan_invalid_duplicate_step_index", serde_json::json!({"indices": dups, "action": "replan"}));
+        tracing::warn!(?dups, "stage 3: plan has duplicate step_index values — invalid; re-planning from scratch");
+        let was_replan = state.replan;
+        state.replan = true;
+        let replanned = self.stage_3_blueprint_assignment(state).await;
+        state.replan = was_replan;
+        replanned?;
+        let dups = Self::duplicate_step_indices(&state.blueprint_steps);
+        if !dups.is_empty() {
+            super::amt::record_intent_event(state, "plan_invalid_duplicate_step_index", serde_json::json!({"indices": dups, "action": "fail"}));
+            return Err(format!("plan invalid: step_index values {:?} are used by more than one step even after a re-plan", dups));
+        }
+        Ok(())
+    }
+
     async fn stage_3_blueprint_assignment(
         &self,
         state: &mut OrchestrationState,
@@ -1496,7 +1534,7 @@ impl PromptOrchestrator {
         // drafting the blueprint never saw what those methodologies actually
         // require, only opaque numbers with no way to act on them. Falls
         // back to just the name when a methodology has no real rule content
-        // file yet (most don't — see load_methodology_rules_text).
+        // file yet (most don't — see load_methodology_rules_full).
         let methodologies_desc = if state.methodologies.is_empty() {
             "  (none matched this request)".to_string()
         } else {
@@ -3037,6 +3075,8 @@ Return JSON:
             if !state.walk_expansion.is_empty() {
                 break;
             }
+            // the next step fans out lane subprocesses: pause (never skip, never fail) until the host clears the memory floor
+            crate::wait_for_memory_floor("walk step").await;
 
             // Find steps whose dependencies are satisfied
             let ready_steps: Vec<_> = step_queue
@@ -3205,9 +3245,22 @@ Return JSON:
             break;
         }
         let discovered_at = state.walk_expansion.first().and_then(|p| p["step"].as_u64()).unwrap_or(0) as u32;
-        if let Err(e) = self.expand_walk(state).await {
-            // FAILURE DOCTRINE: an expansion that cannot be completed pauses the task (queue + checkpoint kept); it is never skipped
-            return Err(self.pause_on_step_error(&*state, discovered_at, &format!("AMT expansion while the task was open: {e}")).await);
+        let added_steps = match self.expand_walk(state).await {
+            Ok(n) => n,
+            Err(e) => {
+                // FAILURE DOCTRINE: an expansion that cannot be completed pauses the task (queue + checkpoint kept); it is never skipped
+                return Err(self.pause_on_step_error(&*state, discovered_at, &format!("AMT expansion while the task was open: {e}")).await);
+            }
+        };
+        // The plan now holds steps the stage-4 simulation never saw: simulate it again (operator 2026-11-11). The result REPLACES the earlier
+        // simulation on the state (it describes the plan as it is now); it informs, it does not re-open decisions already taken. A failed
+        // simulation pauses the task like every other failure — never skipped, never continued past.
+        if added_steps > 0 {
+            if let Err(e) = self.stage_4_zero_shot_simulation(state).await {
+                return Err(self.pause_on_step_error(&*state, discovered_at, &format!("re-simulation after AMT expansion: {e}")).await);
+            }
+            let feasibility = state.simulation_result.as_ref().map(|r| r.overall_feasibility.clone());
+            super::amt::record_intent_event(state, "walk_expansion_resimulated", serde_json::json!({"new_steps": added_steps, "feasibility": feasibility}));
         }
         self.write_checkpoint(state, None);
         }

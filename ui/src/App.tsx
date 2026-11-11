@@ -41,6 +41,8 @@ declare global {
           sessionToken?: Uint8Array;
           error?: string;
         }>;
+        /** Real device session: the main process signs the host's challenge with the device key; no token is returned. */
+        ensure: () => Promise<{ success: boolean; error?: string }>;
       };
       pipeline: {
         [k: string]: any;

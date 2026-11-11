@@ -384,7 +384,7 @@ Continuous system improvement through a background "meta loop," designed to:
   into each instance's own data directory at boot by the existing
   `copy_methodologies()` step (`src/bootstrap.rs`), so a fresh instance gets
   this content automatically rather than needing it hand-placed. A new
-  `PromptOrchestrator::load_methodology_rules_text` helper reads a
+  `PromptOrchestrator::load_methodology_rules_full` helper reads a
   methodology's real content off disk (via the same `object_store_path`
   convention modality graphs already use) and both `enrich_with_zsei_
   knowledge` (branch discovery) and `stage_3_blueprint_assignment`

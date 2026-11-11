@@ -90,16 +90,14 @@ pub struct SpanOutResult {
 }
 
 const SCORE_FLOOR: f32 = 0.02;
-/// Runaway guard on host work (store reads), NOT a context cap. It SCALES with the READING model's budget (operator 2026-11-06:
-/// model-agnostic, no fixed limits): a fetched container is worth at least ~50 tokens of context, so a budget of B tokens can use up
-/// to B/50 fetches; the floor (400) keeps small budgets exactly as before. `OZONE_SPAN_OUT_MAX_FETCH` still overrides everything.
-const DEFAULT_FETCH_CAP: usize = 400;
-
+/// Fetch allowance, DERIVED from the READING model's budget (operator 2026-11-11: model-agnostic, no fixed limits): a fetched container is
+/// worth at least ~50 tokens of context, so a budget of B tokens can use B/50 fetches (at least 1). No fixed floor or ceiling.
+/// `OZONE_SPAN_OUT_MAX_FETCH` is an explicit operator override and still wins.
 fn fetch_cap(token_budget: u32) -> usize {
     std::env::var("OZONE_SPAN_OUT_MAX_FETCH")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| (token_budget as usize / 50).max(DEFAULT_FETCH_CAP))
+        .unwrap_or_else(|| (token_budget as usize / 50).max(1))
 }
 
 /// How strongly a relation type carries context (class weight only — no edge-confidence term).

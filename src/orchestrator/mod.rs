@@ -2115,6 +2115,8 @@ impl PromptOrchestrator {
         request: OrchestrationRequest,
         trace_id: String,
     ) -> OrchestrationResponse {
+        // MEMORY FLOOR (operator 2026-11-11): an interactive walk PAUSES here until the host has memory for it, then resumes — never skipped, never failed.
+        crate::wait_for_memory_floor("orchestrate walk").await;
         let mut state = self.init_state(request.clone(), trace_id).await;
         // ── Voice input (Whisper, headless path) ──
         // Non-UI callers attach audio here; the Voice pipeline (#10)

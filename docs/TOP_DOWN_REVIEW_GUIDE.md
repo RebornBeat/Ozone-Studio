@@ -71,7 +71,7 @@ as the same gap:
 |---|---|---|---|
 | 0 — Jurisdiction Gate | raw prompt only (deliberate: Block must stop pre-processing) | region rules, matched conditions, legal sources | `assets/jurisdiction/*.json`, keyword match on raw prompt |
 | 2 — Text Normalization + STEP 0 | attached-file modality graphs **with real cross-relationships** (SimilarTo edges, live-verified) | file graphs + their relationship edges | `state.file_graphs` (ids known exactly — direct fetch, not rediscovery) |
-| 3 — Gather Methodologies | matched methodology ids | methodology rule text | `load_methodology_rules_text` |
+| 3 — Gather Methodologies | matched methodology ids | methodology rule text | `load_methodology_rules_full` |
 | 4a/4b — Classification + Initial Graphs | file roles (currently degraded: the classification call's empty-response bug — fix landed via `metered_execute_resilient`), modality spans | roles + modality graph containers | classification + span detection |
 | 5 — Build AMT | **the AMT: intents → branches → details → cross-refs, per-request fork of the project's main tree** | jurisdiction outcome (now wired: `jurisdiction_summary`), file relationships (now wired: `file_relationship_summary`), methodology rule text | traversed from `state` + graph |
 | 6 — Blueprint Assignment | **the blueprint: the executable plan** — steps, pipelines, model overrides, context requirements | everything §5 has, plus available pipelines/models | the richest-context builder (BUILDER_REGISTRY §6) |

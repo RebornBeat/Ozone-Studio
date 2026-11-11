@@ -355,6 +355,14 @@ pub struct OrchestrateRequest {
     /// whole walk. Default false = the original blocking behaviour.
     #[serde(default)]
     pub submit_only: bool,
+    /// The MCP agent (or other named caller) whose call IS this prompt. Recorded with the walk as its first
+    /// participant (src/walk_feed.rs). Declared by the caller; the MCP server binds it to the process identity.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Other agents taking part in this walk: they can read its feed and answer agent-provider steps addressed to
+    /// them or to `agent:*`.
+    #[serde(default)]
+    pub participants: Vec<String>,
 }
 
 fn default_consciousness_enabled() -> bool {
@@ -694,6 +702,8 @@ async fn session_gate(
         "/capture/ingest_image",
         "/capture/ingest_uidocument",
         "/pipelines/register",
+        "/walk/",
+        "/agent/",
     ];
     // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
     // gate stands down entirely — the setup wizard must be able to write
@@ -1456,6 +1466,17 @@ async fn execute_pipeline(
         }
     }
 
+    // LINK GUARD (hardening H4): FileLink (#30) and every other pipeline that reads a named file or folder go through the
+    // host's own path check — secrets, the data dir and the OS control surface are never readable this way.
+    if let Err(reason) = crate::link_guard::check_json(&req.input) {
+        return Json(PipelineResponse {
+            success: false,
+            task_id: Some(0),
+            output: None,
+            error: Some(format!("path refused by the link guard: {reason}")),
+        });
+    }
+
     let input: crate::types::pipeline::PipelineInput = match serde_json::from_value(req.input) {
         Ok(i) => i,
         Err(e) => {
@@ -2187,6 +2208,28 @@ async fn cancel_task(
             success: false,
             error: Some(e.to_string()),
         }),
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct TaskRetryResponse {
+    pub success: bool,
+    pub task_id: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// POST /task/retry {task_id} — OPERATOR retry of a failed / interrupted / cancelled task. A child task is re-registered under the SAME parent
+/// walk as a NEW task instance (the failed one is kept as it was), so the parent's completion gate waits on the retry. Pair with /task/cancel,
+/// which now also lets the operator cancel a failed child (their own decision — it stops blocking the walk).
+async fn retry_task(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<TaskRequest>,
+) -> Json<TaskRetryResponse> {
+    let runtime = state.runtime.read().await;
+    let task_mgr = runtime.task_manager.read().await;
+    match task_mgr.retry_task(req.task_id).await {
+        Ok(id) => Json(TaskRetryResponse { success: true, task_id: Some(id), error: None }),
+        Err(e) => Json(TaskRetryResponse { success: false, task_id: None, error: Some(e.to_string()) }),
     }
 }
 
@@ -4100,6 +4143,33 @@ async fn orchestrate(
         }
     }
 
+    // LINK GUARD (hardening H4): attached files are read by the host itself, so the host — not only the MCP — refuses paths
+    // that hold its own secrets or the OS control surface, and honours the operator's OZONE_LINK_ROOTS allow-list.
+    if let Err(reason) = crate::link_guard::check_json(&serde_json::Value::Array(req.attached_files.clone())) {
+        return Json(OrchestrateResponse {
+            success: false,
+            response: None,
+            task_id: None,
+            blueprint_id: None,
+            stages_completed: vec![],
+            needs_clarification: false,
+            clarification_points: vec![],
+            error: Some(format!("attached file refused by the link guard: {reason}")),
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            model_used: None,
+            total_tokens_used: None,
+            amt_summary: None,
+            thinking_log: vec![],
+            attempt_trail: vec![],
+            refusals: vec![],
+            awaiting: false,
+            await_id: None,
+            status: None,
+            accepted: false,
+            run_token: None,
+        });
+    }
+
     // Build the pipeline input that the orchestrator understands
     let mut data = std::collections::HashMap::new();
     data.insert(
@@ -4174,6 +4244,15 @@ async fn orchestrate(
     let device_id = req.device_id;
     let runtime_handle = state.runtime.clone();
 
+    // WALK PARTICIPANTS (src/walk_feed.rs): the walk's trace is created HERE, so the run_token <-> trace_id binding exists
+    // from the first instant (the walk's own root joins it: `child_or_root`). The caller and any named participants are
+    // recorded; they read the walk's live feed through the MCP and answer agent-provider steps.
+    let agent_ok = |a: &str| !a.is_empty() && a.len() <= 64 && a.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    let walk_caller = req.agent.clone().filter(|a| agent_ok(a)).unwrap_or_else(|| "unknown".to_string());
+    let walk_participants: Vec<String> = req.participants.iter().filter(|a| agent_ok(a)).cloned().collect();
+    let walk_trace = crate::trace::TraceCtx::new_root("orchestrate");
+    let walk_trace_id = walk_trace.trace_id.clone();
+
     // ASYNC SUBMIT (2026-11-01 orchestrate client contract): no HTTP request
     // has to stay open for a 9-13 minute walk. `submit_only:true` acknowledges
     // immediately; the walk runs detached exactly as below, and the outcome
@@ -4187,11 +4266,29 @@ async fn orchestrate(
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         );
+        crate::walk_feed::record_walk(
+            Some(run_token.as_str()),
+            &walk_trace_id,
+            &walk_caller,
+            &walk_participants,
+            user_id,
+            device_id,
+            req.project_id,
+            req.workspace_id,
+        );
+        let participants_json = crate::walk_feed::resolve(Some(run_token.as_str()), None, None)
+            .map(|w| w["participants"].clone())
+            .unwrap_or(serde_json::Value::Null);
         if let Ok(mut runs) = async_runs().lock() {
-            runs.insert(run_token.clone(), serde_json::json!({ "state": "running" }));
+            runs.insert(
+                run_token.clone(),
+                serde_json::json!({ "state": "running", "trace_id": walk_trace_id, "caller": walk_caller, "participants": participants_json }),
+            );
         }
         let token_for_task = run_token.clone();
-        tokio::spawn(async move {
+        let trace_for_task = walk_trace_id.clone();
+        let caller_for_task = walk_caller.clone();
+        tokio::spawn(crate::trace::with_trace(walk_trace, async move {
             let walk_started = std::time::Instant::now();
             // Build under the guard, DROP it, then walk: a walk must never hold the runtime lock.
             let prepared = { runtime_handle.read().await.prepare_orchestration(pipeline_input, user_id, device_id).await };
@@ -4240,10 +4337,22 @@ async fn orchestrate(
                     })
                 }
             };
+            // the walk's task now exists: bind it to the trace so participants can resolve the walk by task id
+            let mut summary = summary;
+            if let Some(tid) = summary.get("task_id").and_then(|v| v.as_u64()) {
+                crate::walk_feed::bind_task(&trace_for_task, tid);
+            }
+            if let Some(o) = summary.as_object_mut() {
+                o.insert("trace_id".to_string(), serde_json::json!(trace_for_task));
+                o.insert("caller".to_string(), serde_json::json!(caller_for_task));
+                if let Some(w) = crate::walk_feed::resolve(None, Some(trace_for_task.as_str()), None) {
+                    o.insert("participants".to_string(), w["participants"].clone());
+                }
+            }
             if let Ok(mut runs) = async_runs().lock() {
                 runs.insert(token_for_task, summary);
             }
-        });
+        }));
         return Json(OrchestrateResponse {
             success: true,
             response: None,
@@ -4268,7 +4377,18 @@ async fn orchestrate(
         });
     }
 
-    let walk = tokio::spawn(async move {
+    crate::walk_feed::record_walk(
+        None,
+        &walk_trace_id,
+        &walk_caller,
+        &walk_participants,
+        user_id,
+        device_id,
+        req.project_id,
+        req.workspace_id,
+    );
+    let trace_for_walk = walk_trace_id.clone();
+    let walk = tokio::spawn(crate::trace::with_trace(walk_trace, async move {
         // Build under the guard, DROP it, then walk: a walk must never hold the runtime lock.
         let prepared = { runtime_handle.read().await.prepare_orchestration(pipeline_input, user_id, device_id).await };
         let outcome = match prepared {
@@ -4284,8 +4404,13 @@ async fn orchestrate(
             ),
             Err(e) => tracing::error!("Orchestration failed: {}", e),
         }
+        if let Ok(result) = &outcome {
+            if let Some(tid) = result.task_id {
+                crate::walk_feed::bind_task(&trace_for_walk, tid);
+            }
+        }
         outcome
-    });
+    }));
     let outcome = match walk.await {
         Ok(outcome) => outcome,
         Err(join_err) => {
@@ -4944,6 +5069,9 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         zsei_data_dir,
     });
 
+    // WALK FEED collector: every orchestration stage event becomes a durable, cursor-readable feed row.
+    crate::walk_feed::spawn_collector();
+
     // GRAPH RIPPLE → monitor feed: graph writes surface in the same feed
     // every agent and the dashboard already watches.
     {
@@ -5019,6 +5147,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/assistant/feed", get(get_assistant_feed))
         .route("/consciousness/review_pass", post(consciousness_review_pass))
         .route("/task/cancel", post(cancel_task))
+        .route("/task/retry", post(retry_task))
         .route("/task/step/rerun", post(rerun_step))
         .route("/zsei/query", post(query_zsei))
         .route("/orchestration/node-event", post(report_node_event))
@@ -5103,6 +5232,12 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/marketplace/offers/decide", post(marketplace_offer_decide))
         // ORCHESTRATE STATUS — poll a submit_only run by run_token.
         .route("/orchestrate/status", get(orchestrate_status))
+        // WALK FEED + PARTICIPANTS (src/walk_feed.rs): what the agents taking part in a walk read about it.
+        .route("/walk/feed", get(walk_feed_read))
+        .route("/walk/mine", get(walk_mine))
+        // AGENT PROVIDER (src/agent_requests.rs): steps handed to a participating agent, answered by its report.
+        .route("/agent/requests", get(agent_requests_list))
+        .route("/agent/report", post(agent_report))
         .layer(cors)
         .layer(axum::middleware::from_fn_with_state(state.clone(), session_gate))
         .with_state(state);
@@ -5810,7 +5945,7 @@ async fn list_devices(State(state): State<Arc<AppState>>) -> Json<serde_json::Va
 #[derive(Debug, Deserialize)]
 pub struct McpToolRegisterRequest {
     pub name: String,
-    /// "stdio" | "http" | "sse"
+    /// "stdio" | "http" | "sse" | "agent"
     pub transport: String,
     /// Command+args (stdio) or URL (http/sse).
     pub endpoint: String,
@@ -5932,10 +6067,22 @@ async fn mcp_register_tool(
         None => {
             return Json(serde_json::json!({
                 "success": false,
-                "error": format!("unknown transport {} (stdio | http | sse)", req.transport),
+                "error": format!("unknown transport {} (stdio | http | sse | agent)", req.transport),
             }))
         }
     };
+    if transport == crate::mcp::McpTransport::Agent
+        && !(req.endpoint.starts_with("agent:")
+            && req.endpoint.len() > "agent:".len()
+            && req.endpoint["agent:".len()..]
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*')))
+    {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "an agent provider's endpoint must be `agent:<name>` (or `agent:*` for any participant of the walk)",
+        }));
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -6925,6 +7072,79 @@ async fn orchestrate_status(
             Json(v)
         }
         None => Json(serde_json::json!({ "found": false, "run_token": q.run_token })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WalkFeedQuery {
+    #[serde(default)]
+    pub run_token: Option<String>,
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<u64>,
+    /// Cursor: rows with `seq >= after`. Omit (0) for everything from the start.
+    #[serde(default)]
+    pub after: Option<u64>,
+}
+
+/// GET /walk/feed?run_token=|trace_id=|task_id=&after= — the walk's participants and its live stage feed, from a cursor.
+/// `{found, walk:{run_token,trace_id,caller,participants,task_id?}, rows:[…], next}`. Unknown walk = `{found:false}`.
+async fn walk_feed_read(axum::extract::Query(q): axum::extract::Query<WalkFeedQuery>) -> Json<serde_json::Value> {
+    match crate::walk_feed::resolve(q.run_token.as_deref(), q.trace_id.as_deref(), q.task_id) {
+        Some(walk) => {
+            let trace = walk["trace_id"].as_str().unwrap_or("").to_string();
+            let (rows, next) = crate::walk_feed::read_feed(q.after.unwrap_or(0), &trace);
+            Json(serde_json::json!({ "found": true, "walk": walk, "rows": rows, "next": next }))
+        }
+        None => Json(serde_json::json!({ "found": false })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WalkMineQuery {
+    pub agent: String,
+}
+
+/// GET /walk/mine?agent= — the walks an agent participates in (newest first), so it can discover them.
+async fn walk_mine(axum::extract::Query(q): axum::extract::Query<WalkMineQuery>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "agent": q.agent, "walks": crate::walk_feed::walks_for(&q.agent) }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentRequestsQuery {
+    pub agent: String,
+}
+
+/// GET /agent/requests?agent= — pending agent-provider requests this agent may answer.
+async fn agent_requests_list(axum::extract::Query(q): axum::extract::Query<AgentRequestsQuery>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "agent": q.agent, "requests": crate::agent_requests::pending_for(&q.agent) }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentReportRequest {
+    pub id: String,
+    pub agent: String,
+    pub result: serde_json::Value,
+    #[serde(default)]
+    pub session_token: Option<String>,
+}
+
+/// POST /agent/report {id, agent, result} — the agent's report completes the awaiting step. Completed is final: a second
+/// report is refused. Behind the strict session gate (`/agent/` is protected) when the host runs strict.
+async fn agent_report(State(state): State<Arc<AppState>>, Json(req): Json<AgentReportRequest>) -> Json<serde_json::Value> {
+    // validated device id when a session token was supplied (recorded; the agent name itself is declared)
+    let device_id = if let Some(tok) = req.session_token.as_ref().filter(|t| !t.trim().is_empty()) {
+        let runtime = state.runtime.read().await;
+        let auth = runtime.auth.read().await;
+        let bytes = hex::decode(tok).unwrap_or_default();
+        auth.validate_session(&bytes).await.ok().map(|sess| sess.device_id as u64)
+    } else {
+        None
+    };
+    match crate::agent_requests::report(&req.id, &req.agent, req.result, device_id) {
+        Ok(v) => Json(serde_json::json!({ "success": true, "report": v })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
     }
 }
 

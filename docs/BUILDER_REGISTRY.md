@@ -360,7 +360,7 @@ same call, same `max_tokens: 1000`/`temperature: 0.3`, just moved).
 relationships` (`stages.rs:391-392`, interpolated at `:412-415`+), the full
 AMT (`AMT ROOT`/`BRANCHES`), available pipelines, available models (for
 per-step `model_override`), and real methodology rule text via
-`load_methodology_rules_text` (`stages.rs:381`, matching `docs/ZERO_SHOT_
+`load_methodology_rules_full` (`stages.rs:381`, matching `docs/ZERO_SHOT_
 CALL_REGISTRY.md`'s own file-map entry for this function). This is the
 richest-context builder in the registry — consistent with it being the
 highest-stakes one.

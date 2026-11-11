@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld("ozone", {
      */
     authenticate: (publicKey, signature) =>
       ipcRenderer.invoke("auth:authenticate", { publicKey, signature }),
+
+    /**
+     * Establish/confirm the desktop's real device session (the main process holds the key and signs; no token is returned)
+     * @returns {Promise<{success: boolean, error?: string}>}
+     */
+    ensure: () => ipcRenderer.invoke("auth:ensure"),
   },
 
   // ========================================================================

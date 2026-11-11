@@ -60,7 +60,7 @@ pub struct SyncItem {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncItemType {
     Methodology,
-    /// Kept for API compatibility only: blueprints are PRIVATE and are never announced (see `on_blueprint_created`).
+    /// Kept for API compatibility only: blueprints are PRIVATE and are never announced (see `NetworkManager::on_items_announced`, which skips them).
     Blueprint,
     Container,
     PipelineResult,
@@ -116,10 +116,10 @@ pub fn marketplace_kind(data: &[u8]) -> Option<String> {
 /// everything else — blueprints, user data, events, chat, any unknown kind — is refused at the door and never reaches the inbox.
 pub const ALLOWED_ITEM_TYPES: [&str; 4] = ["methodology", "jurisdiction_rule_set", "pipeline", "tool"];
 
-/// Abuse guards (explicit, not work caps): a name longer than this, more keywords than this, or a chunk larger than twice the chunk size is
-/// refused — a well-formed peer never sends them, and an unbounded one could exhaust memory.
-const MAX_NAME_CHARS: usize = 512;
-const MAX_KEYWORDS: usize = 500;
+/// NO fixed size guards on peer manifests (operator 2026-11-11: no fixed limits). The name / keyword-count / chunk-size limits that stood here
+/// (512 chars, 500 keywords, 2 x the chunk size) are gone: the transport already bounds one message (gossipsub's maximum message size), and
+/// everything else the door checks is SHAPE, not size — an allowed item type, a name with no control characters, a 16-hex body hash,
+/// alphanumeric listing versions, scope markers stripped from keyword lists.
 
 fn is_hex16(h: &str) -> bool {
     h.len() == 16 && h.chars().all(|c| c.is_ascii_hexdigit())
@@ -130,8 +130,8 @@ fn clean_name(v: &serde_json::Value) -> Result<String, String> {
     if n.is_empty() {
         return Err("the item has no name".to_string());
     }
-    if n.chars().count() > MAX_NAME_CHARS || n.chars().any(|c| c.is_control()) {
-        return Err("the item name is not acceptable (too long or contains control characters)".to_string());
+    if n.chars().any(|c| c.is_control()) {
+        return Err("the item name is not acceptable (it contains control characters)".to_string());
     }
     Ok(n.to_string())
 }
@@ -152,7 +152,6 @@ fn clean_keywords(v: &serde_json::Value) -> Vec<String> {
             a.iter()
                 .filter_map(|k| k.as_str().map(str::trim))
                 .filter(|k| !k.is_empty() && !k.chars().any(|c| c.is_control()) && !crate::shared_contracts::keyword_model::is_marker(k))
-                .take(MAX_KEYWORDS)
                 .map(String::from)
                 .collect()
         })
@@ -219,9 +218,6 @@ pub fn sanitize_marketplace_message(data: &[u8]) -> Result<serde_json::Value, St
                 return Err("a chunk has an invalid hash, total or sequence".to_string());
             }
             let data = v["data"].as_str().ok_or("a chunk has no data")?;
-            if data.len() > FETCH_CHUNK_BYTES * 2 {
-                return Err("a chunk is larger than allowed".to_string());
-            }
             Ok(json!({
                 "kind": kind, "item_type": clean_item_type(&v["item_type"])?, "name": clean_name(&v["name"])?, "body_hash": hash,
                 "seq": seq, "total": total, "data": data,
@@ -286,21 +282,39 @@ impl CreatedToolFinding {
     }
 }
 
-static CREATED_TOOLS: std::sync::OnceLock<tokio::sync::broadcast::Sender<std::sync::Arc<CreatedToolFinding>>> = std::sync::OnceLock::new();
-
-fn created_tools_tx() -> &'static tokio::sync::broadcast::Sender<std::sync::Arc<CreatedToolFinding>> {
-    CREATED_TOOLS.get_or_init(|| tokio::sync::broadcast::channel(1024).0)
+/// The created-tool channel: UNBOUNDED, single consumer (the marketplace bridge). A bounded broadcast buffer used to sit here and a lagging
+/// bridge would drop findings; an unbounded queue never loses one. Findings are queued ONLY while a bridge holds the receiver (marketplace
+/// publishing on) — with none attached, `publish_created_tool` is a no-op, exactly as before: creation never depends on publication.
+struct CreatedToolChannel {
+    tx: tokio::sync::mpsc::UnboundedSender<std::sync::Arc<CreatedToolFinding>>,
+    rx: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<std::sync::Arc<CreatedToolFinding>>>>,
+    attached: std::sync::atomic::AtomicBool,
 }
 
-/// Publish a created-tool finding to whoever runs the marketplace bridge. A no-op when no bridge is subscribed (marketplace publishing off):
-/// creation never depends on publication.
+fn created_tools_chan() -> &'static CreatedToolChannel {
+    static CH: std::sync::OnceLock<CreatedToolChannel> = std::sync::OnceLock::new();
+    CH.get_or_init(|| {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        CreatedToolChannel { tx, rx: std::sync::Mutex::new(Some(rx)), attached: std::sync::atomic::AtomicBool::new(false) }
+    })
+}
+
+/// Publish a created-tool finding to whoever runs the marketplace bridge. A no-op when no bridge is attached (marketplace publishing off).
 pub fn publish_created_tool(finding: CreatedToolFinding) {
-    let _ = created_tools_tx().send(std::sync::Arc::new(finding));
+    let ch = created_tools_chan();
+    if ch.attached.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = ch.tx.send(std::sync::Arc::new(finding));
+    }
 }
 
-/// The bridge's receiver of created-tool findings.
-pub fn subscribe_created_tools() -> tokio::sync::broadcast::Receiver<std::sync::Arc<CreatedToolFinding>> {
-    created_tools_tx().subscribe()
+/// The bridge's receiver of created-tool findings. There is ONE consumer: the first caller gets the live receiver, a later caller gets `None`.
+pub fn subscribe_created_tools() -> Option<tokio::sync::mpsc::UnboundedReceiver<std::sync::Arc<CreatedToolFinding>>> {
+    let ch = created_tools_chan();
+    let rx = ch.rx.lock().ok().and_then(|mut g| g.take());
+    if rx.is_some() {
+        ch.attached.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    rx
 }
 
 /// The announcement envelope: a MANIFEST only (no body). `source_container_id` is an opaque handle on the announcing store, kept so a later
@@ -542,6 +556,7 @@ impl NetworkManager {
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .heartbeat_interval(std::time::Duration::from_secs(1))
             .validation_mode(gossipsub::ValidationMode::Strict)
+            .max_transmit_size(GOSSIPSUB_MAX_TRANSMIT_BYTES)
             .build()
             .map_err(|e| OzoneError::NetworkError(format!("Gossipsub config error: {}", e)))?;
 
@@ -808,8 +823,8 @@ impl NetworkManager {
                             }
                         }
                         // A received sync message (2026-10-20). Per
-                        // `on_methodology_created`/etc.'s real call site
-                        // (orchestrator::amt_loop::spawn_network_hook_bridge),
+                        // the bridge's real call site
+                        // (orchestrator::amt_loop::spawn_network_hook_bridge -> `on_items_announced`),
                         // the bytes are a JSON envelope — container_id,
                         // parent_id, container_type, source, scope_keywords
                         // — a lightweight "a container was created
@@ -891,29 +906,6 @@ impl NetworkManager {
 
     /// Register default hooks for automatic sync
     async fn register_default_hooks(&self) {
-        // Methodology hook - ALWAYS sync
-        self.register_hook(
-            "on_methodology_created",
-            Arc::new(|item: SyncItem| {
-                tracing::info!(
-                    "Methodology created, queuing for immediate sync: {}",
-                    item.container_id
-                );
-                Ok(())
-            }),
-        )
-        .await;
-
-        // Blueprint hook - PRIVATE: kept registered for compatibility; `on_blueprint_created` never reaches it (it is a no-op).
-        self.register_hook(
-            "on_blueprint_created",
-            Arc::new(|item: SyncItem| {
-                tracing::debug!("Blueprint {} is private — never synced", item.container_id);
-                Ok(())
-            }),
-        )
-        .await;
-
         // Announcement hook - NOTIFY ONLY: a manifest (no body) is published to the marketplace and ONE push reaches the connected peers, who gate it.
         self.register_hook(
             "on_item_announced",
@@ -921,19 +913,6 @@ impl NetworkManager {
                 tracing::info!(
                     "P2P: publishing {} {} to the marketplace (manifest only, no content)",
                     item.item_type.as_str(),
-                    item.container_id
-                );
-                Ok(())
-            }),
-        )
-        .await;
-
-        // Container finding hook - ALWAYS sync (batched)
-        self.register_hook(
-            "on_container_created",
-            Arc::new(|item: SyncItem| {
-                tracing::debug!(
-                    "Container created, queuing for batch sync: {}",
                     item.container_id
                 );
                 Ok(())
@@ -995,46 +974,6 @@ impl NetworkManager {
         Ok(())
     }
 
-    /// SUPERSEDED 2026-11-10 (no caller): methodology announcements are a marketplace publish (`on_item_announced`). Kept only so the
-    /// public API does not change; it still queues a per-peer send if something ever calls it.
-    pub async fn on_methodology_created(
-        &self,
-        container_id: ContainerID,
-        data: Vec<u8>,
-    ) -> OzoneResult<()> {
-        let item = SyncItem {
-            container_id,
-            item_type: SyncItemType::Methodology,
-            priority: SyncPriority::High,
-            data,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.trigger_hooks("on_methodology_created", item).await
-    }
-
-    /// Notify of new blueprint (ALWAYS syncs)
-    pub async fn on_blueprint_created(
-        &self,
-        container_id: ContainerID,
-        _data: Vec<u8>,
-    ) -> OzoneResult<()> {
-        // BLUEPRINTS ARE PRIVATE (operator 2026-11-10): never announced, never synced. Kept as a deliberate no-op so existing callers compile.
-        tracing::debug!(container_id, "P2P: blueprint creation is private — not announced");
-        Ok(())
-    }
-
-    /// PUBLISH one allowed item — the single-item form of [`NetworkManager::on_items_announced`].
-    pub async fn on_item_announced(
-        &self,
-        container_id: ContainerID,
-        item_type: SyncItemType,
-        manifest: Vec<u8>,
-        body_path: Option<String>,
-    ) -> OzoneResult<()> {
-        self.on_items_announced(vec![AnnounceItem { container_id, item_type, manifest, body_path }]).await
-    }
-
     /// PUBLISH a BATCH of allowed items (methodology, jurisdiction rule set, pipeline, tool) to MY marketplace listing and push ONE
     /// notification to every connected instance (a single publish on the shared marketplace topic), however many items the batch holds
     /// (operator 2026-11-10: "one push", event-driven coalescing — the bridge hands over every creation event that is already available, so
@@ -1091,11 +1030,6 @@ impl NetworkManager {
         self.paired_peers_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."))
     }
 
-    /// Add `manifest` to MY marketplace listing — the single-item form of [`NetworkManager::publish_batch_to_marketplace`].
-    pub async fn publish_to_marketplace(&self, item_type: &SyncItemType, manifest: &serde_json::Value) -> OzoneResult<usize> {
-        self.publish_batch_to_marketplace(&[(item_type.clone(), manifest.clone())]).await
-    }
-
     /// Add every manifest of the batch to MY marketplace listing (`marketplace_published.json`, keyed by type + name, so a re-publish replaces;
     /// written ONCE) and push ONE notification on the shared topic. The notification names nothing — only the listing version, how many items
     /// the listing holds, and the item type when the whole batch is of one type (otherwise none; the receiver's door accepts both).
@@ -1119,23 +1053,6 @@ impl NetworkManager {
         }))
         .unwrap_or_default();
         self.broadcast(MARKETPLACE_TOPIC, &notify).await
-    }
-
-    /// SUPERSEDED 2026-11-10 (no caller): the bridge no longer sends findings or any other container to peers. Kept for API stability.
-    pub async fn on_container_created(
-        &self,
-        container_id: ContainerID,
-        data: Vec<u8>,
-    ) -> OzoneResult<()> {
-        let item = SyncItem {
-            container_id,
-            item_type: SyncItemType::Container,
-            priority: SyncPriority::Normal,
-            data,
-            timestamp: chrono::Utc::now().timestamp() as u64,
-        };
-
-        self.trigger_hooks("on_container_created", item).await
     }
 
     /// Notify of pipeline completion (ON-DEMAND only)
@@ -1183,37 +1100,6 @@ impl NetworkManager {
                 }
                 if let Err(e) = self.send_to_peer(peer_id, &item.data).await {
                     tracing::warn!("Failed to send to peer {}: {}", peer_id, e);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Process batch sync (called periodically)
-    pub async fn process_batch_sync(&self) -> OzoneResult<()> {
-        let items = {
-            let mut queue = self.normal_queue.write().await;
-            std::mem::take(&mut *queue)
-        };
-
-        if items.is_empty() {
-            return Ok(());
-        }
-
-        tracing::info!("Processing batch sync of {} items", items.len());
-
-        let peers = self.known_peers.read().await;
-
-        // Group items and send in batches
-        for item in &items {
-            for (peer_id, _peer) in peers.iter() {
-                if !self.is_peer_paired(peer_id).await {
-                    tracing::debug!("P2P: skipping UNPAIRED peer {} for outbound batch sync", peer_id);
-                    continue;
-                }
-                if let Err(e) = self.send_to_peer(peer_id, &item.data).await {
-                    tracing::warn!("Failed to batch send to peer {}: {}", peer_id, e);
                 }
             }
         }
@@ -1564,7 +1450,12 @@ pub struct PeerDialogueTurn {
     pub parts: u32,
 }
 
-/// Size of one fetched-body chunk (gossipsub's default maximum message is 64 KiB, so a body is SPLIT, never refused for size).
+/// The transport's maximum message (gossipsub's own default, now set explicitly in the config above): a PROTOCOL fact, not a content limit.
+pub const GOSSIPSUB_MAX_TRANSMIT_BYTES: usize = 65_536;
+
+/// Size of one fetched-body FRAGMENT on the wire — under half the transport maximum (leaving room for the JSON envelope and escaping). This is
+/// transport fragmentation, NOT a context-window chunk and NOT a size limit: a body of any size is SPLIT into as many fragments as it needs and
+/// re-joined by the receiver, never refused for size. (Window-derived chunking belongs to what a MODEL reads; this is what a SOCKET carries.)
 pub const FETCH_CHUNK_BYTES: usize = 30_000;
 
 /// Split `body` into chunks of at most `max_bytes`, on char boundaries (a body is never cut inside a character). Never returns zero chunks.

@@ -17,9 +17,8 @@
 //! discovered branch; each queue item remembers that its gaps were already closed (`closed`) and which methodologies that produced, so a retry
 //! after a pause only does the remaining work. Failure = `Err` → the caller PAUSES the task (failure doctrine), it never continues without it.
 //!
-//! NOT done here (stated, not hidden): the stage-4 zero-shot SIMULATION is not re-run for the new steps (a re-simulation of the whole plan mid-walk
-//! would re-open decisions already taken); the persisted AMT container is not rewritten (the background re-expansion actor owns that container);
-//! no fixed count bounds the number of expansion rounds — every round consumes discovered branches, a branch is captured once (case-insensitive),
+//! Stage-4 simulation: re-run by the step loop (`stage_6_to_8_execute_steps`) after a round that added steps (the result replaces the earlier one; it informs, it re-opens nothing);
+//! The persisted AMT container is rewritten as a new version after each round (step 5b; `persist_amt_version`). No fixed count bounds the number of expansion rounds — every round consumes discovered branches, a branch is captured once (case-insensitive),
 //! and the review that discovers branches runs only after real steps.
 
 use super::{AMTNode, AMTNodeType, BlueprintStep, OrchestrationState, PromptOrchestrator};
@@ -134,6 +133,10 @@ impl PromptOrchestrator {
         if drafted_any {
             self.judge_rule_applicability(state).await;
         }
+
+        // 5b. the AMT changed: persist it as a NEW VERSION of its container (old body file + history kept). BEFORE the queue is consumed, so a
+        // failed write pauses the task with the queue intact and the resume writes the version — it is never skipped.
+        self.persist_amt_version(state, "walk_expansion").await?;
 
         // 6. the queue is consumed; the work-order tree grows under the open task
         state.walk_expansion.clear();

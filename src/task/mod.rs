@@ -1136,7 +1136,7 @@ Ok(task_id)
             }
             let kids: Vec<TaskID> = tasks.values().filter(|c| c.parent_task_id == Some(id)).map(|c| c.task_id).collect();
             let blocks = if t.kind.starts_with("wo_") {
-                t.status != "completed" && (!t.checklist.is_empty() || !kids.is_empty())
+                t.status != "completed" && t.status != "cancelled" && (!t.checklist.is_empty() || !kids.is_empty())
             } else {
                 match t.status.as_str() {
                     "completed" | "cancelled" => false,
@@ -1980,7 +1980,11 @@ Ok(task_id)
         {
             let mut tasks = self.tasks.write().await;
             if let Some(task) = tasks.get_mut(&task_id) {
-                if task.status == "completed" || task.status == "failed" {
+                // OPERATOR DECISION on a failed child (2026-11-11): a `failed` / `interrupted` CHILD task that keeps its walk parked can be
+                // cancelled by the operator — that is the operator's own decision and it no longer blocks the walk (`blockers_in`). A failed
+                // task with no parent stays finished, exactly as before.
+                let failed_child = (task.status == "failed" || task.status == "interrupted") && task.parent_task_id.is_some();
+                if task.status == "completed" || (task.status == "failed" && !failed_child) {
                     return Err(OzoneError::TaskError(format!(
                         "Task {} is already finished",
                         task_id
@@ -2027,6 +2031,12 @@ Ok(task_id)
 
         tracing::info!("Cancelled task {}", task_id);
 
+        // the walk above may have been parked waiting on exactly this child: a cancelled child no longer blocks it
+        let parent = self.tasks.read().await.get(&task_id).and_then(|t| t.parent_task_id);
+        if let Some(parent) = parent {
+            self.release_awaiting(parent).await;
+        }
+
         Ok(())
     }
 
@@ -2051,28 +2061,43 @@ Ok(task_id)
         };
 
         if let Some(task) = original {
-            if task.status != "failed" && task.status != "cancelled" {
+            if task.status != "failed" && task.status != "cancelled" && task.status != "interrupted" {
                 return Err(OzoneError::TaskError(format!(
-                    "Task {} is not failed or cancelled",
+                    "Task {} is not failed, interrupted or cancelled",
                     task_id
                 )));
             }
+            let (parent, kind) = (task.parent_task_id, task.kind.clone());
 
             let inputs: HashMap<String, serde_json::Value> = task
                 .inputs
                 .and_then(|i| serde_json::from_value(i).ok())
                 .unwrap_or_default();
 
-            self.enqueue_task(
-                task.blueprint_id,
-                inputs,
-                task.user_id,
-                task.device_id,
-                task.workspace_id,
-                task.project_id,
-                TaskPriority::Normal,
-            )
-            .await
+            let new_id = self
+                .enqueue_task(
+                    task.blueprint_id,
+                    inputs,
+                    task.user_id,
+                    task.device_id,
+                    task.workspace_id,
+                    task.project_id,
+                    TaskPriority::Normal,
+                )
+                .await?;
+            // OPERATOR RETRY of a failed CHILD (2026-11-11): the retry is a NEW task instance (the failed one stays as it was) registered under
+            // the SAME parent, so the walk's completion gate waits on it, and the failed original stops blocking once it completes
+            // (`blockers_in`: a later sibling with the same prompt that completed supersedes it).
+            if parent.is_some() {
+                let mut tasks = self.tasks.write().await;
+                if let Some(t) = tasks.get_mut(&new_id) {
+                    t.parent_task_id = parent;
+                    t.kind = kind;
+                }
+                drop(tasks);
+                let _ = self.save_to_disk().await;
+            }
+            Ok(new_id)
         } else {
             Err(OzoneError::NotFound(format!("Task {} not found", task_id)))
         }
@@ -2484,11 +2509,16 @@ Ok(task_id)
     /// (with the completion record of every done item), its derived completion, `rerun_of`, and its children, oldest first.
     pub async fn work_order(&self, root: TaskID) -> Option<serde_json::Value> {
         let tasks = self.tasks.read().await;
-        fn node(tasks: &HashMap<TaskID, StoredTask>, id: TaskID, depth: usize) -> Option<serde_json::Value> {
+        // NO depth cap (operator 2026-11-11: no fixed limits): a task is visited ONCE (a visited-set cycle check) — a corrupt parent link that loops
+        // back to an ancestor cuts that edge, a legitimately deep tree is always walked to its leaves.
+        fn node(tasks: &HashMap<TaskID, StoredTask>, id: TaskID, visited: &mut std::collections::HashSet<TaskID>) -> Option<serde_json::Value> {
+            if !visited.insert(id) {
+                return None;
+            }
             let t = tasks.get(&id)?;
             let mut kids: Vec<TaskID> = tasks.values().filter(|c| c.parent_task_id == Some(id)).map(|c| c.task_id).collect();
             kids.sort();
-            let children: Vec<serde_json::Value> = if depth > 64 { Vec::new() } else { kids.iter().filter_map(|k| node(tasks, *k, depth + 1)).collect() };
+            let children: Vec<serde_json::Value> = kids.iter().filter_map(|k| node(tasks, *k, visited)).collect();
             let done_items = t.checklist.iter().filter(|i| i.get("done").and_then(|d| d.as_bool()) == Some(true)).count();
             let children_complete = children.iter().all(|c| c["complete"].as_bool() == Some(true));
             let derived = done_items == t.checklist.len() && children_complete && (!t.checklist.is_empty() || !children.is_empty());
@@ -2500,7 +2530,8 @@ Ok(task_id)
                 "children": children,
             }))
         }
-        node(&tasks, root, 0)
+        let mut visited: std::collections::HashSet<TaskID> = std::collections::HashSet::new();
+        node(&tasks, root, &mut visited)
     }
 
     // ========================================================================

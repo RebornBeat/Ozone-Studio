@@ -231,7 +231,7 @@ frequency hot path is a real reason to say no.
 Row #14 (`stages.rs:1861`) was originally described as "Judge jurisdiction rule
 compliance against gathered context." That's wrong — verified by reading the
 call site in full: it reads `step.methodology_ids` and
-`Self::load_methodology_rules_text` (`amt.rs:2180`) — this is a **methodology**
+`Self::load_methodology_rules_full` (`amt.rs:2180`) — this is a **methodology**
 decision-rule compliance check on a completed step's output, unrelated to
 jurisdiction. There is no separate jurisdiction-flavored version of this
 check anywhere (grepped for `load_jurisdiction_rules_text` — doesn't exist).
@@ -736,7 +736,7 @@ Original audit below, kept for history per this doc's additive convention:
 - `assets/pipelines/consciousness/decision_gate/main.rs` — pipeline 39, the jurisdiction `RequireConfirmation` + Consciousness Gate contract (§6-7)
 - `src/orchestrator/mod.rs` — `metered_execute`, `try_fallback_chain`, `try_meta_fallback_chain`, `walk_fallback_chain_standalone`, `is_unusable_pipeline9_result`, `confirm_yes_no_orch`, `on_step_complete`
 - `src/orchestrator/stages.rs` — blueprint assignment, zero-shot simulation, step execution + coercion, web search decompose, methodology compliance check (§4)
-- `src/orchestrator/amt.rs` — AMT layer building, methodology cross-reference, `load_methodology_rules_text`
+- `src/orchestrator/amt.rs` — AMT layer building, methodology cross-reference, `load_methodology_rules_full`
 - `src/orchestrator/amt_loop.rs`, `src/orchestrator/meta_loop.rs` — background-loop call sites with cross-pass escalation
 - `src/orchestrator/response.rs` — response-graph rendering
 - `src/orchestrator/jurisdiction.rs` — `resolve_confirmation_reviews`, `categorize_jurisdiction_matches` (§6)

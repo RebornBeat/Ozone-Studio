@@ -31,8 +31,9 @@ container id, parent, type, source, and the event's scope keywords
   candidates and wake the expansion loop instantly (see
   docs/AMT_EXPANSION.md). Context alignment latency: seconds, not the
   30-minute interval.
-- Network-layer `on_container_created` / `on_methodology_created` /
-  `on_blueprint_created` hooks — registered transport, hub feed-in next.
+- Network layer: the per-container `on_container_created` / `on_methodology_created` /
+  `on_blueprint_created` hooks were REMOVED (2026-11-11); creation events reach peers only as
+  marketplace manifests through `NetworkManager::on_items_announced` (blueprints are never announced).
 
 ### Scoping — the coordination graph mirrors the system spine
 

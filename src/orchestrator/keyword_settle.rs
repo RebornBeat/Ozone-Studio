@@ -36,12 +36,6 @@ const PROMPT_PIPELINE_ID: u64 = 9;
 /// Container types in settlement order — the most-searched / routing-critical first.
 const SETTLE_ORDER: &[&str] = crate::keyword_program::GATED_TYPES; // the types the write-time gate covers = the types settlement validates
 
-/// Host-MEMORY guard (not a work cap): at most this many roll-up terms are folded into one Project/Workspace container.
-/// `OZONE_ROLLUP_TERMS_MAX` overrides it.
-fn rollup_terms_max() -> usize {
-    std::env::var("OZONE_ROLLUP_TERMS_MAX").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(512)
-}
-
 /// The provenance a legacy keyword gets when the model call succeeds: modalities/files/tools produce their terms mechanically.
 fn legacy_source(container_type: &str) -> &'static str {
     match container_type {
@@ -88,12 +82,6 @@ fn push_unique(list: &mut Vec<String>, term: &str) -> bool {
     }
     list.push(t.to_string());
     true
-}
-
-/// Host-MEMORY guard (not a work cap): at most this many identifier terms are folded from one modality graph file.
-/// `OZONE_GRAPH_TERMS_MAX` overrides it.
-fn graph_terms_max() -> usize {
-    std::env::var("OZONE_GRAPH_TERMS_MAX").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(256)
 }
 
 /// Node fields that never carry a search identifier (content, bookkeeping, geometry, provenance, nested objects). This is a SCHEMA field list,
@@ -180,7 +168,7 @@ async fn pass_a(store: &Arc<dyn StoreAccess>, id: u64, c: &Container, ctype: &st
             if let Some(rel) = c.local_state.storage.object_store_path.as_deref() {
                 let path = crate::keyword_program::data_dir().join(rel);
                 if let Some(g) = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
-                    for t in graph_identifiers(&g).into_iter().take(graph_terms_max()) {
+                    for t in graph_identifiers(&g) { // every identifier — no per-graph term cap (operator 2026-11-11); memory is guarded by the floor wait, not a count
                         adds.push((t, "identifier"));
                     }
                 }
@@ -205,7 +193,7 @@ async fn pass_a(store: &Arc<dyn StoreAccess>, id: u64, c: &Container, ctype: &st
             }
             let mut ranked: Vec<(String, usize)> = freq.into_iter().collect();
             ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-            for (t, _) in ranked.into_iter().take(rollup_terms_max()) {
+            for (t, _) in ranked { // every rolled-up term, most frequent first — no per-container term cap (operator 2026-11-11)
                 adds.push((t, "rollup"));
             }
         }

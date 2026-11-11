@@ -279,39 +279,20 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
       return;
     }
 
+    // The desktop main process owns the device's Ed25519 key (userData/device-key.pem) and does the real challenge → signature →
+    // session exchange itself (electron/main.js ensureSessionToken); the renderer never holds a private key and never forges a
+    // key or signature. This only asks the main process to establish/confirm that real session. No token crosses into the renderer.
     try {
-      // Generate device-based authentication keys
-      // In production, these would be derived from secure device storage
-      const deviceId =
-        (await window.ozone.system?.getDeviceId?.()) || "default-device";
-      const deviceIdBytes = new TextEncoder().encode(deviceId);
-
-      // Create a deterministic public key from device ID (simplified for demo)
-      // In production, use proper key derivation (e.g., HKDF)
-      const publicKey = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) {
-        publicKey[i] = deviceIdBytes[i % deviceIdBytes.length] ^ (i * 7);
-      }
-
-      // Create signature (in production, sign with actual private key)
-      const signature = new Uint8Array(64);
-      const timestamp = Date.now();
-      const timestampBytes = new TextEncoder().encode(timestamp.toString());
-      for (let i = 0; i < 64; i++) {
-        signature[i] =
-          (publicKey[i % 32] ^ timestampBytes[i % timestampBytes.length]) &
-          0xff;
-      }
-
-      const result = await window.ozone.auth.authenticate(publicKey, signature);
-
-      if (result.success && result.sessionToken) {
-        set({
-          isAuthenticated: true,
-          sessionToken: result.sessionToken,
-        });
+      const result = await window.ozone.auth.ensure();
+      set({
+        isAuthenticated: !!result?.success,
+        sessionToken: null,
+      });
+      if (!result?.success) {
+        console.error("Authentication failed:", result?.error ?? "unknown");
       }
     } catch (err) {
+      set({ isAuthenticated: false, sessionToken: null });
       console.error("Authentication failed:", err);
     }
   },
