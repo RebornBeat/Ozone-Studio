@@ -191,3 +191,6 @@ A local backup branch `backup-2026-11-11-pre-build` was created from `main` on 2
 
 ## 14. What this plan does NOT claim
 No step above has been run. The compile of ~5k + ~10k lines of changed code has never happened (expect errors); the UI has never been type-checked; the new scripts (`repoint_and_delete.mjs`, `restore_repoint.mjs`, `apply.mjs`, the third-party and MCP suites) are syntax-checked only; test totals quoted anywhere in this file are derived by counting, not measured.
+
+## 10c. RESOLUTION of §10 (2026-11-11, dead-code pass) — supersedes §10b's "none removed"
+The seven items are REMOVED (each superseder verified, behaviour captured, no references left in code/tests/tools; live docs updated): `load_methodology_rules_text` (identical to `load_methodology_rules_full`), `NetworkManager::{on_item_announced, publish_to_marketplace, process_batch_sync, on_methodology_created, on_blueprint_created, on_container_created}` and their three log-only default hooks. Left for review: `broadcast_high_priority` + High/Normal queues (no producer remains), `dry_run_first` (not superseded). Details: docs/evidence/dead-code-removal/REPORT.md. First `cargo check` should confirm no lingering reference.
