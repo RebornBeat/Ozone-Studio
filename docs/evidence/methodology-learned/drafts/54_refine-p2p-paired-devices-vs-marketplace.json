@@ -1,0 +1,53 @@
+{
+ "slug": "refine-p2p-paired-devices-vs-marketplace",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Peer Marketplace Notifies and Gates",
+ "target_hint": "draft 09 (apply set 1 first)",
+ "source_quotes": [
+  "we don't auto sync with p2p we notify and allow others to act via gate"
+ ],
+ "overlap_check": "Extends draft 09 with the paired-device versus marketplace distinction and the jurisdiction additions to serving and publishing. Add-only.",
+ "memory_links": "feedback_sync_no_action_is_paired_devices_not_p2p",
+ "evidence": [
+  "memory: feedback_sync_no_action_is_paired_devices_not_p2p (ruled 2026-11-10)",
+  "docs/evidence/jurisdiction-deepening/REPORT_PHASE3.md:6 (peer body scan)",
+  "docs/evidence/jurisdiction-deepening/REPORT_PHASE2.md:7 (publish kinds, policy offers)",
+  "docs/evidence/jurisdiction-deepening/REPORT.md:68 (recall limits)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "a doctrine says a sync path gets no action",
+    "action": "check whether it covers paired devices only before applying it to the marketplace"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Paired devices are not the marketplace",
+    "condition": "a doctrine says sync gets no action",
+    "outcome": "apply it to paired-device sync only; the peer marketplace keeps getting full work, and 'paired' in marketplace code means the operator-approved peer allow-list",
+    "requires": []
+   },
+   {
+    "name": "Serving scans the body",
+    "condition": "a peer fetches a body",
+    "outcome": "scan it for personal-data shapes and hold it until the operator approves that content hash",
+    "requires": []
+   },
+   {
+    "name": "Publish kinds are policy",
+    "condition": "an item is announced, listed or served",
+    "outcome": "allow only the kinds the instance's policy lists; a jurisdiction policy may be offered, a receiver only stages it, and adoption is the receiver's explicit call",
+    "requires": []
+   },
+   {
+    "name": "Say what cannot be recalled",
+    "condition": "the operator publishes an item",
+    "outcome": "tell them in the interface that published items cannot be recalled",
+    "requires": []
+   }
+  ]
+ }
+}

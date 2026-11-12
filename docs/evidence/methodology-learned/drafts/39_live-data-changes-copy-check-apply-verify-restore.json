@@ -1,0 +1,111 @@
+{
+ "slug": "live-data-changes-copy-check-apply-verify-restore",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "Approve explicitly. Say \"hard-delete 40252, 40348 and 40394 with the checks above\" and I'll relaunch it exactly as described.",
+  "duplicates and repoints you can do yourself",
+  "yes only once canonical bodies are live"
+ ],
+ "overlap_check": "Draft 15 rule 5 (keep data changes reversible) is the one-line version of this; kept separate because this is a full procedure. Built-in method_33 (verify the artifact not the status) backs the independent-verification rule. At review rule 5 of 15 could point here.",
+ "memory_links": "feedback_local_first_then_sync_eu",
+ "evidence": [
+  "docs/evidence/methodology-duplicate-delete/REPORT.md:5 (checks)",
+  "docs/evidence/methodology-duplicate-delete/REPORT_PHASE2.md:5 (inspection first)",
+  "docs/evidence/methodology-duplicate-delete/REPORT_PHASE2.md:23 (independent verification)",
+  "docs/evidence/methodology-duplicate-delete/REPORT_PHASE2.md:30 (restore)",
+  "docs/evidence/methodology-merge/REPORT.md:19 (revert recipe)",
+  "docs/evidence/final-decisions/DECISIONS.md:39 (delete only once canonical bodies are live)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Changing Live Data: Look, Copy, Check, Apply One, Verify, Keep a Way Back",
+  "description": "A change to the operator's live store follows one procedure: look first, copy everything it touches, check coverage and references by hand, apply one pilot at a time, verify independently, and keep and label a restore path.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Reversible by construction",
+    "description": "A data change is only as safe as the copy taken before it and the check made after it.",
+    "priority": 5
+   },
+   {
+    "name": "The script is not the verifier",
+    "description": "A script that reports success is a claim; the check is made separately.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a script offers to apply and delete in one run",
+    "action": "make it dry-run by default and fail closed on any unmet condition"
+   },
+   {
+    "condition": "a restore path has never been run",
+    "action": "say so plainly next to the recipe"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Look before touching",
+    "condition": "live data on the EU is about to change",
+    "outcome": "inspect first: service health, the expected ids present, no partial earlier run, binary unchanged; stop if anything differs",
+    "requires": []
+   },
+   {
+    "name": "Copy before change",
+    "condition": "any container, body or history is to be written or deleted",
+    "outcome": "save before-copies of every affected container, body and version history, and of the canonical they point at; refuse to write without them",
+    "requires": []
+   },
+   {
+    "name": "Read coverage by hand",
+    "condition": "a duplicate is merged or removed",
+    "outcome": "read rule by rule that the canonical holds every rule and heuristic of the duplicate, verbatim or restated",
+    "requires": []
+   },
+   {
+    "name": "Scan every reference",
+    "condition": "an item is about to be deleted",
+    "outcome": "search the repository, the data directory and every container's local state for its id; repoint each citer first; logs that name the old id stay as history",
+    "requires": []
+   },
+   {
+    "name": "Canonical first, one at a time",
+    "condition": "several changes are planned",
+    "outcome": "make the canonical content live first, run one pilot, check health between changes, and stop at the first failure with a rollback list",
+    "requires": []
+   },
+   {
+    "name": "Verify independently",
+    "condition": "a change was applied",
+    "outcome": "re-read and re-scan yourself: health, container load, reference grep, error journal; the script's own output is not the verification",
+    "requires": []
+   },
+   {
+    "name": "Write the restore and label it",
+    "condition": "a destructive change is applied",
+    "outcome": "keep a restore recipe or script with the before-copies, and say that it was not exercised if it was not",
+    "requires": []
+   },
+   {
+    "name": "Destructive means approved",
+    "condition": "a hard delete or other irreversible change is planned",
+    "outcome": "run it only on the operator's explicit approval naming the items; changes the operator has delegated, such as merging duplicates and repointing citers, still follow every step above",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "live data",
+   "before copy",
+   "citation scan",
+   "pilot",
+   "restore"
+  ],
+  "topics": [
+   "operations",
+   "data"
+  ]
+ }
+}

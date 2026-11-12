@@ -1,0 +1,109 @@
+{
+ "slug": "review-every-call-site-against-the-gate",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "review all do a full review of call sites based on all new work any expansions needed or not"
+ ],
+ "overlap_check": "Draft 12 (gates that cannot judge await) is the behaviour of a gate; this is the review of its coverage. Draft 45 holds the policy. Related to 43. New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/jurisdiction-deepening/CALL_SITE_INVENTORY.md:5 (host call sites)",
+  "docs/evidence/jurisdiction-deepening/CALL_SITE_INVENTORY.md:30 (pipelines and their egress)",
+  "docs/evidence/jurisdiction-deepening/REPORT_PHASE3.md:6 (bypasses found and fixed)",
+  "docs/evidence/jurisdiction-deepening/REPORT.md:65 (correctness findings: fail-open)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Review Every Call Site Against the Gate, Not Only the Obvious Route",
+  "description": "When a gate is added or changed, every place content leaves the process or a call executes is inventoried and judged by its real destination. A clearance covers one hop, an unreachable gate sends nothing, and a held call waits.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A gate is only as good as its coverage",
+    "description": "The first bypass is rarely the route everyone knows; it is the spawned binary, the sidecar or the remote pipeline.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a component has its own provider keys",
+    "action": "treat it as a bypass and bring it under the host or disable it when hosted"
+   },
+   {
+    "condition": "the gate is not installed yet",
+    "action": "judge with the compiled defaults, never allow"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Inventory every site",
+    "condition": "a gate is added or changed",
+    "outcome": "list every place content leaves or a call runs: host seams, spawned binaries, tool HTTP and SSE calls, remote pipelines, agent steps, peer serving, search bridges, probes, script tools and submodules",
+    "requires": [
+     {
+      "kind": "tool",
+      "name": "code_callgraph",
+      "purpose": "find call sites in code when building the inventory",
+      "optional": true
+     }
+    ]
+   },
+   {
+    "name": "Judge the real destination",
+    "condition": "a call is classified",
+    "outcome": "classify by where the content actually goes, per pipeline, per tool and per URL host, not by the model endpoint configured for the call",
+    "requires": []
+   },
+   {
+    "name": "A clearance covers one hop",
+    "condition": "a cleared mark travels with a call",
+    "outcome": "do not let it cover a different destination; each hop checks again",
+    "requires": []
+   },
+   {
+    "name": "Spawned code asks the host",
+    "condition": "a separate process sends content out",
+    "outcome": "have it ask the host before every request; when the host cannot be reached the request is not sent",
+    "requires": []
+   },
+   {
+    "name": "Unaudited is never local",
+    "condition": "code is tool-created, self-registered or imported",
+    "outcome": "label it unaudited and judge it as an unlisted destination, never as local",
+    "requires": []
+   },
+   {
+    "name": "Held means pause",
+    "condition": "the gate cannot judge or waits for the operator",
+    "outcome": "hold with backoff and a durable awaiting item and never allow; a held call returns an error callers may retry",
+    "requires": []
+   },
+   {
+    "name": "Document the constants",
+    "condition": "a call carries no user content",
+    "outcome": "record why, such as a constant probe, so the inventory is complete",
+    "requires": []
+   },
+   {
+    "name": "Re-run on expansion",
+    "condition": "a new entry kind, pipeline, tool or route is added",
+    "outcome": "re-run the inventory and update the route registry; run the jurisdiction third-party suite first in the first walk after a deploy",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "call site",
+   "gate bypass",
+   "outbound",
+   "inventory",
+   "fail closed"
+  ],
+  "topics": [
+   "security",
+   "jurisdiction"
+  ]
+ }
+}

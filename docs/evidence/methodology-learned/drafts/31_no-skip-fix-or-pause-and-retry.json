@@ -1,0 +1,97 @@
+{
+ "slug": "no-skip-fix-or-pause-and-retry",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we don't record failures and move on all failures are to be fixed we don't skip anything thats a doctrine",
+  "ensure that we do not skip it pauses etc but no skip or stop pause"
+ ],
+ "overlap_check": "Methodology 12 (gates that cannot judge await) covers judgment gates and 11 (completion is final) covers pausing at a failed step; this is the broader doctrine for ANY code path that records a failure and continues. Built-in method_43 says every failure path marks state truthfully (labels the failure); this says the work must not walk past it. Kept separate (different trigger); at review rules 1-3 could be folded under 12.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/no-skip-sweep/REPORT.md:42 (section C: every place that recorded a failure and moved on)",
+  "docs/evidence/no-skip-sweep/REPORT.md:58 (section D: the real exceptions)",
+  "docs/evidence/final-decisions/DECISIONS.md:31 (THERE IS NO SKIP)",
+  "docs/evidence/final-decisions/DECISIONS.md:11 (memory floor pauses)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "There Is No Skip: Fix It or Pause and Retry",
+  "description": "A failure is fixed, or the work pauses at that point and retries. Nothing records a failure and moves on, and nothing substitutes a thinner result for the real one.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "There is no skip",
+    "description": "A recorded failure that the work walks past is a hidden loss. The work either succeeds or waits.",
+    "priority": 5
+   },
+   {
+    "name": "Waiting is visible",
+    "description": "A paused or retrying item is shown to the operator with its reason; silence is never the way a failure is handled.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "code logs a failure and then continues",
+    "action": "treat it as a defect: return the error so the work pauses and its resume retries"
+   },
+   {
+    "condition": "a fallback value or a thinner substitute stands in for a failed read or call",
+    "action": "remove the substitute and surface the failure"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Fix or pause and retry",
+    "condition": "a step, read, write or call fails",
+    "outcome": "fix the cause, or pause the task at that step and retry with spacing that grows but never gives up; never record the failure and move on",
+    "requires": []
+   },
+   {
+    "name": "No thinner substitute",
+    "condition": "a real read or analysis fails and a lesser stand-in exists, such as a short preview, text instead of the graph, or a default",
+    "outcome": "do not substitute; pause and retry the real work",
+    "requires": []
+   },
+   {
+    "name": "Retry per item",
+    "condition": "one item among many fails, such as a file, a candidate or a gap",
+    "outcome": "re-queue that item with growing spacing until it succeeds; one failing item never blocks the others and never ends the run",
+    "requires": []
+   },
+   {
+    "name": "Name the real exceptions",
+    "condition": "a path appears to skip on purpose",
+    "outcome": "allow it only when it is an operator-gated decision, an operator-set kill switch, a privacy withholding with a recorded reason, a removal gate that takes no action without evidence, or a resource that no longer exists and resumes by itself when it returns; list each exception where it occurs",
+    "requires": []
+   },
+   {
+    "name": "Corrupt data is an error, not a loop",
+    "condition": "a failure is data no retry can change",
+    "outcome": "surface it to the operator as an error with its location instead of retrying forever in silence",
+    "requires": []
+   },
+   {
+    "name": "Retire the old failure path",
+    "condition": "a skip is replaced by pause and retry",
+    "outcome": "remove the machinery that recorded the failure for later, and cite what superseded it",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "no skip",
+   "pause and retry",
+   "failure handling",
+   "fail loud",
+   "resume",
+   "never drop"
+  ],
+  "topics": [
+   "reliability",
+   "doctrine"
+  ]
+ }
+}

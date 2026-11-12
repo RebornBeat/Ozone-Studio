@@ -1,0 +1,103 @@
+{
+ "slug": "jurisdiction-per-instance-policy",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "we allow a spot for jurisdiction where each instance can harden as they need",
+  "jurisdiction is an important factor"
+ ],
+ "overlap_check": "Built-in method_21 and method_34 cover jurisdiction sourcing and source maintenance; draft 12 says humans decide only for jurisdiction confirmations. None covers the per-instance policy, agreements or decision log. New.",
+ "memory_links": "project_p2p_notify_and_gate",
+ "evidence": [
+  "docs/evidence/jurisdiction-deepening/REPORT.md:13 (policy surface)",
+  "docs/evidence/jurisdiction-deepening/REPORT.md:38 (deploy consequence)",
+  "docs/evidence/jurisdiction-deepening/REPORT.md:40 (outbound gate order)",
+  "docs/evidence/jurisdiction-deepening/REPORT.md:43 (decision log)",
+  "docs/evidence/jurisdiction-deepening/REPORT_PHASE2.md:7 (gaps closed)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Jurisdiction Is a Per-Instance Policy With a Durable Record",
+  "description": "Each instance hardens as its own agreements require. The policy is versioned, outbound personal data waits for the operator's agreements, every decision is logged without content, and unknown jurisdiction is flagged rather than passed.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Each instance decides",
+    "description": "Jurisdiction handling differs by instance, so it is a policy the operator edits, not a constant in code.",
+    "priority": 5
+   },
+   {
+    "name": "Engineering input, not legal advice",
+    "description": "The system supports compliance work; it does not certify it.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "the saved policy is corrupt",
+    "action": "apply the shipped defaults and log the corruption; never open the gate"
+   },
+   {
+    "condition": "a rule set changes",
+    "action": "rebuild the call and step gate snapshots at once, not only on a timer"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Policy is per instance and versioned",
+    "condition": "jurisdiction handling must differ between instances",
+    "outcome": "keep an editable policy whose every version is appended to a never-rotated history; ship defaults as content; share it only by explicit export, staging by the receiver and an explicit adopt",
+    "requires": []
+   },
+   {
+    "name": "Agreements before outbound personal data",
+    "condition": "personal data would go to an unverified or third-country destination",
+    "outcome": "require the operator's acceptance of each requirement first, and state the deploy consequence that calls hold on first boot; nothing accepts consent automatically",
+    "requires": []
+   },
+   {
+    "name": "Check in a fixed order",
+    "condition": "an outbound call is judged",
+    "outcome": "check enabled, destination region, region allowed, agreements, deterministic personal-data shapes with kinds recorded and never values, an optional yes or no vote by an in-region model, operator approvals by content hash, then the policy action",
+    "requires": []
+   },
+   {
+    "name": "Unknown is flagged",
+    "condition": "the instance region or a request's jurisdiction is unknown",
+    "outcome": "apply the global rules only, mark the region unknown, follow the policy to await or block, and show it to the operator",
+    "requires": []
+   },
+   {
+    "name": "Log every decision without content",
+    "condition": "a jurisdiction decision is made",
+    "outcome": "append time, entry point, subject hash, region, policy and rule-set fingerprints, outcome and matched conditions; never the content; never rotate; rows that cannot be written stay queued and retry",
+    "requires": []
+   },
+   {
+    "name": "Erasure is plan then apply",
+    "condition": "personal data must be erased",
+    "outcome": "produce a read-only plan first; apply only with the confirm phrase, a minimum needle length and the erasure switch; rewrite atomically; record the needle hash only; list what it does not cover",
+    "requires": []
+   },
+   {
+    "name": "Label and date the sources",
+    "condition": "legal sources are cited",
+    "outcome": "mark the output as engineering input, cite the source, and verify dates and case numbers before relying on them",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "jurisdiction",
+   "policy",
+   "agreements",
+   "decision log",
+   "erasure"
+  ],
+  "topics": [
+   "jurisdiction",
+   "compliance"
+  ]
+ }
+}

@@ -1,0 +1,96 @@
+{
+ "slug": "durable-ordered-writes",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "all should be completed",
+  "we don't record failures and move on all failures are to be fixed"
+ ],
+ "overlap_check": "Built-in method_22 (persistent cache parity) and method_23 (idempotency check durability) cover cache-versus-store drift and restart safety of checks; this covers the write path itself. Related to 31 and 38. New.",
+ "memory_links": "persistent_cache_and_verification_discipline",
+ "evidence": [
+  "docs/evidence/no-skip-sweep/REPORT_D6_COMPLETE.md:6 (the helper and its rules)",
+  "docs/evidence/no-skip-sweep/REPORT_D6_COMPLETE.md:49 (exceptions)",
+  "docs/evidence/no-skip-sweep/REPORT_D6_COMPLETE.md:57 (behaviour changes for review)",
+  "src/durable_write.rs (append, replace, retry_until_ok, flush_for)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Writes That Matter Are Durable, Ordered and Never Disable Their Sink",
+  "description": "State, ledgers, evidence logs and snapshots are written with one attempt now and an ordered retry until they land. A failing disk is shown, not hidden, and never turns a log off.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A lost write is a lost fact",
+    "description": "Logs and ledgers are evidence; a failed append that is ignored deletes part of the record.",
+    "priority": 5
+   },
+   {
+    "name": "Say the limits",
+    "description": "A queue held in memory is lost if the process dies while the disk still refuses it; that is stated, not hidden.",
+    "priority": 3
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a write is wrapped so that its error is ignored",
+    "action": "route it through the durable helper or return the error to a caller that handles it"
+   },
+   {
+    "condition": "the first failure of a sink disables it for the process",
+    "action": "remove the disable; the sink recovers when the disk does"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Retry in order until written",
+    "condition": "a write matters, such as state, a ledger, a log or a snapshot",
+    "outcome": "make one synchronous attempt, then queue per path and retry in order with spacing that grows and holds; no give-up, no cap, no drop, no rotation of evidence logs",
+    "requires": []
+   },
+   {
+    "name": "Make a stall visible",
+    "condition": "a write is being retried",
+    "outcome": "warn on the first failure and on recovery, emit stalled and recovered events, and expose counters and the last error per path on a status route",
+    "requires": []
+   },
+   {
+    "name": "Backup before overwrite",
+    "condition": "a file is about to be overwritten",
+    "outcome": "let the backup write fail the operation first; nothing is overwritten without its copy",
+    "requires": []
+   },
+   {
+    "name": "Snapshot before mutate",
+    "condition": "a container update or delete needs a restore point",
+    "outcome": "make the mutation wait until the snapshot exists; a container that fails to load is snapshotted from its raw bytes so the change can proceed with a real restore point",
+    "requires": []
+   },
+   {
+    "name": "Read what is pending",
+    "condition": "a read-modify-write works on a file with queued writes",
+    "outcome": "read through the helper that returns the newest not-yet-applied snapshot, not stale disk bytes",
+    "requires": []
+   },
+   {
+    "name": "List the exceptions",
+    "condition": "a write is not routed through the helper",
+    "outcome": "record why: the logging sink itself would recurse, a file needs restrictive permissions, or the caller already handles the returned error",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "durable write",
+   "ordered retry",
+   "snapshot",
+   "backup",
+   "evidence log"
+  ],
+  "topics": [
+   "reliability",
+   "storage"
+  ]
+ }
+}

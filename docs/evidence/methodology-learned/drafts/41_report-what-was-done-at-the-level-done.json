@@ -1,0 +1,90 @@
+{
+ "slug": "report-what-was-done-at-the-level-done",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "capture true test totals",
+  "no fabricated metrics anywhere: token counts, presence, claims are real captured values or explicitly absent"
+ ],
+ "overlap_check": "Built-in method_33 (verify the artifact not the status) and method_20 (cross-agent verification) cover verifying claims; drafts 13 and 16 cover verification and review. This adds the level-of-work vocabulary, count provenance and additive records. Overlap is real: at review fold into method_33 as an update.",
+ "memory_links": "persistent_cache_and_verification_discipline",
+ "evidence": [
+  "AGENTS.md (house rules: CHECKLIST additive, no fabricated metrics)",
+  "docs/evidence/final-decisions/DECISIONS.md:48 (true test totals by static count)",
+  "docs/STATUS_2026-11-12.md (section: worked on / open)",
+  "docs/evidence/no-skip-sweep/REPORT_D6_COMPLETE.md:57 (unverified items listed)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Report Work at the Level It Was Actually Done",
+  "description": "Every claim of progress says how far it went: edited, parse-checked, compiled, tested, run or deployed. Counts say how they were made, other agents' reports are checked, and records are added to, not rewritten.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "No fabricated metrics",
+    "description": "Every number is a captured value or is explicitly absent.",
+    "priority": 5
+   },
+   {
+    "name": "A claim ages",
+    "description": "A claim true when made can be false when read; the cheap re-check beats building on it.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a fork or another agent says it is done",
+    "action": "spot-check the real artifact before relying on it"
+   },
+   {
+    "condition": "an earlier statement turns out wrong",
+    "action": "write a separate correction and leave the first as the record"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Name the level",
+    "condition": "work is reported",
+    "outcome": "state each claim at its real level: edited, parse-checked, compiled, tested, run or deployed; parse-only is not verified",
+    "requires": []
+   },
+   {
+    "name": "Say how a count was made",
+    "condition": "a number is quoted",
+    "outcome": "say whether it came from a static count or a run; only a real run gives passing totals",
+    "requires": []
+   },
+   {
+    "name": "Other agents' reports are not evidence",
+    "condition": "a fork or agent reports completion",
+    "outcome": "verify against the real artifact; when the harness refuses a fork-written report, the parent writes it from the returned text and says so",
+    "requires": []
+   },
+   {
+    "name": "End with what to check first",
+    "condition": "work was never compiled or run",
+    "outcome": "list the unverified items and the first places to look when it is built",
+    "requires": []
+   },
+   {
+    "name": "Add, never rewrite",
+    "condition": "a checklist or status record is updated",
+    "outcome": "append new lines; dated history stays as the record; stale cross-references are marked, not erased",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "status report",
+   "parse only",
+   "evidence",
+   "verification level",
+   "handoff"
+  ],
+  "topics": [
+   "process",
+   "documentation"
+  ]
+ }
+}

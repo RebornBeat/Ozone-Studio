@@ -1,0 +1,59 @@
+{
+ "slug": "refine-work-order-expansion-and-gates",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Work Order Completion Is Final",
+ "target_hint": "draft 11 (apply set 1 first)",
+ "source_quotes": [
+  "AMT container rewritten as a new version after each expansion round",
+  "Gap checklists and queued re-expansion candidates do not gate; a failed child parks visibly with operator retry/cancel"
+ ],
+ "overlap_check": "Extends draft 11 (completion is final, expansion adds items). Adds the mechanics learned in the expansion and completion-gate work. Add-only.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/walk-expansion-completion/REPORT.md:9 (expansion during a walk)",
+  "docs/evidence/walk-expansion-completion/REPORT.md:23 (completion gate)",
+  "docs/evidence/walk-finalization/REPORT.md:8 (item 1: AMT versions; item 7: operator retry and cancel)",
+  "docs/evidence/final-decisions/DECISIONS.md:7 (AMT new version)",
+  "docs/evidence/final-decisions/DECISIONS.md:25 (what does not gate)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "a task shows awaiting children",
+    "action": "read it as open child work, not as a failure"
+   },
+   {
+    "condition": "a child failed",
+    "action": "show it on the walk; the parent waits for the operator's retry or cancel"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Expansion appends",
+    "condition": "a branch discovered during a walk needs steps",
+    "outcome": "capture it, close its capability gaps once, append a step for it with the next unused index depending on the discovering step, re-run the jurisdiction full gate and the simulation over the new plan, and leave existing indices and positions where they are",
+    "requires": []
+   },
+   {
+    "name": "The AMT is a new version",
+    "condition": "an expansion round finishes",
+    "outcome": "write the AMT as a new version before the queue is consumed and keep the old body; a failed write pauses with the queue intact",
+    "requires": []
+   },
+   {
+    "name": "Open children gate completion",
+    "condition": "a walk's steps are done but descendants are open",
+    "outcome": "park the task as awaiting children, deliver the response, and release it automatically when the last blocker completes; completed stays final",
+    "requires": []
+   },
+   {
+    "name": "What does not gate",
+    "condition": "gap checklists, queued re-expansion candidates or a cancelled node exist",
+    "outcome": "do not let them block completion; a failed child parks visibly until the operator retries it as a new task under the same parent or cancels it",
+    "requires": []
+   }
+  ]
+ }
+}

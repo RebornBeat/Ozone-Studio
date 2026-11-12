@@ -1,0 +1,91 @@
+{
+ "slug": "acceptance-is-readability",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "there shouldn't be any to link it has to be an accepted modality or it won't link",
+  "not unreadable files because there shouldn't be any to link"
+ ],
+ "overlap_check": "No existing methodology covers file acceptance. Related to 31 (no skip): this is what removes the 'unreadable' skip at the source. Related to 22/26 only by topic.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/no-skip-sweep/REPORT.md:16 (section B: per-extension acceptance table)",
+  "docs/evidence/final-decisions/DECISIONS.md:32 (acceptance == readability)",
+  "docs/evidence/final-decisions/DECISIONS.md:44 (sensor modalities deferred, stay rejected)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Only What Can Be Read Is Linked",
+  "description": "A file is linked only if its type is accepted, and a type is accepted only if a reader can open it. Anything else is rejected at link time with the exact reason, so there is no unreadable state.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Acceptance equals readability",
+    "description": "If a reader cannot open a file, it never links; a later 'unreadable' status is a sign that the gate at the door was wrong.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "an 'unreadable' or 'not readable' status exists in code",
+    "action": "remove it; a read error after acceptance is a real failure to pause and retry"
+   },
+   {
+    "condition": "a fallback list of extensions per modality could re-admit a rejected type",
+    "action": "remove the fallback so one table decides"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Link only what can be read",
+    "condition": "a file is offered for linking",
+    "outcome": "accept it only when its extension is in the one accepted table and the reader code can prepare it; otherwise reject at link time with the exact reason",
+    "requires": []
+   },
+   {
+    "name": "Validate at link time",
+    "condition": "an accepted type is linked",
+    "outcome": "run the well-formedness check then; a malformed file is a link-time validation failure with its reason, not a later unreadable state",
+    "requires": []
+   },
+   {
+    "name": "One table",
+    "condition": "acceptance is decided in more than one place",
+    "outcome": "keep a single source shared by the host and the link worker, and let no per-modality list admit a type the table rejects",
+    "requires": []
+   },
+   {
+    "name": "Reader first",
+    "condition": "a new modality or extension is proposed",
+    "outcome": "add it to the table only together with the reader that opens it; a modality without self-describing files stays rejected with the exact reason, and is tracked as open rather than forgotten",
+    "requires": []
+   },
+   {
+    "name": "Earlier links stay visible",
+    "condition": "a file linked before this rule has an extension that is no longer accepted",
+    "outcome": "show it as not accepted with the reason and the option to unlink; never delete it silently",
+    "requires": []
+   },
+   {
+    "name": "A missing file resumes by itself",
+    "condition": "a linked file no longer exists",
+    "outcome": "record that it is missing and resume when the file watcher sees it again; do not treat it as unreadable",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "file link",
+   "accepted extension",
+   "readability",
+   "link time",
+   "reader"
+  ],
+  "topics": [
+   "files",
+   "modalities",
+   "doctrine"
+  ]
+ }
+}

@@ -1,0 +1,70 @@
+{
+ "slug": "measure-and-batch-our-own-judgment-volume",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "batching + gating, not rotation"
+ ],
+ "overlap_check": "A fourth rule from the same finding, background actors waiting on known quota exhaustion, is NOT included: it conflicts with draft 23 (let quotas run out) and the operator's no-quota-gating ruling, and is left for the operator. See INDEX.md. New otherwise.",
+ "memory_links": "project_quota_economics_and_meta_starvation",
+ "evidence": [
+  "memory: project_quota_economics_and_meta_starvation (2026-11-08 measurement)",
+  "docs/evidence/mcp-participants/REPORT.md:28 (H9 not wired: quota gating is not the doctrine)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Measure and Batch the Judgment Calls We Generate Ourselves",
+  "description": "Most model calls can come from our own votes and background loops. Before adding a judgment, its share is measured, and many yes or no questions are proposed in one batch and confirmed only where they matter.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Volume is a design choice",
+    "description": "Latency and quota are used up by the judgments the system chooses to make, so the lever is how many it makes.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a long job runs inside a pass that gates other work",
+    "action": "give it its own actor so it cannot starve the pass"
+   },
+   {
+    "condition": "every item needs a vote",
+    "action": "propose in one call and confirm only the proposed changes"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Measure first",
+    "condition": "a model-backed judgment is added",
+    "outcome": "count calls by class from the ledger before adding another and state its expected share",
+    "requires": []
+   },
+   {
+    "name": "Propose then confirm",
+    "condition": "many items need a yes or no",
+    "outcome": "make one batched call that proposes, then confirm with the strength-N vote only the items proposed for change",
+    "requires": []
+   },
+   {
+    "name": "Own actor for long jobs",
+    "condition": "a long job would sit inside a gating pass",
+    "outcome": "run it in its own actor so the other work keeps moving",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "call volume",
+   "batching",
+   "strength-n",
+   "background actor",
+   "ledger"
+  ],
+  "topics": [
+   "performance",
+   "models"
+  ]
+ }
+}

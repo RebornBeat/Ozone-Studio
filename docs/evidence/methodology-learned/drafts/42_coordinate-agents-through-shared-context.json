@@ -1,0 +1,89 @@
+{
+ "slug": "coordinate-agents-through-shared-context",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "never edit a file another live agent claims"
+ ],
+ "overlap_check": "Built-in method_20 (cross-agent verification) is about verifying claims; method_50 is about acting through the living network. Neither states the claim and handoff protocol. New.",
+ "memory_links": "multi_agent_coordination_practice",
+ "evidence": [
+  "AGENTS.md (shared context protocol, house rules)",
+  "tools/ozone-shared-context/README.md",
+  "docs/evidence/mcp-participants/REPORT.md:22 (shared-context strictness is opt-in; one session speaks as several named forks)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Coordinate Agents Through the Shared Context",
+  "description": "Agents working in one tree read the shared summary first, claim before editing, never edit what another live agent holds, keep write sets apart, and end with a handoff that says what is verified and what is not.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "The tree is shared",
+    "description": "Two agents editing one file lose work silently; a claim is cheaper than a merge.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a claim is hours old and its owner has no live presence",
+    "action": "report it as stale so the owner or the operator releases it"
+   },
+   {
+    "condition": "several forks run at once",
+    "action": "give each a disjoint write set"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Summary first",
+    "condition": "work starts in a shared tree",
+    "outcome": "read the shared summary of live agents, claims and latest handoffs before anything else",
+    "requires": []
+   },
+   {
+    "name": "Claim before edit",
+    "condition": "a file is about to be edited",
+    "outcome": "claim it; a refusal means another live agent holds it, so coordinate; release it when done",
+    "requires": []
+   },
+   {
+    "name": "Share a file by small hunks",
+    "condition": "two agents must change one file",
+    "outcome": "make small additive edits, say so in the handoff, and commit only your own hunks",
+    "requires": []
+   },
+   {
+    "name": "Hand off at the end",
+    "condition": "a session or fork ends",
+    "outcome": "leave a note naming the files, what is verified and what is not, the first places to check, and anything uncommitted and why",
+    "requires": []
+   },
+   {
+    "name": "Check the machine before building",
+    "condition": "a build is about to start",
+    "outcome": "make sure no other compiler is running and memory is free; the machine is shared and limited",
+    "requires": []
+   },
+   {
+    "name": "Fork only for scoped work",
+    "condition": "a task could be split",
+    "outcome": "fork only for well-scoped independent chunks the operator allowed, and verify each result before reporting it",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "shared context",
+   "file claim",
+   "handoff",
+   "fork",
+   "coordination"
+  ],
+  "topics": [
+   "process",
+   "multi-agent"
+  ]
+ }
+}

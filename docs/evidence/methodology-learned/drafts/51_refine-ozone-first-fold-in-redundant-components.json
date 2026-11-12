@@ -1,0 +1,54 @@
+{
+ "slug": "refine-ozone-first-fold-in-redundant-components",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Ask What Ozone Already Owns First",
+ "target_hint": "draft 19 (apply set 1 first)",
+ "source_quotes": [
+  "it is part of ozone it is to break away from there because it is redundant when we already have provider and setup in ozone we just bring this over yes to work with all is the point",
+  "ensuring no capabilities is lost because we should have all as web providers and etc",
+  "zcode again we have it and we have cc you but its outdated not meant or not working with zcode either which was being worked on"
+ ],
+ "overlap_check": "Extends draft 19. Adds the rule for a standalone component that duplicates a host capability and the rule for keeping agent integrations current. Add-only.",
+ "memory_links": "feedback_ozone_first_taxonomy_test",
+ "evidence": [
+  "docs/STATUS_2026-11-12.md:37 (section F: bridges and entry-point review)",
+  "operator message 2026-11-12 (this session), summarized in STATUS section F",
+  "docs/evidence/jurisdiction-deepening/REPORT_PHASE3.md:6 (bridges options)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "a component keeps its own provider keys and web providers",
+    "action": "compare it with the host's provider setup before keeping both"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Fold a redundant component into the host",
+    "condition": "a standalone component duplicates a host capability such as provider setup, model calls or web providers",
+    "outcome": "bring it under the host so one gate, ledger and decision log apply; first list every provider, web provider and mode it offers and confirm each is reachable through the host, so no capability is lost",
+    "requires": []
+   },
+   {
+    "name": "Engine bridges stay",
+    "condition": "a component is a remote pipeline the host calls for an engine",
+    "outcome": "keep it, and let the remote-pipeline check judge each call",
+    "requires": []
+   },
+   {
+    "name": "Uncoverable paths are disabled or blocked when hosted",
+    "condition": "a local command-line provider talks to its own vendor and cannot pass through the host",
+    "outcome": "disable it when the host supervises the component, or block its egress; standalone use stays outside the host's jurisdiction and is said to be",
+    "requires": []
+   },
+   {
+    "name": "Keep agent integrations current",
+    "condition": "integrations for coding agents exist, such as the MCP surface, a connector or instructions",
+    "outcome": "review each against the current host routes and credentials, repair what is outdated or half-working, and record which agent surfaces were verified",
+    "requires": []
+   }
+  ]
+ }
+}

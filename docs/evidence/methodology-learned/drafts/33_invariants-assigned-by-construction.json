@@ -1,0 +1,84 @@
+{
+ "slug": "invariants-assigned-by-construction",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "why would a step index ever repeat … not a fail or retry … just change the step index",
+  "work should be done to prevent this error not a fail or retry"
+ ],
+ "overlap_check": "Related to 31 (no skip): this is the 'fix it' branch for invariants. Related to 22 (blueprint steps come from rules): that one is about where steps come from, this about their indices. New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/no-skip-sweep/REPORT.md:7 (section A: step_index assigned centrally)",
+  "docs/evidence/final-decisions/DECISIONS.md:30 (step_index never fails)",
+  "docs/evidence/final-decisions/DECISIONS.md:8 (unique step_index at plan creation)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Establish Invariants by Construction, Not by Failing",
+  "description": "When code can establish an ordering or identity invariant, it assigns it once, centrally, when the plan is populated. It does not fail, replan or retry because the model repeated an index.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Prevent, do not punish",
+    "description": "An invariant that code can establish is established; a failure or replan for it wastes a model call and a walk.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a plan is invalid only because an index repeats",
+    "action": "normalize it deterministically and report what changed"
+   },
+   {
+    "condition": "one element of a list fails strict parsing",
+    "action": "rebuild it from its own fields instead of dropping it"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Assign once at population",
+    "condition": "an ordering or identity invariant such as a step index is needed",
+    "outcome": "assign it centrally when the list is populated, by position with order preserved; never fail, replan, retry or pause for it",
+    "requires": []
+   },
+   {
+    "name": "Remap and report",
+    "condition": "indices repeat or point at nothing",
+    "outcome": "remap dependencies by rule: a unique index points at that step, a repeated index points at its carriers before the dependent step, a dangling index is dropped; record an event naming what changed",
+    "requires": []
+   },
+   {
+    "name": "Salvage, never skip",
+    "condition": "one step fails strict deserialization",
+    "outcome": "rebuild it leniently from its own fields, keeping its text and defaulting the rest; never drop it",
+    "requires": []
+   },
+   {
+    "name": "Append without moving",
+    "condition": "steps are added to a plan that is already running",
+    "outcome": "give them the next unused index and leave every existing index and position where it is",
+    "requires": []
+   },
+   {
+    "name": "Retire the failure check",
+    "condition": "a normalization replaces an invalid-plan check",
+    "outcome": "remove the old check and its event in the same change and cite the superseder",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "step index",
+   "normalize",
+   "population",
+   "invariant",
+   "deterministic"
+  ],
+  "topics": [
+   "planning",
+   "doctrine"
+  ]
+ }
+}

@@ -1,0 +1,97 @@
+{
+ "slug": "hand-validation-when-settlement-paused",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "hand validation of keywords is the assistant's job",
+  "merge duplicate pairs"
+ ],
+ "overlap_check": "Draft 07 (keyword capture validated and hit driven) covers capture, validation gate and ranking; this is the by-hand procedure used while the gate is paused. At review it could become rules of 07. New as a procedure.",
+ "memory_links": "feedback_keyword_hits_ml_doctrine",
+ "evidence": [
+  "docs/evidence/keyword-validation/methodology/SUMMARY.md:5 (result and method)",
+  "docs/evidence/keyword-validation/methodology/SUMMARY.md:16 (what the judging found)",
+  "docs/evidence/keyword-validation/round2/SUMMARY.md:6 (decision rules used)",
+  "docs/evidence/keyword-validation/round2/SUMMARY.md:25 (strict search measured, not flipped)",
+  "CHECKLIST.md:7441 (L69: validation on the EU, audit restored five terms)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Validate Pending Keywords by Reading When Settlement Is Paused",
+  "description": "When the keyword settlement loop is paused, pending terms are judged by reading each container's own name, topics and body. Yes needs support, no needs a reason, doubt leaves the term alone, and no term with real use is removed.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Asymmetric judgment",
+    "description": "Keeping a doubtful term costs little; removing a good one hides content from search.",
+    "priority": 5
+   },
+   {
+    "name": "Record who decided",
+    "description": "A hand decision is not the strength-N gate and is recorded as such.",
+    "priority": 3
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a batch creates containers while settlement is paused and strict search is on",
+    "action": "validate their new terms right after the batch, because strict search ignores pending terms"
+   },
+   {
+    "condition": "a term has kept, applied or packed hits",
+    "action": "do not remove it; restore it as pending if an audit finds it removed"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Judge by reading",
+    "condition": "pending non-marker terms exist on a container",
+    "outcome": "read the container's name, topics and real body; mark a term validated only when they support it, remove it only with a stated reason, and leave it untouched when in doubt",
+    "requires": []
+   },
+   {
+    "name": "Hit guard",
+    "condition": "a term is about to be removed",
+    "outcome": "check its stored hits first; any kept, applied, packed or human hit blocks the removal",
+    "requires": []
+   },
+   {
+    "name": "Know the wrong shapes",
+    "condition": "terms are judged",
+    "outcome": "remove wrong-sense expansions, terms in another language than the content, templated recombinations of one distinct concept, identifiers and numbers, malformed tokens with punctuation, and generic fragments",
+    "requires": []
+   },
+   {
+    "name": "Record the decision",
+    "condition": "a term is decided by hand",
+    "outcome": "write a ledger row with the support flag and the reason; the ledger, not the term record, says it was reviewed by hand",
+    "requires": []
+   },
+   {
+    "name": "Before, after, pilot",
+    "condition": "terms are written to containers",
+    "outcome": "save each container's before-state, re-read the after-state, check health between batches, and pilot first",
+    "requires": []
+   },
+   {
+    "name": "Measure strict before flipping",
+    "condition": "strict search is considered",
+    "outcome": "replay the logged queries both ways first and check that types which can never be validated, such as rule sets, roots and ingest rows, are exempt",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "keyword validation",
+   "pending terms",
+   "hand review",
+   "strict search",
+   "ledger"
+  ],
+  "topics": [
+   "keywords",
+   "operations"
+  ]
+ }
+}

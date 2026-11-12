@@ -1,0 +1,77 @@
+{
+ "slug": "never-mint-an-identifier",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "no minted graph ids (walk pauses/retries)"
+ ],
+ "overlap_check": "Related to 03 (empty is a failed call) and 31. Specific to identifiers; New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/graph-link-walk-alignment/REPORT.md:44 (section 3: where ids were minted)",
+  "docs/evidence/walk-finalization/REPORT.md:13 (item 5: no minted ids)",
+  "docs/evidence/no-skip-sweep/REPORT.md:42 (section C: graph creation now pauses)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Identifiers Come From the Store, Never From a Clock",
+  "description": "An id names something that exists. It is taken only from a successful creation; a failed creation is an error that pauses and retries, never a timestamp that stands in for the id.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "An id is a promise",
+    "description": "A made-up id lets later steps, seeds and checkpoints point at nothing; the failure then surfaces far from its cause.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "an id appears in seeds or checkpoints that nothing can load",
+    "action": "trace it to the site that minted it and replace the stand-in with the failure"
+   },
+   {
+    "condition": "a pipeline reports success after its persistence failed",
+    "action": "make it report failure and return no local id"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Ids come from the store",
+    "condition": "code needs the id of a graph or container it just created",
+    "outcome": "take it only from the successful creation result; never generate one from the clock or a counter",
+    "requires": []
+   },
+   {
+    "name": "A failed creation is an error",
+    "condition": "creation fails because the store or persistence failed",
+    "outcome": "return the failure, with no local in-memory id, so the walk pauses and its resume retries",
+    "requires": []
+   },
+   {
+    "name": "Reuse only what still exists",
+    "condition": "a stored id is reused",
+    "outcome": "confirm its container exists in the store first; a dangling id means the thing is rebuilt",
+    "requires": []
+   },
+   {
+    "name": "Empty is not an id",
+    "condition": "a creation result has no id",
+    "outcome": "treat it as a failed call, not as an empty default",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "identifier",
+   "minted id",
+   "graph id",
+   "creation failure",
+   "dangling"
+  ],
+  "topics": [
+   "graphs",
+   "doctrine"
+  ]
+ }
+}

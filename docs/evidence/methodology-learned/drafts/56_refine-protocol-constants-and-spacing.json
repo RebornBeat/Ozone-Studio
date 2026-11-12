@@ -1,0 +1,40 @@
+{
+ "slug": "refine-protocol-constants-and-spacing",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Chunk to the Reading Model's Window",
+ "target_hint": "draft 02 (apply set 1 first)",
+ "source_quotes": [
+  "chunking is the only thing there is that has caps ... anything against this yes should be removed or updated or replaced"
+ ],
+ "overlap_check": "Extends draft 02 (and its rule on naming host guards) with the protocol-constant and backoff cases found while removing caps. Add-only.",
+ "memory_links": "feedback_never_refuse_for_size_chunk",
+ "evidence": [
+  "docs/evidence/walk-finalization/REPORT.md:10 (item 3: caps removed; line 11, 3a: the fragment size is transport)",
+  "docs/evidence/no-skip-sweep/REPORT_D6_COMPLETE.md:6 (backoff is spacing, never a give-up)",
+  "docs/evidence/final-decisions/DECISIONS.md:9 (no fixed caps, chunk by window)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "a fixed number cuts depth, count or size",
+    "action": "replace it with chunking to the window, a visited set or a progress bound"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Protocol constants are not caps",
+    "condition": "a fixed number comes from a transport protocol, such as a message fragment size",
+    "outcome": "keep it, name it a protocol constant, document it, and split any body into as many fragments as needed; never refuse a body for exceeding it",
+    "requires": []
+   },
+   {
+    "name": "Backoff is spacing",
+    "condition": "retries use delays",
+    "outcome": "let delays grow and hold; they are spacing between attempts, never a count after which work is given up",
+    "requires": []
+   }
+  ]
+ }
+}

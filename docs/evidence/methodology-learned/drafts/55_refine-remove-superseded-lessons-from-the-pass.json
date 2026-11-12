@@ -1,0 +1,60 @@
+{
+ "slug": "refine-remove-superseded-lessons-from-the-pass",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Remove Only What Is Shown To Be Superseded",
+ "target_hint": "draft 17 (apply set 1 first)",
+ "source_quotes": [
+  "you decide if superseded and ensured and captured and nothing dropped then remove",
+  "we shouldn't just be reviewing dead code without identifying if it was superseded if not leave for review"
+ ],
+ "overlap_check": "Extends draft 17 with what the first real removal pass taught. Draft 17 stays the core rule (name the superseder, else leave for review, capture, check references); these add checks and edge cases. Add-only.",
+ "memory_links": "feedback_ozone_first_taxonomy_test",
+ "evidence": [
+  "docs/evidence/dead-code-removal/REPORT.md:6 (seven removals, each with superseder and capture check)",
+  "docs/evidence/dead-code-removal/REPORT.md:18 (left for review, with reasons)",
+  "docs/evidence/final-decisions/DECISIONS.md:17 (removal only if superseded, captured, nothing dropped)",
+  "docs/evidence/guardrail-audit/REPORT.md:66 (items not superseded, left for review)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "an item has no remaining producer but was not on the list",
+    "action": "leave it for review with that reason"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Verify the superseder by reading",
+    "condition": "a superseder is named",
+    "outcome": "read both and confirm the old body is identical or the new item's behaviour covers it; record item, what it was, superseder and capture check in a table",
+    "requires": []
+   },
+   {
+    "name": "An unimplemented specified feature is not dead code",
+    "condition": "a field or function is never read but appears in the specification",
+    "outcome": "treat it as a gap: wire it, or remove it together with the specification edit; leave it for review meanwhile",
+    "requires": []
+   },
+   {
+    "name": "Registered by name",
+    "condition": "a removed method triggered a hook or handler registered by name",
+    "outcome": "confirm the successor still triggers that name, and remove the dead registrations with the method",
+    "requires": []
+   },
+   {
+    "name": "Live documents change, dated history stays",
+    "condition": "a removal touches documents",
+    "outcome": "rename or correct live documents and registries and leave dated checklist, status and review entries as the record",
+    "requires": []
+   },
+   {
+    "name": "Delegation keeps all three tests",
+    "condition": "the operator says to decide",
+    "outcome": "remove only when the item is superseded, its behaviour is captured and nothing is dropped; otherwise leave it",
+    "requires": []
+   }
+  ]
+ }
+}

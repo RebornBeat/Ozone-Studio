@@ -1,0 +1,41 @@
+{
+ "slug": "refine-retire-a-persisted-field",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Binary Judgments and Measured Numbers",
+ "target_hint": "draft 01 (apply set 1 first)",
+ "source_quotes": [
+  "never add model confidence/importance scores; judgments are yes/no via the strength-N loop",
+  "confidence final = yes/no, no confidence"
+ ],
+ "overlap_check": "Extends draft 01 with how to retire a persisted confidence field without breaking old data. Add-only; related to draft 24 (confirm ambiguous revert direction).",
+ "memory_links": "feedback_no_self_reported_confidence",
+ "evidence": [
+  "docs/evidence/jurisdiction-deepening/REPORT_PHASE2.md:21 (confidence removal finished)",
+  "memory: feedback_no_self_reported_confidence",
+  "memory: feedback_confirm_ambiguous_revert_direction"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "an older version still carries the removed field",
+    "action": "never restore it from the older version"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Retire by making it read-only legacy",
+    "condition": "a persisted field contradicts the doctrine, such as confidence",
+    "outcome": "delete it from the live types; where stored rows still carry it, keep reading it but never write it, so readers of serialized output see it absent",
+    "requires": []
+   },
+   {
+    "name": "Remove written constants",
+    "condition": "code writes a constant such as one in place of a real value",
+    "outcome": "remove the write; absence is honest and a constant is a fabricated measurement",
+    "requires": []
+   }
+  ]
+ }
+}

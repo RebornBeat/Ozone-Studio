@@ -1,0 +1,102 @@
+{
+ "slug": "link-first-walk-adds-intelligence",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "file link ALWAYS runs first and captures the non-semantic (structural / native) graph; the walk adds the intelligence on top; both know the other's current state"
+ ],
+ "overlap_check": "Built-in method_41 (new nodes link through relationship paths first) and method_24 (incremental layering reconciliation) are the closest; neither covers the link/walk ledger. Draft 26 is the per-modality call graph rule. New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/graph-link-walk-alignment/REPORT.md:17 (section 2: shared state and lock)",
+  "docs/evidence/graph-link-walk-alignment/REPORT.md:32 (outcome table)",
+  "docs/evidence/dead-code-removal/REPORT.md:26 (structural cross-file layer kept separate)",
+  "docs/evidence/final-decisions/DECISIONS.md:18 (cross-file call resolution)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Link Captures the Structure First, the Walk Adds Intelligence on One Shared State",
+  "description": "File link always builds the structural graph first. A walk reuses it by content hash and adds its own layers beside it. Both read one ledger under one lock, so there is never a second graph or a stale view.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "One state, two writers",
+    "description": "Two actors that each keep their own view of a graph will drift; one shared record and one lock keep them agreed.",
+    "priority": 5
+   },
+   {
+    "name": "Layers do not overwrite",
+    "description": "Structure and meaning are separate layers; adding one never rewrites the other.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a graph for the same content exists twice",
+    "action": "look for a path that built without claiming the shared ledger row"
+   },
+   {
+    "condition": "a layer written by one actor disappears after the other updates",
+    "action": "check that the update carries the other's fields over"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Link captures structure first",
+    "condition": "a file is linked, changes or is found at boot",
+    "outcome": "build the structural graph first as its own task and record it in the shared ledger keyed by content hash",
+    "requires": []
+   },
+   {
+    "name": "The walk reuses by hash",
+    "condition": "a walk attaches a file",
+    "outcome": "claim the path, reuse the graph built for this content hash when its container still exists, otherwise build it with its own calls and record it",
+    "requires": []
+   },
+   {
+    "name": "One lock, never two graphs",
+    "condition": "the link worker and a walk touch the same path",
+    "outcome": "take the shared per-path lock; the later one waits, never fails open and never builds a second graph",
+    "requires": []
+   },
+   {
+    "name": "Layers stay separate",
+    "condition": "the walk adds meaning to a structural graph",
+    "outcome": "append to the semantic layers, which are append-only; never rewrite structural fields; keep derived structural sidecars, such as cross-file call resolution, unread and unwritten by semantic steps",
+    "requires": []
+   },
+   {
+    "name": "Changed content is a new instance",
+    "condition": "the content hash differs from the recorded one",
+    "outcome": "build a new graph and a new task marked as a rerun of the old one; completed work stays final",
+    "requires": []
+   },
+   {
+    "name": "A dangling graph is rebuilt",
+    "condition": "the ledger names a graph whose container is gone",
+    "outcome": "treat it as absent and rebuild; never keep a dangling id",
+    "requires": []
+   },
+   {
+    "name": "Show both states",
+    "condition": "a view or endpoint shows a file's graph",
+    "outcome": "show the structural state, who created it, the semantic layers and the previous task exactly as stored",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "file link",
+   "structural graph",
+   "ledger",
+   "semantic layer",
+   "content hash"
+  ],
+  "topics": [
+   "graphs",
+   "files",
+   "walk"
+  ]
+ }
+}

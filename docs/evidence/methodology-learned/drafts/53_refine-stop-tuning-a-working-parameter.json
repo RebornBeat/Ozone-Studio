@@ -1,0 +1,32 @@
+{
+ "slug": "refine-stop-tuning-a-working-parameter",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Tune From Measured Metrics, Never Preemptive Caps",
+ "target_hint": "method_38 (30038)",
+ "source_quotes": [
+  "The 5 check loop is fine I mean you will waste loops confirming it or how many loops is needed per prompt leave it."
+ ],
+ "overlap_check": "Extends the same target as draft 28 (a second add-only update, applied after it). Built-in method_38 says measure before capping; this says stop measuring once it works.",
+ "memory_links": "feedback_dont_oververify_working_params",
+ "evidence": [
+  "memory: feedback_dont_oververify_working_params (2026-09-14)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "a count or interval already gives acceptable behaviour on a real run",
+    "action": "leave it and move on to the next real issue"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "Stop verifying what works",
+    "condition": "a loop interval, pass count or retry count produced acceptable behaviour on a real run",
+    "outcome": "leave it; do not spend more cycles pinning its exact value unless it causes errors, timeouts or wrong results",
+    "requires": []
+   }
+  ]
+ }
+}

@@ -1,0 +1,93 @@
+{
+ "slug": "mcp-agents-participate-additively",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "MCPs participate in prompt/walk",
+  "an MCP call can BE the prompt",
+  "agents get walk info via shared context"
+ ],
+ "overlap_check": "Draft 09 and 13 touch the surface only in passing. Built-in method_50 (acting is the living network) is about acting, not about participation. A generic MCP-as-model entry in the model chain is NOT covered here; it is not built (operator clarification 2026-11-12) and is tracked in STATUS. New.",
+ "memory_links": "multi_agent_coordination_practice",
+ "evidence": [
+  "docs/evidence/mcp-participants/REPORT.md:7 (what now exists)",
+  "docs/evidence/mcp-participants/REPORT.md:22 (decisions taken)",
+  "docs/evidence/mcp-participants/REPORT.md:28 (hardening)",
+  "docs/evidence/final-decisions/DECISIONS.md:20 (MCP agents participate in walks)",
+  "tools/ozone-mcp/server.mjs (header)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "MCP Agents Take Part in a Walk Without Becoming Part of Its Control Flow",
+  "description": "An MCP call can be the prompt. The agents that started or joined a walk follow it through a feed, and a step waits on an agent only when its provider names one. Everything else about the walk runs as before.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Additive, opt-in",
+    "description": "Participation adds awareness and an optional provider; a walk that names no agent behaves exactly as it did.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "an agent wants work done",
+    "action": "submit it as a prompt and let the walk route tools rather than calling capability servers directly"
+   },
+   {
+    "condition": "an agent step waits long",
+    "action": "show it as an awaiting item; do not add a timeout"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "A call can be the prompt",
+    "condition": "an MCP agent starts a walk",
+    "outcome": "record the caller and any named participants with the walk and give them the walk's trace from the first instant",
+    "requires": []
+   },
+   {
+    "name": "Follow by cursor",
+    "condition": "a participant follows a walk",
+    "outcome": "read the append-only feed from a cursor instead of polling raw endpoints; the feed is never rotated or capped and a lagging reader gets an explicit gap row",
+    "requires": []
+   },
+   {
+    "name": "Agent steps wait",
+    "condition": "a step's provider is an agent",
+    "outcome": "create a durable request and wait for the agent's report with no timeout and no fail-open; completed is final and a rerun is a new request",
+    "requires": []
+   },
+   {
+    "name": "Identity is bound",
+    "condition": "agents act through an MCP server",
+    "outcome": "bind one process to one agent identity and key; the host records the validated device where it can",
+    "requires": []
+   },
+   {
+    "name": "Keep prompt text out of shared notes",
+    "condition": "a walk is announced to shared context",
+    "outcome": "write hashes, ids and names only to git-visible notes; walk rows with stage text live in a git-ignored folder",
+    "requires": []
+   },
+   {
+    "name": "Operator-only stays operator-only",
+    "condition": "an agent tool surface is defined",
+    "outcome": "do not expose marketplace decisions, task cancel, configuration, policy changes or restore",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "mcp agent",
+   "walk feed",
+   "participant",
+   "agent provider",
+   "cursor"
+  ],
+  "topics": [
+   "mcp",
+   "walk"
+  ]
+ }
+}

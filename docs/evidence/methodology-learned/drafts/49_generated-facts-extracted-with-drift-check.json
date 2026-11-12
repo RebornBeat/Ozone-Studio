@@ -1,0 +1,92 @@
+{
+ "slug": "generated-facts-extracted-with-drift-check",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "identify the rule of the callgraph for all others",
+  "I want to view the call graphs in code traversing"
+ ],
+ "overlap_check": "Draft 26 (every modality has a call graph rule) defines what a graph is per modality; this governs how system facts are generated and kept honest. New.",
+ "memory_links": "feedback_ozone_first_taxonomy_test",
+ "evidence": [
+  "docs/evidence/call-graphs/REPORT.md:16 (one source of truth, generated)",
+  "docs/evidence/call-graphs/REPORT.md:18 (honest limits)",
+  "docs/evidence/call-graphs/REPORT.md:26 (containers created at boot)",
+  "tools/call-graph/extract_system_call_graph.mjs"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Facts About the Code Are Generated, Checked for Drift and Honest About Limits",
+  "description": "Call graphs and route registries that mirror the code are produced by a deterministic extractor with a drift check, show their limits on screen, and never guess an edge.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A copied fact drifts",
+    "description": "A hand-kept copy of what the code does stops being true; a generated one can be checked.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a label is missing from its registry",
+    "action": "flag it instead of hiding it"
+   },
+   {
+    "condition": "a name is defined more than once",
+    "action": "leave it out of reachability and say so"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Generate, do not copy",
+    "condition": "a machine-readable fact mirrors code",
+    "outcome": "extract it from the source with a deterministic tool with no timestamps; never copy it by hand",
+    "requires": []
+   },
+   {
+    "name": "Check for drift",
+    "condition": "the source may have changed",
+    "outcome": "give the extractor a check mode that exits non-zero when the asset differs, and run it in review",
+    "requires": [
+     {
+      "kind": "tool",
+      "name": "code_callgraph",
+      "purpose": "compare the extracted graph with the code's own call graph",
+      "optional": true
+     }
+    ]
+   },
+   {
+    "name": "State the limits",
+    "condition": "the extractor is static and name-based",
+    "outcome": "write the limits into the asset and show them on screen; leave ambiguous names out and never guess an edge",
+    "requires": []
+   },
+   {
+    "name": "Keep the unattached",
+    "condition": "a call site is reached by no stage",
+    "outcome": "keep it and mark it unattached; mark labels absent from the registry",
+    "requires": []
+   },
+   {
+    "name": "Create at boot, retry until ensured",
+    "condition": "system facts cost no model call",
+    "outcome": "create or refresh them at boot without blocking boot, and retry until every graph is ensured",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "call graph",
+   "generated asset",
+   "drift check",
+   "extractor",
+   "registry"
+  ],
+  "topics": [
+   "documentation",
+   "graphs"
+  ]
+ }
+}

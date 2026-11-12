@@ -1,0 +1,76 @@
+{
+ "slug": "resource-floors-pause-never-skip",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "ensure that we do not skip it pauses etc but no skip or stop pause"
+ ],
+ "overlap_check": "Draft 02 rule 5 (name a host guard honestly) is the naming half; this is the behaviour half. Related to 31. New.",
+ "memory_links": "feedback_ozone_doctrines_2026_11",
+ "evidence": [
+  "docs/evidence/walk-finalization/REPORT.md:12 (item 4: wait_for_memory_floor)",
+  "docs/evidence/final-decisions/DECISIONS.md:11 (memory floor pauses and resumes)",
+  "docs/evidence/guardrail-audit/REPORT.md:24 (guardrails per action path, resource guard row)"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Resource Floors Pause the Work, They Never Skip or Refuse It",
+  "description": "When the host runs low on memory or a write queue fills, work waits and resumes. It is not skipped, stopped, failed or refused.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "A guard waits",
+    "description": "A resource guard protects the host by pausing; it is never a reason to drop work.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a numeric floor sits in a loop",
+    "action": "name it as a host guard with its environment variable and default, and list it in the registry"
+   },
+   {
+    "condition": "a synchronous pass cannot wait",
+    "action": "record that it has no wait point as an open gap"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Wait, do not refuse",
+    "condition": "host memory is below the floor",
+    "outcome": "pause and resume at the defined wait points: the start of a walk, before each step, before each re-expansion candidate and loop gap, and in the link worker; never skip, stop or fail the work",
+    "requires": []
+   },
+   {
+    "name": "An unreadable measure is no reason to wait",
+    "condition": "the memory figure cannot be read",
+    "outcome": "there is nothing to wait for; continue",
+    "requires": []
+   },
+   {
+    "name": "Backpressure blocks writers",
+    "condition": "a write queue is full",
+    "outcome": "block the producers until space frees; drop nothing; the bound is host memory",
+    "requires": []
+   },
+   {
+    "name": "Give every actor a wait point",
+    "condition": "a loop or actor is added",
+    "outcome": "give it the same wait point, or record in the registry why it cannot",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "memory floor",
+   "backpressure",
+   "resource guard",
+   "pause and resume"
+  ],
+  "topics": [
+   "reliability",
+   "host"
+  ]
+ }
+}

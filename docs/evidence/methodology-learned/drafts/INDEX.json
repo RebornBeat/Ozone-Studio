@@ -1,0 +1,245 @@
+[
+ {
+  "file": "31_no-skip-fix-or-pause-and-retry.json",
+  "slug": "no-skip-fix-or-pause-and-retry",
+  "kind": "create",
+  "status": "ready",
+  "name": "There Is No Skip: Fix It or Pause and Retry",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "32_acceptance-is-readability.json",
+  "slug": "acceptance-is-readability",
+  "kind": "create",
+  "status": "ready",
+  "name": "Only What Can Be Read Is Linked",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "33_invariants-assigned-by-construction.json",
+  "slug": "invariants-assigned-by-construction",
+  "kind": "create",
+  "status": "ready",
+  "name": "Establish Invariants by Construction, Not by Failing",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "34_never-mint-an-identifier.json",
+  "slug": "never-mint-an-identifier",
+  "kind": "create",
+  "status": "ready",
+  "name": "Identifiers Come From the Store, Never From a Clock",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "35_durable-ordered-writes.json",
+  "slug": "durable-ordered-writes",
+  "kind": "create",
+  "status": "ready",
+  "name": "Writes That Matter Are Durable, Ordered and Never Disable Their Sink",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "36_resource-floors-pause-never-skip.json",
+  "slug": "resource-floors-pause-never-skip",
+  "kind": "create",
+  "status": "ready",
+  "name": "Resource Floors Pause the Work, They Never Skip or Refuse It",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "37_link-first-walk-adds-intelligence.json",
+  "slug": "link-first-walk-adds-intelligence",
+  "kind": "create",
+  "status": "ready",
+  "name": "Link Captures the Structure First, the Walk Adds Intelligence on One Shared State",
+  "rules": 7,
+  "heuristics": 2
+ },
+ {
+  "file": "38_history-chunked-verified-reversible.json",
+  "slug": "history-chunked-verified-reversible",
+  "kind": "create",
+  "status": "ready",
+  "name": "Version History Is Chunked, Verified and Reversible",
+  "rules": 7,
+  "heuristics": 2
+ },
+ {
+  "file": "39_live-data-changes-copy-check-apply-verify-restore.json",
+  "slug": "live-data-changes-copy-check-apply-verify-restore",
+  "kind": "create",
+  "status": "ready",
+  "name": "Changing Live Data: Look, Copy, Check, Apply One, Verify, Keep a Way Back",
+  "rules": 8,
+  "heuristics": 2
+ },
+ {
+  "file": "40_hand-validation-when-settlement-paused.json",
+  "slug": "hand-validation-when-settlement-paused",
+  "kind": "create",
+  "status": "ready",
+  "name": "Validate Pending Keywords by Reading When Settlement Is Paused",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "41_report-what-was-done-at-the-level-done.json",
+  "slug": "report-what-was-done-at-the-level-done",
+  "kind": "create",
+  "status": "ready",
+  "name": "Report Work at the Level It Was Actually Done",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "42_coordinate-agents-through-shared-context.json",
+  "slug": "coordinate-agents-through-shared-context",
+  "kind": "create",
+  "status": "ready",
+  "name": "Coordinate Agents Through the Shared Context",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "43_every-entry-point-names-its-credential.json",
+  "slug": "every-entry-point-names-its-credential",
+  "kind": "create",
+  "status": "ready",
+  "name": "Every Entry Point Names Its Credential and Protects Its Mutations",
+  "rules": 7,
+  "heuristics": 2
+ },
+ {
+  "file": "44_review-every-call-site-against-the-gate.json",
+  "slug": "review-every-call-site-against-the-gate",
+  "kind": "create",
+  "status": "ready",
+  "name": "Review Every Call Site Against the Gate, Not Only the Obvious Route",
+  "rules": 8,
+  "heuristics": 2
+ },
+ {
+  "file": "45_jurisdiction-per-instance-policy.json",
+  "slug": "jurisdiction-per-instance-policy",
+  "kind": "create",
+  "status": "ready",
+  "name": "Jurisdiction Is a Per-Instance Policy With a Durable Record",
+  "rules": 7,
+  "heuristics": 2
+ },
+ {
+  "file": "46_mcp-agents-participate-additively.json",
+  "slug": "mcp-agents-participate-additively",
+  "kind": "create",
+  "status": "ready",
+  "name": "MCP Agents Take Part in a Walk Without Becoming Part of Its Control Flow",
+  "rules": 6,
+  "heuristics": 2
+ },
+ {
+  "file": "47_host-called-pipelines-accept-envelope-and-flat.json",
+  "slug": "host-called-pipelines-accept-envelope-and-flat",
+  "kind": "create",
+  "status": "ready",
+  "name": "Host-Called Pipelines Accept the Envelope and Flat Input",
+  "rules": 3,
+  "heuristics": 2
+ },
+ {
+  "file": "48_measure-and-batch-our-own-judgment-volume.json",
+  "slug": "measure-and-batch-our-own-judgment-volume",
+  "kind": "create",
+  "status": "ready",
+  "name": "Measure and Batch the Judgment Calls We Generate Ourselves",
+  "rules": 3,
+  "heuristics": 2
+ },
+ {
+  "file": "49_generated-facts-extracted-with-drift-check.json",
+  "slug": "generated-facts-extracted-with-drift-check",
+  "kind": "create",
+  "status": "ready",
+  "name": "Facts About the Code Are Generated, Checked for Drift and Honest About Limits",
+  "rules": 5,
+  "heuristics": 2
+ },
+ {
+  "file": "50_refine-work-order-expansion-and-gates.json",
+  "slug": "refine-work-order-expansion-and-gates",
+  "kind": "update",
+  "status": "ready",
+  "name": "Work Order Completion Is Final",
+  "rules": 4,
+  "heuristics": 2
+ },
+ {
+  "file": "51_refine-ozone-first-fold-in-redundant-components.json",
+  "slug": "refine-ozone-first-fold-in-redundant-components",
+  "kind": "update",
+  "status": "ready",
+  "name": "Ask What Ozone Already Owns First",
+  "rules": 4,
+  "heuristics": 1
+ },
+ {
+  "file": "52_refine-verify-through-ozone-no-mocks.json",
+  "slug": "refine-verify-through-ozone-no-mocks",
+  "kind": "update",
+  "status": "ready",
+  "name": "Verify Ozone Through Ozone as a Third Party",
+  "rules": 3,
+  "heuristics": 1
+ },
+ {
+  "file": "53_refine-stop-tuning-a-working-parameter.json",
+  "slug": "refine-stop-tuning-a-working-parameter",
+  "kind": "update",
+  "status": "ready",
+  "name": "Tune From Measured Metrics, Never Preemptive Caps",
+  "rules": 1,
+  "heuristics": 1
+ },
+ {
+  "file": "54_refine-p2p-paired-devices-vs-marketplace.json",
+  "slug": "refine-p2p-paired-devices-vs-marketplace",
+  "kind": "update",
+  "status": "ready",
+  "name": "Peer Marketplace Notifies and Gates",
+  "rules": 4,
+  "heuristics": 1
+ },
+ {
+  "file": "55_refine-remove-superseded-lessons-from-the-pass.json",
+  "slug": "refine-remove-superseded-lessons-from-the-pass",
+  "kind": "update",
+  "status": "ready",
+  "name": "Remove Only What Is Shown To Be Superseded",
+  "rules": 5,
+  "heuristics": 1
+ },
+ {
+  "file": "56_refine-protocol-constants-and-spacing.json",
+  "slug": "refine-protocol-constants-and-spacing",
+  "kind": "update",
+  "status": "ready",
+  "name": "Chunk to the Reading Model's Window",
+  "rules": 2,
+  "heuristics": 1
+ },
+ {
+  "file": "57_refine-retire-a-persisted-field.json",
+  "slug": "refine-retire-a-persisted-field",
+  "kind": "update",
+  "status": "ready",
+  "name": "Binary Judgments and Measured Numbers",
+  "rules": 2,
+  "heuristics": 1
+ }
+]

@@ -1,0 +1,47 @@
+{
+ "slug": "refine-verify-through-ozone-no-mocks",
+ "kind": "update",
+ "status": "ready",
+ "target_name": "Verify Ozone Through Ozone as a Third Party",
+ "target_hint": "draft 13 (apply set 1 first)",
+ "source_quotes": [
+  "we should not be building a mock farm; test on VPS as well or at least here first",
+  "no build no test"
+ ],
+ "overlap_check": "Extends draft 13 with the no-mocks rule and the edit-only phase rule. Built-in method_49 (test the real substrate, skips are not passes) is closely related; at review this could point there.",
+ "memory_links": "feedback_no_mocks_test_real",
+ "evidence": [
+  "memory: feedback_no_mocks_test_real",
+  "memory: feedback_ozone_doctrines_2026_11 (edit-only phases)",
+  "docs/BUILD_AND_TEST_PLAN_2026-11-10.md (order at a glance)"
+ ],
+ "payload": {
+  "action": "Update",
+  "add_heuristics": [
+   {
+    "condition": "an external system cannot run here",
+    "action": "find a way to run the real thing, such as a user-space install, or ask for the EU"
+   }
+  ],
+  "add_decision_rules": [
+   {
+    "name": "A mock is not evidence",
+    "condition": "an external system cannot be run",
+    "outcome": "run the real thing or ask for the operator's second host; label anything mock-based as a regression guard only",
+    "requires": []
+   },
+   {
+    "name": "Edit-only phases",
+    "condition": "the operator locks builds and tests",
+    "outcome": "review by reading, capture every edit, correct earlier claims explicitly, and build or test nothing until the lock is lifted",
+    "requires": []
+   },
+   {
+    "name": "Every entry point as a third party",
+    "condition": "verification is planned",
+    "outcome": "cover the command line, the UI, the MCP surface and the tool routes separately, each with its own credential",
+    "requires": []
+   }
+  ]
+ }
+}

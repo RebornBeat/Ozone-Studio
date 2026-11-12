@@ -1,0 +1,116 @@
+{
+ "slug": "history-chunked-verified-reversible",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "reconstruct via diff which stores and takes less space than complete backups",
+  "making both almost work together and handle each needs like workspace or zsei containers"
+ ],
+ "overlap_check": "Built-in method_22 (persistent cache parity) covers the in-memory-index lesson in general; method_23 covers durability of checks. Draft 35 is the write path; this is the history store. New.",
+ "memory_links": "persistent_cache_and_verification_discipline",
+ "evidence": [
+  "docs/HISTORY_STORE_GUIDE.md:10 (layout)",
+  "docs/HISTORY_STORE_GUIDE.md:26 (readers and actions)",
+  "docs/HISTORY_STORE_GUIDE.md:34 (migration)",
+  "docs/HISTORY_STORE_GUIDE.md:39 (jurisdiction: erasure)",
+  "src/history/mod.rs"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Version History Is Chunked, Verified and Reversible",
+  "description": "Changes to files and container records are kept as de-duplicated chunk versions in one store. History is never pruned, every version rebuilds with a hash check, and a restore is deliberate and itself reversible.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "History is evidence",
+    "description": "A history that can be pruned, lost on restart or silently wrong is not a history.",
+    "priority": 5
+   },
+   {
+    "name": "Store what changed",
+    "description": "A new version adds only the chunks that changed, so history costs far less than complete backups.",
+    "priority": 4
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "an in-memory index sits beside durable history",
+    "action": "make the index durable and reloaded at boot; ask whether rollback works after a cold restart"
+   },
+   {
+    "condition": "two stores record the same kind of change",
+    "action": "unify the writer and keep both views"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "One store for files and containers",
+    "condition": "a file or container record is about to change",
+    "outcome": "record it as a version in the shared history store under its scope; identical content adds no row",
+    "requires": []
+   },
+   {
+    "name": "Rebuild by chunks and verify",
+    "condition": "a version is read",
+    "outcome": "concatenate its chunks and check every chunk and the whole by hash; a failed check is an error, never silently served",
+    "requires": []
+   },
+   {
+    "name": "Baseline first",
+    "condition": "a watcher first sees a file after a boot",
+    "outcome": "record its current content when it differs from the newest version, so the first change has a before and changes made while the host was down are kept; a failed write forgets the baseline so the next poll retries",
+    "requires": []
+   },
+   {
+    "name": "Never prune",
+    "condition": "space is a concern",
+    "outcome": "rely on de-duplication; history is not capped or rotated, and reclaiming space is an explicit operator act",
+    "requires": []
+   },
+   {
+    "name": "Restore is deliberate and reversible",
+    "condition": "a restore is requested",
+    "outcome": "treat it as an operator action on a session-protected route with a confirm phrase; record the current state first as a pre-restore version; append an audit row; a version captured from the raw bytes of an unparseable record is returned as an error with the bytes still readable",
+    "requires": [
+     {
+      "kind": "tool",
+      "name": "file_history",
+      "purpose": "list the recorded versions of an item before restoring",
+      "optional": true
+     },
+     {
+      "kind": "tool",
+      "name": "file_diff",
+      "purpose": "compare two versions before restoring",
+      "optional": true
+     }
+    ]
+   },
+   {
+    "name": "Import old stores without deleting",
+    "condition": "an earlier snapshot store is migrated",
+    "outcome": "import idempotently, keep the originals, and write the completion marker only after a full success so a failure retries on the next boot",
+    "requires": []
+   },
+   {
+    "name": "Erasure reaches history",
+    "condition": "personal data is erased",
+    "outcome": "include history objects in the erasure plan; chunks shared by several versions need reference-aware removal; record this as open until it is built",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "version history",
+   "chunk store",
+   "restore",
+   "rollback",
+   "de-duplication"
+  ],
+  "topics": [
+   "storage",
+   "history"
+  ]
+ }
+}

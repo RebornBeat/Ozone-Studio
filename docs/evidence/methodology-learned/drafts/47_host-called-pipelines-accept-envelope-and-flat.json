@@ -1,0 +1,68 @@
+{
+ "slug": "host-called-pipelines-accept-envelope-and-flat",
+ "kind": "create",
+ "status": "ready",
+ "target_name": null,
+ "target_hint": null,
+ "source_quotes": [
+  "host passes {data,context} to pipelines; mains must unwrap data"
+ ],
+ "overlap_check": "Built-in method_40 (persisted shape must match the loader's parse shape) is the storage analogue; this is the call shape. New and small.",
+ "memory_links": "project_pipeline_envelope_unwrap",
+ "evidence": [
+  "memory: project_pipeline_envelope_unwrap (2026-11-08 audit of 82 mains)",
+  "src/orchestrator/adapters.rs (PipelineInput { data, context })"
+ ],
+ "payload": {
+  "action": "Create",
+  "name": "Host-Called Pipelines Accept the Envelope and Flat Input",
+  "description": "The host hands every pipeline an input wrapped as data plus context. A pipeline main unwraps it when both parts are present and still accepts flat input, so a parse error is never an envelope in disguise.",
+  "category_id": 0,
+  "principles": [
+   {
+    "name": "Read what the host sends",
+    "description": "The host's calling shape is the contract; a main that cannot read it fails on every walk.",
+    "priority": 5
+   }
+  ],
+  "heuristics": [
+   {
+    "condition": "a pipeline fails with a missing-field error whose column equals the input length",
+    "action": "suspect the envelope before the schema"
+   },
+   {
+    "condition": "a pipeline is not built yet",
+    "action": "give it the unwrap when it is built"
+   }
+  ],
+  "decision_rules": [
+   {
+    "name": "Accept both shapes",
+    "condition": "a pipeline main parses its input",
+    "outcome": "treat the input as an envelope only when the top-level object holds both an object named data and a context, and unwrap it; flat input still works",
+    "requires": []
+   },
+   {
+    "name": "Test both",
+    "condition": "a pipeline main is added or changed",
+    "outcome": "feed it the envelope and the flat form and check both parse",
+    "requires": []
+   },
+   {
+    "name": "Diagnose the envelope first",
+    "condition": "a pipeline reports a missing-field parse error",
+    "outcome": "compare the error column with the length of the whole input before changing the schema",
+    "requires": []
+   }
+  ],
+  "keywords": [
+   "pipeline",
+   "envelope",
+   "input shape",
+   "unwrap"
+  ],
+  "topics": [
+   "pipelines"
+  ]
+ }
+}
