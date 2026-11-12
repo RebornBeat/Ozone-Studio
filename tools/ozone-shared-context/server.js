@@ -241,8 +241,9 @@ function deviceKeypair() {
   } else {
     const kp = crypto.generateKeyPairSync("ed25519");
     pem = kp.privateKey.export({ type: "pkcs8", format: "pem" });
-    fs.writeFileSync(keyFile, pem);
+    fs.writeFileSync(keyFile, pem, { mode: 0o600 }); // a private key: owner-only (it was created 0664 before 2026-11-12)
   }
+  try { fs.chmodSync(keyFile, 0o600); } catch { /* not ours to change */ }
   const privateKey = crypto.createPrivateKey(pem);
   const spki = crypto.createPublicKey(privateKey).export({ type: "spki", format: "der" });
   return { privateKey, rawPub: spki.subarray(spki.length - 32).toString("hex") };
@@ -386,7 +387,10 @@ function fileClaims() {
   const state = loadState();
   const claims = [];
   for (const [file, c] of Object.entries(state.claims)) {
-    claims.push({ file, agent: c.agent, reason: c.reason, age_min: Math.round((Date.now() - c.at) / 60000) });
+    // holder_live = the claiming agent heartbeated within the presence TTL. A claim whose holder went silent does NOT block anyone
+    // (fileClaim refuses only against a LIVE holder) and is dropped by the next presence_heartbeat — it is shown, marked stale, until then.
+    const holderLive = isLive((state.sessions[c.agent] || {}).last_seen || 0);
+    claims.push({ file, agent: c.agent, reason: c.reason, age_min: Math.round((Date.now() - c.at) / 60000), holder_live: holderLive, stale: !holderLive });
   }
   return { claims };
 }
@@ -767,7 +771,7 @@ async function handleMessage(msg) {
     reply(id, {
       protocolVersion: params?.protocolVersion || "2024-11-05",
       capabilities: { tools: {} },
-      serverInfo: { name: "ozone-shared-context", version: "0.1.0" },
+      serverInfo: { name: "ozone-shared-context", version: "0.3.0" },
     });
     return;
   }

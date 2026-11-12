@@ -22,3 +22,10 @@ monitor (`:50051`).
   additively, never rewrite.
 - No fabricated metrics anywhere: token counts, presence, claims are real
   captured values or explicitly absent.
+
+## Running things on Ozone-Studio (prompts, walks, links)
+
+`ozone-shared-context` is coordination only. To PROMPT Ozone-Studio, join its walks or offer yourself as an agent provider, use
+the sibling MCP server `ozone-mcp` (`.mcp.json` / `.zcode/config.json`): `ozone_orchestrate` is the prompt, `ozone_walk_feed` /
+`ozone_walk_mine` follow walks, `ozone_agent_offer` / `ozone_agent_requests` / `ozone_agent_report` serve agent-provider steps.
+Setup, identity and verification: `docs/AGENT_INTEGRATION_ZCODE_CC.md`.

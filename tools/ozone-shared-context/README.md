@@ -15,7 +15,8 @@ zero-dependency Node: `tools/ozone-shared-context/server.js`.
 3. **While working** → `presence_heartbeat` whenever focus changes (files,
    task). Silent >5 min = you drop out of "live" (claims of silent agents
    expire automatically).
-4. **Done with files** → `file_release`.
+4. **Done with files** → `file_release`. `file_claims` marks a claim `stale:true` when its holder has gone silent (>5 min): it
+   blocks nobody and the next `presence_heartbeat` by anyone drops it.
 5. **Ending a session** → `note_add` kind=`handoff`: what you did, what's
    next, gotchas. `finding` for discoveries, `decision` for choices made.
 
@@ -23,10 +24,15 @@ zero-dependency Node: `tools/ozone-shared-context/server.js`.
 
 | Agent  | File                    | Scope    | Auto-connect |
 | ------ | ----------------------- | -------- | ------------ |
-| ZCode  | `.zcode/config.json`    | workspace | yes, session start |
-| Claude | `.mcp.json`             | project   | yes (approve on first use) |
+| ZCode  | `.zcode/config.json`    | workspace | yes, session start (new sessions only) |
+| Claude | `.mcp.json` (+ `.claude/settings.json` `enabledMcpjsonServers`) | project | yes (approve on first use) |
 
-Both point at the same server; `OZONE_AGENT_NAME` distinguishes them.
+Both point at the same server; `OZONE_AGENT_NAME` distinguishes them. BOTH files also carry the `ozone-mcp` entry (the
+walk/prompt surface, below) since 2026-11-12 — ZCode had only this coordination server before. Exact snippets, identity/key
+setup and a verification checklist: `docs/AGENT_INTEGRATION_ZCODE_CC.md`.
+
+`.ozone-context/` is git-IGNORED (`.gitignore`): notes, claims and the device key stay on the machine. (Earlier text calling it
+"git-visible" was stale.) The server's own device key is written 0600.
 
 ## Claude Code session logs
 

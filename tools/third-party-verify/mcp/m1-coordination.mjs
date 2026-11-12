@@ -23,6 +23,10 @@ try {
   await cc.shared.call("file_release", { agent: "claude-code", files: ["demo/a.rs"] });
   const c3 = await zc.shared.call("file_claim", { agent: "zcode", files: ["demo/a.rs"], reason: "mcp-1 after release" });
   s.check("P4", "after release the other agent can claim", c3.json?.ok === true, c3.text.slice(0, 120));
+  // P5 (2026-11-12): a claim row says whether its holder is live; a live holder's claim is not stale
+  const cl = (await third.shared.call("file_claims")).json?.claims ?? [];
+  const mine = cl.find((c) => c.file === "demo/a.rs");
+  s.check("P5", "file_claims rows carry holder_live/stale (live holder = not stale)", !!mine && mine.holder_live === true && mine.stale === false, JSON.stringify(mine ?? {}).slice(0, 160));
   await zc.shared.call("file_release", { agent: "zcode", files: ["demo/a.rs"] });
 
   // handoff visible to the third agent

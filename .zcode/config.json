@@ -3,10 +3,25 @@
     "servers": {
       "ozone-shared-context": {
         "command": "node",
-        "args": ["/home/rebornbeat/Projects/Ozone-Studio/tools/ozone-shared-context/server.js"],
+        "args": [
+          "/home/rebornbeat/Projects/Ozone-Studio/tools/ozone-shared-context/server.js"
+        ],
         "env": {
           "OZONE_HOST": "http://127.0.0.1:50051",
-          "OZONE_AGENT_NAME": "zcode"
+          "OZONE_AGENT_NAME": "zcode",
+          "OZONE_CONTEXT_DIR": "/home/rebornbeat/Projects/Ozone-Studio/.ozone-context"
+        }
+      },
+      "ozone-mcp": {
+        "command": "node",
+        "args": [
+          "/home/rebornbeat/Projects/Ozone-Studio/tools/ozone-mcp/server.mjs"
+        ],
+        "env": {
+          "OZONE_HOST": "http://127.0.0.1:50051",
+          "OZONE_AGENT_NAME": "zcode",
+          "OZONE_CONTEXT_DIR": "/home/rebornbeat/Projects/Ozone-Studio/.ozone-context",
+          "OZONE_MCP_LINK_ROOTS": "/home/rebornbeat/Projects/Ozone-Studio"
         }
       }
     }

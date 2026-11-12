@@ -7,7 +7,8 @@
       ],
       "env": {
         "OZONE_HOST": "http://127.0.0.1:50051",
-        "OZONE_AGENT_NAME": "claude-code"
+        "OZONE_AGENT_NAME": "claude-code",
+        "OZONE_CONTEXT_DIR": "/home/rebornbeat/Projects/Ozone-Studio/.ozone-context"
       }
     },
     "ozone-mcp": {
@@ -18,7 +19,8 @@
       "env": {
         "OZONE_HOST": "http://127.0.0.1:50051",
         "OZONE_AGENT_NAME": "claude-code",
-        "OZONE_CONTEXT_DIR": "/home/rebornbeat/Projects/Ozone-Studio/.ozone-context"
+        "OZONE_CONTEXT_DIR": "/home/rebornbeat/Projects/Ozone-Studio/.ozone-context",
+        "OZONE_MCP_LINK_ROOTS": "/home/rebornbeat/Projects/Ozone-Studio"
       }
     }
   }

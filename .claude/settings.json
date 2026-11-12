@@ -1,3 +1,6 @@
 {
-  "enabledMcpjsonServers": ["ozone-shared-context"]
+  "enabledMcpjsonServers": [
+    "ozone-shared-context",
+    "ozone-mcp"
+  ]
 }

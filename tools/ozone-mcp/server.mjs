@@ -28,7 +28,8 @@
  * Identity (H1): one server process = one agent. The `agent` argument can only ever equal OZONE_AGENT_NAME (set it per
  * agent); another name is refused. Per-agent device key: OZONE_AGENT_KEY_PATH, else ~/.ozone-cli/agents/<name>/device-key.pem
  * when it exists, else the shared key (reported as shared by ozone_whoami). OZONE_MCP_READ_ONLY=1 makes the agent
- * read-only (mutating tools refused). `node server.mjs --register` registers this server with the host (H10).
+ * read-only (mutating tools refused). `node server.mjs --register` registers this server with the host (H10);
+ * `node server.mjs --init-key` creates this agent's own device key (prints the public key only).
  *
  * Protocol: MCP 2024-11-05, newline-delimited JSON-RPC 2.0 on stdio.
  * Env: OZONE_HOST (default http://127.0.0.1:50051; a non-loopback host needs OZONE_MCP_ALLOW_REMOTE_HOST=1),
@@ -304,6 +305,11 @@ const TOOLS = [
   { name: "ozone_gaps", description: "READ. Capability gaps and their provenance (GET /capability/gaps).", inputSchema: obj() },
   { name: "ozone_refinement", description: "READ. Methodology refinement report (GET /methodology/refinement).", inputSchema: obj() },
   { name: "ozone_marketplace_view", description: "READ. Marketplace overview: peers, offers with local classification, policy (GET /marketplace/overview). Accepting/deciding offers is operator-only and not available here.", inputSchema: obj() },
+  { name: "ozone_history_status", description: "READ. Everything the host keeps a version history of (workspace files and ZSEI containers; checklists/evidence/step docs under the host's watch roots): scope, id, versions, last change, size, recorded path (POST /history/status). This is how an agent learns WHAT CHANGED.", inputSchema: obj({ scope: { type: "string", enum: ["file", "container"] } }) },
+  { name: "ozone_history", description: "READ. Every recorded version of one item: version, time, reason (baseline/changed/pre-write/pre-restore), size, path (POST /history/list). Restoring a version is operator-only and not available here.", inputSchema: obj({ scope: { type: "string", enum: ["file", "container"] }, id: { type: "string", description: "file container id, container id, or the p<hex> id shown by ozone_history_status" } }, ["scope", "id"]) },
+  { name: "ozone_history_diff", description: "READ. Line diff (hunks with 3 lines of context) between two versions of one item; default = the version before the newest vs the newest. Binary content reports changed chunks (POST /history/diff).", inputSchema: obj({ scope: { type: "string", enum: ["file", "container"] }, id: { type: "string" }, from: { type: "number" }, to: { type: "number" } }, ["scope", "id"]) },
+  { name: "ozone_history_read", description: "READ. The content of one version, in chunks (offset/length in bytes; omit both for the whole content; no size refusal). encoding utf8 or base64 (POST /history/read).", inputSchema: obj({ scope: { type: "string", enum: ["file", "container"] }, id: { type: "string" }, version: { type: "number" }, offset: { type: "number" }, length: { type: "number" }, encoding: { type: "string", enum: ["utf8", "base64"] } }, ["scope", "id", "version"]) },
+  { name: "ozone_held_calls", description: "READ. Outbound calls the jurisdiction gate is HOLDING right now (age, attempts, next retry, reason), the requirements still unaccepted and the recent held decisions (GET /jurisdiction/held). Held calls wait and retry on their own; releasing one is an operator action (approve/agree) and is not available here.", inputSchema: obj({ since: { type: "number", description: "unix ms; default last 24 h of decisions" } }) },
   { name: "ozone_query", description: `READ. A read-only ZSEI query (POST /zsei/query). Pass the single-variant query object, e.g. {"GetProjects":{"workspace_id":1}}. Allowed variants: ${[...READ_QUERIES].join(", ")}.`, inputSchema: obj({ query: { type: "object" } }, ["query"]) },
   {
     name: "ozone_orchestrate",
@@ -358,6 +364,20 @@ async function callTool(name, a) {
     case "ozone_gaps": return get("/capability/gaps");
     case "ozone_refinement": return get("/methodology/refinement");
     case "ozone_marketplace_view": return get("/marketplace/overview");
+    case "ozone_history_status": {
+      if (a.scope !== undefined && !/^(file|container)$/.test(String(a.scope))) throw new Error("scope must be file or container");
+      return post("/history/status", { scope: a.scope ?? null });
+    }
+    case "ozone_history":
+    case "ozone_history_diff":
+    case "ozone_history_read": {
+      if (!/^(file|container)$/.test(String(a.scope ?? ""))) throw new Error("scope must be file or container");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(String(a.id ?? ""))) throw new Error("id has an invalid form");
+      if (name === "ozone_history") return post("/history/list", { scope: a.scope, id: String(a.id) });
+      if (name === "ozone_history_diff") return post("/history/diff", { scope: a.scope, id: String(a.id), from: uint(a.from, "from") ?? null, to: uint(a.to, "to") ?? null });
+      return post("/history/read", { scope: a.scope, id: String(a.id), version: uint(a.version, "version", true), offset: uint(a.offset, "offset") ?? null, length: uint(a.length, "length") ?? null, encoding: a.encoding ?? null });
+    }
+    case "ozone_held_calls": return get("/jurisdiction/held" + qs({ since: uint(a.since, "since") }));
     case "ozone_query": {
       const variants = a.query && typeof a.query === "object" ? Object.keys(a.query) : [];
       if (variants.length !== 1) throw new Error("query must be an object with exactly one variant");
@@ -448,6 +468,28 @@ function unwrap(r, p) {
   return r.json;
 }
 
+// `node server.mjs --init-key` (operator-run, needs OZONE_AGENT_NAME): create THIS agent's own device key at
+// ~/.ozone-cli/agents/<name>/device-key.pem (mode 0600) when it does not exist, and print only the PUBLIC key. The key is never printed.
+// The host enrols a key the first time it authenticates (a new key = a new device identity AND a new host user: see
+// docs/AGENT_INTEGRATION_ZCODE_CC.md §4 before choosing per-agent keys over the shared key).
+if (process.argv.includes("--init-key")) {
+  try {
+    if (!BOUND_AGENT) throw new Error("set OZONE_AGENT_NAME first (the key is per agent name)");
+    if (!AGENT_RE.test(BOUND_AGENT)) throw new Error("OZONE_AGENT_NAME must match [A-Za-z0-9._-]{1,64}");
+    fs.mkdirSync(path.dirname(PER_AGENT_KEY), { recursive: true, mode: 0o700 });
+    let created = false;
+    if (!fs.existsSync(PER_AGENT_KEY)) {
+      const kp = crypto.generateKeyPairSync("ed25519");
+      fs.writeFileSync(PER_AGENT_KEY, kp.privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+      created = true;
+    }
+    const priv = crypto.createPrivateKey(fs.readFileSync(PER_AGENT_KEY, "utf8"));
+    const spki = crypto.createPublicKey(priv).export({ type: "spki", format: "der" });
+    process.stdout.write(`${JSON.stringify({ agent: BOUND_AGENT, created, key_path: PER_AGENT_KEY, public_key: spki.subarray(spki.length - 32).toString("hex") })}\n`);
+    process.exit(0);
+  } catch (e) { process.stderr.write(`init-key failed: ${e.message}\n`); process.exit(1); }
+}
+
 // H10: `node server.mjs --register` — an operator-run command that registers this server's tools with the host through a
 // real session (not through the data-dir token). One row, stdio transport (the host never spawns it), capabilities = tool names.
 if (process.argv.includes("--register")) {
@@ -467,7 +509,7 @@ const replyError = (id, code, message) => process.stdout.write(JSON.stringify({ 
 
 async function handle(msg) {
   const { id, method, params } = msg;
-  if (method === "initialize") return reply(id, { protocolVersion: params?.protocolVersion || "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "ozone-mcp", version: "0.1.0" } });
+  if (method === "initialize") return reply(id, { protocolVersion: params?.protocolVersion || "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "ozone-mcp", version: "0.2.0" } });
   if (typeof method === "string" && method.startsWith("notifications/")) return;
   if (method === "ping") return reply(id, {});
   if (method === "tools/list") return reply(id, { tools: TOOLS });
