@@ -1,0 +1,272 @@
+{
+ "action": "Create",
+ "name": "farm-profile-start-failure-recovery",
+ "description": "Methodology for diagnosing and recovering from farm_profile_start failures using only the registered farm MCP tools. Covers HTTP errors and unparseable ('[object Object]') response bodies, container and image problems, profile state conflicts, missing or malformed profile ids, and transient provider failures.",
+ "category_id": 0,
+ "principles": [
+  {
+   "name": "observe-before-action",
+   "description": "Always check farm status and profile state before attempting recovery actions to avoid compounding errors.",
+   "priority": 5
+  },
+  {
+   "name": "isolate-failure-domain",
+   "description": "Determine if failure is profile-specific, farm-wide, or infrastructure-related by checking multiple profiles and system health.",
+   "priority": 5
+  },
+  {
+   "name": "use-shared-state-for-coordination",
+   "description": "Leverage farm_state_get/set to coordinate recovery across containers and avoid race conditions during re-expansion.",
+   "priority": 5
+  },
+  {
+   "name": "prefer-graceful-stop-over-force",
+   "description": "When profile is in unknown state, stop gracefully before restart rather than forcing start on potentially corrupted state.",
+   "priority": 5
+  },
+  {
+   "name": "minimal-state-change",
+   "description": "Use farm_profile_stop, farm_profile_pause or farm_state_set only after the current state has been confirmed.",
+   "priority": 5
+  }
+ ],
+ "heuristics": [
+  {
+   "condition": "farm_status shows farm posture degraded or containers unhealthy",
+   "action": "Check farm_state_get for coordination flags, then restart the affected profiles sequentially, starting each only after farm_profiles shows the previous one running"
+  },
+  {
+   "condition": "The error names a specific container id",
+   "action": "Use farm_state_get to read the container mapping, then farm_command to issue the container-specific recovery command, and read farm_result to confirm it was accepted before retrying farm_profile_start"
+  },
+  {
+   "condition": "Farm status or state shows paused, stopped, or mismatched profile",
+   "action": "Use farm_profile or farm_state_set to reconcile the state, then retry farm_profile_start."
+  },
+  {
+   "condition": "farm_profile_start fails with class farm and post /profiles/profile_#/start",
+   "action": "Check farm_status and farm_profiles, then use farm_command or farm_state_set to route the start and read farm_result to confirm it was accepted."
+  },
+  {
+   "condition": "A start fails and the container id is known",
+   "action": "Log the container id with the failure and do not retry until the id is resolved or confirmed dead."
+  }
+ ],
+ "decision_rules": [
+  {
+   "name": "rule 0",
+   "condition": "farm status and state indicate the profile is stopped or idle and no container or registry error is present",
+   "outcome": "use farm_state_get, farm_profile, farm_state_set, and farm_profile_start in sequence",
+   "requires": []
+  },
+  {
+   "name": "rule 1",
+   "condition": "Any farm_profile_start failure occurs",
+   "outcome": "Call farm_status to assess farm-wide health before profile-specific actions",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_status",
+     "purpose": "Get overall farm posture and per-farm health metrics",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 2",
+   "condition": "farm_status shows farm healthy but start failed",
+   "outcome": "Call farm_profiles to see all profile states and identify conflicts",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profiles",
+     "purpose": "List all farm profiles with stripped secrets to inspect states",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 3",
+   "condition": "Target profile shows 'running', 'starting', or 'paused' in farm_profiles",
+   "outcome": "Call farm_profile_stop on the target profile, confirm with farm_profiles that it shows stopped, then retry farm_profile_start",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profile_stop",
+     "purpose": "Gracefully stop a farm profile before restart attempt",
+     "optional": false
+    },
+    {
+     "kind": "tool",
+     "name": "farm_profiles",
+     "purpose": "Confirm the profile shows stopped before the retry",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 4",
+   "condition": "Error mentions 'CoordinationReceived' or 'AMT re-expansion'",
+   "outcome": "Call farm_state_get to read coordination flags and container mappings",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_state_get",
+     "purpose": "Read farm shared state for coordination flags and container mappings",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 5",
+   "condition": "Profile state unclear after farm_profiles",
+   "outcome": "Call farm_profile on target profile for detailed state",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profile",
+     "purpose": "Get detailed single farm profile state",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 6",
+   "condition": "Multiple profiles need sequential restart after farm-wide issue",
+   "outcome": "Use farm_state_set to write recovery coordination flags preventing concurrent starts",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_state_set",
+     "purpose": "Write farm shared state for recovery coordination",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 7",
+   "condition": "The failure involves container image pull or registry authentication",
+   "outcome": "Read the stated cause with farm_status and farm_result and report it, with the container and profile ids, to the operator. The registered farm tools do not pull images or hold registry credentials, so do not retry the start until the cause is addressed.",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_status",
+     "purpose": "Read the stated cause",
+     "optional": false
+    },
+    {
+     "kind": "tool",
+     "name": "farm_result",
+     "purpose": "Read the Command Center RESULT record",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 8",
+   "condition": "farm_profile_start returns a response body that is '[object Object]' or otherwise unparseable",
+   "outcome": "Do not extract fields from that body. Probe the endpoint again with farm_status: if it answers with valid JSON, retry farm_profile_start once farm_profiles shows the profile is not running; if every probe keeps returning unparseable bodies, mark the start permanently failed, do not retry, and record the profile id and the request path for the operator.",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_status",
+     "purpose": "Probe the endpoint again",
+     "optional": false
+    },
+    {
+     "kind": "tool",
+     "name": "farm_profiles",
+     "purpose": "Confirm the profile is not running before the retry",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 9",
+   "condition": "farm_profile_start fails because the profile_id is missing, empty or malformed",
+   "outcome": "Do not retry with the same value and do not guess, derive or alter another id. Compare the value with the profile ids farm_profiles lists; if farm_state_get shows the coordination flags or container mapping for this container naming exactly one listed profile, use that one; otherwise halt this start and surface the offending value, the container id and the error history to the operator.",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profiles",
+     "purpose": "List the profile ids that exist",
+     "optional": false
+    },
+    {
+     "kind": "tool",
+     "name": "farm_state_get",
+     "purpose": "Read coordination flags and container mappings",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 10",
+   "condition": "farm_profile_start fails with a transient error (timeout, connection reset, provider unavailable)",
+   "outcome": "Retry with an increasing wait, carrying the original error and the attempt number forward; when the same error comes back unchanged after a retry and the farm shows no change, treat it as a permanent failure and surface it to the operator.",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_status",
+     "purpose": "Check whether the farm state changed between retries",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 11",
+   "condition": "A farm_profile_start failure is permanent",
+   "outcome": "Surface the full error context (original payload, attempt number, error class, offending value) to the operator and keep the container in its current coordination state until the operator acknowledges; do not advance to the next coordination phase.",
+   "requires": []
+  },
+  {
+   "name": "rule 12",
+   "condition": "farm_profile_start fails for one profile while farm_profiles shows the other profiles unaffected",
+   "outcome": "Continue with the other profiles and set the failed one aside for recovery; resolve each profile independently so a failure in one does not block or cascade into the rest.",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_profiles",
+     "purpose": "See which profiles are unaffected",
+     "optional": false
+    }
+   ]
+  },
+  {
+   "name": "rule 13",
+   "condition": "A container id is present in the failure context but no earlier step has resolved it",
+   "outcome": "Resolve the container id first with farm_state_get (container mappings) before retrying the profile start.",
+   "requires": [
+    {
+     "kind": "tool",
+     "name": "farm_state_get",
+     "purpose": "Resolve the container mapping",
+     "optional": false
+    }
+   ]
+  }
+ ],
+ "keywords": [
+  "AMT",
+  "CoordinationReceived",
+  "HTTP error",
+  "MCP tool failed",
+  "container",
+  "failure",
+  "farm",
+  "farm_profile_start",
+  "mcp",
+  "profile",
+  "re-expansion",
+  "recovery",
+  "registry"
+ ],
+ "topics": [
+  "browser-farm",
+  "profile-management",
+  "error-recovery",
+  "mcp-tools",
+  "container-orchestration"
+ ],
+ "task_id": null
+}

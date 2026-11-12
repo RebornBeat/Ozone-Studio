@@ -1,0 +1,120 @@
+{
+ "action": "Create",
+ "name": "AMT Initial Build & Re-expansion Procedure",
+ "description": "Concrete procedural guidance for performing initial build and re-expansion of the Main AMT within a designated container, including sequencing, verification, and rollback rules.",
+ "category_id": 0,
+ "principles": [
+  {
+   "name": "Sequential Build Order",
+   "description": "Initialization steps must execute in dependency order: container allocation → base configuration provisioning → module provisioning → integration verification.",
+   "priority": 5
+  },
+  {
+   "name": "Container Isolation",
+   "description": "Each container must be treated as an independent execution boundary; no cross-container state leakage during build or re-expansion.",
+   "priority": 5
+  },
+  {
+   "name": "Idempotent Re-expansion",
+   "description": "Re-expansion must produce a state identical to a fresh initial build; any deviation triggers a full rebuild rather than patching.",
+   "priority": 5
+  },
+  {
+   "name": "Exact Container Targeting",
+   "description": "Always operate on the exact container ID provided; never substitute, generalize, or fuzzy-match the target container identifier.",
+   "priority": 5
+  },
+  {
+   "name": "Main AMT Hierarchy Preservation",
+   "description": "Preserve the 'main amt' designation through both build and re-expansion so the primary AMT remains primary and sibling AMTs remain subordinate.",
+   "priority": 5
+  }
+ ],
+ "heuristics": [
+  {
+   "condition": "Previous build incomplete or corrupted",
+   "action": "Run diagnostic scan on prior state; if corruption detected, discard and perform fresh initial build"
+  },
+  {
+   "condition": "Integration test fails after build",
+   "action": "Rollback to last known good state; log failure; halt deployment"
+  },
+  {
+   "condition": "Container ID not found in registry",
+   "action": "Abort initial build; return error code REBUILD_REQUIRED with message 'Target container missing from registry; cannot proceed without prior registration'"
+  },
+  {
+   "condition": "The container's pre-operation state snapshot is missing",
+   "action": "Abort the operation and capture a fresh snapshot before retrying."
+  }
+ ],
+ "decision_rules": [
+  {
+   "name": "rule 0",
+   "condition": "Target is restoring Main AMT to a known-good prior state OR version upgrade requires full reset",
+   "outcome": "Execute RE_EXPANSION mode: load snapshot, validate integrity, apply delta if version compatible, verify against baseline",
+   "requires": []
+  },
+  {
+   "name": "rule 1",
+   "condition": "All initialization steps completed without error AND integration suite passed",
+   "outcome": "Mark build as SUCCESS; enable Main AMT runtime; log completion timestamp",
+   "requires": []
+  },
+  {
+   "name": "rule 2",
+   "condition": "Re-expansion target version differs from current by more than one minor release",
+   "outcome": "Abort re-expansion; require INITIAL_BUILD instead; log warning 'Version gap too large for safe re-expansion; fresh build required'",
+   "requires": []
+  },
+  {
+   "name": "rule 3",
+   "condition": "Target is first-time setup of the Main AMT in the target container OR prior build state is corrupt/missing",
+   "outcome": "Execute INITIAL_BUILD mode: allocate container, provision base config, run full integration suite, mark SUCCESS only after all pass",
+   "requires": []
+  },
+  {
+   "name": "rule 4",
+   "condition": "Input specifies a container ID AND the work concerns an AMT",
+   "outcome": "Resolve the target container by its exact ID — never substitute or fuzzy-match it; verify it exists in the registry and is classified under AMT; fail if it does not exist or is not AMT-tagged.",
+   "requires": []
+  },
+  {
+   "name": "rule 5",
+   "condition": "An initial build is followed by a re-expansion of the same container",
+   "outcome": "Run the initial build first and do not start re-expansion until it reports success with zero errors; capture the build artifacts and use them as the re-expansion baseline; never run the two in parallel.",
+   "requires": []
+  },
+  {
+   "name": "rule 6",
+   "condition": "The work concerns the main AMT of a container",
+   "outcome": "Confirm the main designation before any build step (set it first if it is unset), preserve it through build and re-expansion, and fail the workflow if it cannot be confirmed.",
+   "requires": []
+  },
+  {
+   "name": "rule 7",
+   "condition": "A re-expansion has completed AND no error flags are set on the container",
+   "outcome": "Validate that the container is in a consistent post-expansion state with the main AMT intact and sibling AMTs unaffected; report success, or restore the pre-expansion snapshot.",
+   "requires": []
+  },
+  {
+   "name": "rule 8",
+   "condition": "An initial build or re-expansion is about to run on a container",
+   "outcome": "Capture a snapshot of the container's current state first; if the operation fails, restore that snapshot.",
+   "requires": []
+  }
+ ],
+ "keywords": [
+  "build process",
+  "initial build",
+  "initialization",
+  "re-expansion"
+ ],
+ "topics": [
+  "AMT re-expansion",
+  "Main AMT",
+  "Initial build",
+  "Container"
+ ],
+ "task_id": null
+}

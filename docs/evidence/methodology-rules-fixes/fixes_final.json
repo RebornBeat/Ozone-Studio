@@ -1,0 +1,2245 @@
+{
+ "generated": "2026-11-11",
+ "source": "docs/evidence/methodology-rules-review/fixes.json + EU bodies read 2026-11-11 (before/bodies.json); nothing applied to the EU",
+ "preflight": {
+  "pipeline_binary": "/opt/ozone-studio/pipelines/methodology_create",
+  "commit": "88d700a",
+  "commit_time_utc_epoch": 1794346224,
+  "binary_marker": "refusing to retire",
+  "deployed_binary_mtime_2026-11-11": "2026-11-09 01:06:54 -04:00 (BEFORE the commit) and the marker string is absent -> remove_* unsupported -> apply must fail closed until the rebuilt crate is deployed"
+ },
+ "order": [
+  40350,
+  40305,
+  40352,
+  40320,
+  40321,
+  40383,
+  40315,
+  40382,
+  40311,
+  40084,
+  40222,
+  40226,
+  40262,
+  40264,
+  40268,
+  40395,
+  40126,
+  40125,
+  40396
+ ],
+ "methodologies": [
+  {
+   "methodology_id": 40350,
+   "name": "Container Management",
+   "body_path": "zsei_data/methodologies_created/methodology_1794344175_40350.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40350,
+    "remove_decision_rules": [
+     "a container is run"
+    ],
+    "remove_heuristics": [
+     "a container is changed by hand"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "reinstate R5",
+      "condition": "a container is run",
+      "outcome": "limit its privileges, resources, and network access to what it needs",
+      "requires": []
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 7,
+    "heuristics_before": 3,
+    "rules_after": 6,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40305,
+   "name": "Configuration Management",
+   "body_path": "zsei_data/methodologies_created/methodology_1794342385_40305.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40305,
+    "remove_decision_rules": [
+     "a configuration item is created or changed"
+    ],
+    "remove_heuristics": [
+     "the same deviation is recorded repeatedly"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "a configuration item is created or changed",
+      "outcome": "keep it under version control so every earlier version can be retrieved",
+      "requires": []
+     }
+    ],
+    "add_heuristics": [
+     {
+      "condition": "the same deviation is recorded more than once",
+      "action": "add it to the standard configuration through the change process, or record why it stays a deviation"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 7,
+    "heuristics_before": 4,
+    "rules_after": 7,
+    "heuristics_after": 4
+   }
+  },
+  {
+   "methodology_id": 40352,
+   "name": "Capability Management",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315135_40352.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40352,
+    "name": "Organizational Capability Management",
+    "description": "Strategic management of an organization's capabilities (core competencies, differentiators, investment): tie each capability to a stated objective, separate differentiating from supporting ones, reassess, and assign resources by value. About organizational capabilities, not MCP server or tool capabilities.",
+    "remove_heuristics": [
+     "a capability supports no objective",
+     "a capability is a gap"
+    ],
+    "add_heuristics": [
+     {
+      "condition": "a capability supports no objective",
+      "action": "list it as unsupported, then either name the objective it serves or stop maintaining it, and record which was chosen"
+     },
+     {
+      "condition": "a capability is a gap",
+      "action": "state what is missing, list what it would take to build it and what it would take to acquire it, and record which path is chosen"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 2,
+    "rules_after": 4,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40320,
+   "name": "Mapping",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315130_40320.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40320,
+    "name": "Cartographic Mapping",
+    "description": "Producing cartographic maps: state the scale, record one consistent coordinate projection, explain symbols and colors in a legend, and cite the source data of drawn features. About geographic/spatial maps, not graph or data-structure mapping."
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 2,
+    "rules_after": 4,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40321,
+   "name": "Resilience Engineering",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315130_40321.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40321,
+    "remove_heuristics": [
+     "a near-miss is dismissed as harmless"
+    ],
+    "add_heuristics": [
+     {
+      "condition": "a near-miss is dismissed as harmless",
+      "action": "record it as an incident, analyze its contributing factors across the system as for a failure, and record why it was dismissed"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 2,
+    "rules_after": 4,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40383,
+   "name": "MCP Capability Management",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315137_40383.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40383,
+    "remove_heuristics": [
+     "a capability has not been used for a long time"
+    ],
+    "add_heuristics": [
+     {
+      "condition": "a capability has no invocation in the use record since it was last reviewed",
+      "action": "retire it (update the registry and remove its access) or record why it must stay registered"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 2,
+    "rules_after": 4,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40315,
+   "name": "Hierarchy Construction",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315129_40315.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40315,
+    "remove_heuristics": [
+     "a node has only one child"
+    ],
+    "add_heuristics": [
+     {
+      "condition": "a node has only one child",
+      "action": "attach the child to the node's parent and remove the level, or record why the level is kept"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 2,
+    "rules_after": 4,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40382,
+   "name": "Input Validation & Data Integrity",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315136_40382.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40382,
+    "remove_heuristics": [
+     "a check exists in only one layer"
+    ],
+    "add_heuristics": [
+     {
+      "condition": "a check exists in only one layer",
+      "action": "add the same check at the next component the data passes through"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 5,
+    "heuristics_before": 2,
+    "rules_after": 5,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40311,
+   "name": "Dependency Management",
+   "body_path": "zsei_data/methodologies_created/methodology_1794315128_40311.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40311,
+    "remove_heuristics": [
+     "a dependency has had no maintenance for a long time"
+    ],
+    "add_heuristics": [
+     {
+      "condition": "a dependency has had no release or maintenance activity since the previous dependency review",
+      "action": "name a maintained replacement or record the plan to remove the dependency; if neither exists, record the accepted risk"
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 3,
+    "heuristics_before": 2,
+    "rules_after": 3,
+    "heuristics_after": 2
+   }
+  },
+  {
+   "methodology_id": 40084,
+   "name": "MCP Tool Failure & HTTP Response Recovery",
+   "body_path": "zsei_data/methodologies_created/methodology_1794214881_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40084,
+    "remove_decision_rules": [
+     "HTTP response contains '[object ob]' AND the same endpoint returns valid JSON on a subsequent probe within 5 seconds",
+     "HTTP response contains '[object ob]' AND the endpoint consistently returns malformed responses over 3 consecutive probes"
+    ],
+    "remove_heuristics": [
+     "HTTP response body contains '[object ob]' or similar unparseable object placeholder"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "HTTP response contains '[object ob]' AND the same endpoint returns valid JSON on a subsequent probe",
+      "outcome": "Retry the original MCP tool call; if it succeeds, mark as recovered. If it fails again, escalate to permanent failure.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R1",
+      "condition": "HTTP response contains '[object ob]' AND the endpoint returns malformed responses on every probe, with no valid answer in between",
+      "outcome": "Do not retry; mark the profile start as permanently failed. Log the container id and the malformed HTTP path for manual intervention.",
+      "requires": []
+     }
+    ],
+    "add_heuristics": [
+     {
+      "condition": "HTTP response body contains '[object ob]' or similar unparseable object placeholder",
+      "action": "Do not extract fields from the malformed body; record the attempt as failed with reason 'http_object_error' and let a fresh probe of the endpoint decide whether the call is retried (rules above) — never decide from the malformed body itself."
+     }
+    ],
+    "remove_principles": [
+     "Fail Fast on Object Errors"
+    ],
+    "add_principles": [
+     {
+      "name": "Fail Fast on Object Errors",
+      "description": "When an HTTP response contains an unexpected object type (e.g., [object ob]), flag the attempt as failed and stop parsing that body; whether the call is retried is decided by a fresh probe of the endpoint.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 3,
+    "rules_after": 4,
+    "heuristics_after": 3
+   }
+  },
+  {
+   "methodology_id": 40222,
+   "name": "AMT Re-expansion MCP Tool Failure Handling",
+   "body_path": "zsei_data/methodologies_created/methodology_1794245998_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40222,
+    "remove_decision_rules": [
+     "AMT re-expansion container 3645 is [CoordinationReceived] and MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'; the malformed profile_id has been corrected at least once but persists across attempts",
+     "MCP tool 'farm_profile_start' fails with a transient error (timeout, connection reset, provider unavailable) and the malformed profile_id has already been validated as well-formed",
+     "MCP tool 'farm_profile_start' fails after all bounded retries, or the malformed profile_id persists even after correction"
+    ],
+    "remove_heuristics": [
+     "AMT re-expansion container is [CoordinationReceived] and the required MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'",
+     "The MCP tool 'farm_profile_start' fails with a transient error (timeout, connection reset, provider unavailable)",
+     "The same malformed profile_id is returned across multiple retry attempts after correction"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "An AMT re-expansion container is [CoordinationReceived] and MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'; the malformed profile_id has been corrected at least once but persists across attempts",
+      "outcome": "Halt re-expansion for the target container; escalate to operator with corrected malformed value and full error history; do not advance to next coordination phase",
+      "requires": []
+     },
+     {
+      "name": "rewrite R1",
+      "condition": "MCP tool 'farm_profile_start' fails with a transient error (timeout, connection reset, provider unavailable) and the malformed profile_id has already been validated as well-formed",
+      "outcome": "Retry with exponential backoff starting at 1s; when the same error comes back unchanged after a retry, classify it as a permanent failure and surface it to the operator",
+      "requires": []
+     },
+     {
+      "name": "rewrite R2",
+      "condition": "MCP tool 'farm_profile_start' fails permanently (retrying has stopped), or the malformed profile_id persists even after correction",
+      "outcome": "Surface full error context (original payload, attempt number, error class, malformed value) to operator; keep the target container in [CoordinationReceived] until operator acknowledges resolution",
+      "requires": []
+     }
+    ],
+    "remove_principles": [
+     "Bounded Retry with Backoff"
+    ],
+    "add_principles": [
+     {
+      "name": "Retry with Backoff",
+      "description": "Transient MCP tool failures (timeouts, connection resets) are retried with exponential backoff until the error stops changing, so re-expansion does not stall indefinitely on a flaky provider.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 3,
+    "heuristics_before": 3,
+    "rules_after": 3,
+    "heuristics_after": 0
+   }
+  },
+  {
+   "methodology_id": 40226,
+   "name": "amt-reexpansion-profile-resolution",
+   "body_path": "zsei_data/methodologies_created/methodology_1794246578_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40226,
+    "description": "Methodology to resolve 'profile_id missing or malformed' errors when invoking farm_profile_start during AMT re-expansion coordination events, using the registered farm tools and the container's coordination record, without deriving or altering identifiers.",
+    "remove_decision_rules": [
+     "amt_reexpansion_coordination_received returns a profile_id field that is a non-empty string matching expected format (alphanumeric, hyphenated, or numeric), and farm_profile_start succeeds on first call.",
+     "amt_reexpansion_coordination_received response has no profile_id field or it is empty.",
+     "profile_id is present but does not match the expected schema (e.g., contains illegal characters, wrong length, or is a number type where a string is required).",
+     "farm_profile_start fails even after deriving and normalizing a candidate profile_id from the container context."
+    ],
+    "remove_heuristics": [
+     "farm_profile_start was called with an empty, null, or non-string profile_id",
+     "amt_reexpansion_coordination_received returned no profile field at all",
+     "farm_profile_start returned class: profile_id missing or malformed on first attempt"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "The container's coordination record names a non-empty profile_id that farm_profiles lists, and farm_profile_start succeeds on first call.",
+      "outcome": "Proceed directly to farm_profile_start with that profile_id; no fallback needed.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "List the profile ids that exist",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_profile_start",
+        "purpose": "Start the profile",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R1",
+      "condition": "The container's coordination record has no profile_id, or it is empty.",
+      "outcome": "Do not derive or invent one. Read the container's shared state with farm_state_get; if it names exactly one profile that farm_profiles lists, use it for one farm_profile_start call; otherwise halt and escalate for manual review with the container id and coordination id.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_state_get",
+        "purpose": "Read the container's shared state",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "List the profile ids that exist",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R2",
+      "condition": "profile_id is present but is not exactly one that farm_profiles lists (illegal characters, wrong length, wrong type, or no such profile).",
+      "outcome": "Do not normalize or alter it. Halt this start and escalate for manual review with the exact value, the container id and the coordination id.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R3",
+      "condition": "farm_profile_start fails although the profile_id exactly matches a listed profile.",
+      "outcome": "Halt automated processing; log the container id, coordination id and profile_id for human intervention; do not proceed with any other re-expansion actions for this container.",
+      "requires": []
+     }
+    ],
+    "remove_principles": [
+     "Graceful Degradation on Malformed Input",
+     "Tool Chaining Order",
+     "Container Context Anchoring"
+    ],
+    "add_principles": [
+     {
+      "name": "No Guessed Identifiers",
+      "description": "If the coordination record lacks a usable profile_id, halt and escalate rather than deriving a candidate from the container id: a guessed profile id can start the wrong profile.",
+      "priority": 5
+     },
+     {
+      "name": "Container Context Anchoring",
+      "description": "Anchor all profile resolution to the specific container identified in the coordination event to avoid cross-contamination between containers.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 4,
+    "rules_after": 4,
+    "heuristics_after": 1
+   }
+  },
+  {
+   "methodology_id": 40262,
+   "name": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "body_path": "zsei_data/methodologies_created/methodology_1794258936_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40262,
+    "name": "Container Registry Identity Verification",
+    "description": "Verify a container image's identity (name, namespace, tag) against the project specification with a read-only registry request before any mutation or pull; a mismatch blocks the operation.",
+    "remove_decision_rules": [
+     "The requested capability is 'container-registry-mcp' OR the request involves any registry operation (push, pull, list, delete, build) for container 40211",
+     "The requested capability is 'container-registry-mcp' AND the provider is NOT installed AND the request is for container 40211 initialization",
+     "Any registry operation targets container 40211"
+    ],
+    "remove_heuristics": [
+     "The requested capability is 'container-registry-mcp' AND the provider has not been registered in the current session AND the session has not previously attempted registration without success",
+     "The requested capability is 'container-registry-mcp' AND the provider IS registered but returns an authentication/authorization error",
+     "The requested capability is 'container-registry-mcp' AND the provider IS registered but returns a network timeout or connection refused",
+     "The requested capability involves creating or initializing container 40211 AND the registry provider is unavailable"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R2",
+      "condition": "Any registry operation targets a container image",
+      "outcome": "First perform a GET or HEAD request to the registry to confirm the image exists with the expected identity (name, namespace, tag). If the identity does not match, return an error listing expected vs actual identity. Only proceed if the identity matches.",
+      "requires": []
+     }
+    ],
+    "remove_principles": [
+     "Provider Declaration First",
+     "Idempotent Registration Check",
+     "Graceful Degradation with Fallback",
+     "Container Identity Validation"
+    ],
+    "add_principles": [
+     {
+      "name": "Container Identity Validation",
+      "description": "Every registry operation validates the container image's identity (name, namespace, image tag) against the project specification before performing any mutation or pull action. Invalid identity blocks the operation with an explicit error identifying the mismatch.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 3,
+    "heuristics_before": 4,
+    "rules_after": 1,
+    "heuristics_after": 0
+   }
+  },
+  {
+   "methodology_id": 40264,
+   "name": "AMT Hierarchy Initial Build via Registered Tools",
+   "body_path": "zsei_data/methodologies_created/methodology_1794259217_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40264,
+    "name": "AMT Hierarchy Initial Build",
+    "description": "Top-down incremental construction of an AMT hierarchy during an initial build: each node is created and validated against its expected path before its children are built.",
+    "remove_decision_rules": [
+     "amt-hierarchy-tool-v2 is operational (no errors, successful responses)",
+     "amt-hierarchy-tool-v2 is unavailable OR returns persistent errors on retry",
+     "amt-hierarchy-mcp is not installed but amt-hierarchy-tool-v2 is operational",
+     "Any tool returns an error status on a create operation",
+     "Hierarchy depth reaches 6 levels during initial build"
+    ],
+    "remove_heuristics": [
+     "container_id matches pattern ^[A-Z]+-[A-Z]+-\\d{5}$",
+     "container_id does not match standard pattern (non-standard format)",
+     "hierarchy depth exceeds 6 levels",
+     "amt-hierarchy-tool-v2 returns error on create operation",
+     "amt-hierarchy-tool-v2 returns success but node ID does not match expected path"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R3",
+      "condition": "Any hierarchy-building create operation returns an error status",
+      "outcome": "Retry with the same parameters only when the error is transient; if the same error returns, halt with partial-build status and log the full error context.",
+      "requires": []
+     },
+     {
+      "name": "top-down build",
+      "condition": "An AMT hierarchy is built during an initial build",
+      "outcome": "Build from the root down (project root, project code, container node, module level): create each node and validate it against its expected path before building its children, and never create a deep node before its parent exists.",
+      "requires": []
+     }
+    ],
+    "add_heuristics": [
+     {
+      "condition": "A create operation reports success but the returned node ID does not match the expected path",
+      "action": "Do NOT proceed. Log the mismatch details, halt the build for this node, and report it to the audit log for reconciliation."
+     }
+    ],
+    "remove_principles": [
+     "Tool-First Strategy",
+     "Container ID Parsing Standard",
+     "Capability Reconstruction Fallback",
+     "Validation-Before-Proceed Gate"
+    ],
+    "add_principles": [
+     {
+      "name": "Validation-Before-Proceed Gate",
+      "description": "After every create operation, verify the returned node ID matches the expected path. If verification fails, halt immediately and report the discrepancy rather than continuing with an incorrect hierarchy.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 5,
+    "heuristics_before": 5,
+    "rules_after": 2,
+    "heuristics_after": 1
+   }
+  },
+  {
+   "methodology_id": 40268,
+   "name": "AMT Re-expansion Rollback Methodology",
+   "body_path": "zsei_data/methodologies_created/methodology_1794259742_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40268,
+    "description": "Guides AMT re-expansion (InitialBuild) of a target container by capturing a state snapshot first and restoring it if the expansion fails.",
+    "remove_decision_rules": [
+     "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+     "rollback-mcp capability is installed and responding AND container 40211 state snapshot exists"
+    ],
+    "remove_heuristics": [
+     "Capability 'rollback-mcp' is not installed or not responding",
+     "Container 40211 state snapshot is missing"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R1",
+      "condition": "An AMT re-expansion (InitialBuild) is about to run on the target container AND a state snapshot of that container exists",
+      "outcome": "Execute the AMT re-expansion (InitialBuild) for the target container; if the expansion fails, restore the container to the snapshot state.",
+      "requires": []
+     }
+    ],
+    "add_heuristics": [
+     {
+      "condition": "The target container's state snapshot is missing",
+      "action": "Abort the InitialBuild expansion and capture a fresh state snapshot before retrying."
+     }
+    ],
+    "remove_principles": [
+     "Pre-flight Capability Check",
+     "State Capture Before Expansion",
+     "Graceful Degradation"
+    ],
+    "add_principles": [
+     {
+      "name": "Pre-flight Snapshot Check",
+      "description": "Verify that a state snapshot of the target container exists before any re-expansion work; if it does not, capture one first so the container can be restored if the expansion fails.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 2,
+    "heuristics_before": 2,
+    "rules_after": 1,
+    "heuristics_after": 1
+   }
+  },
+  {
+   "methodology_id": 40395,
+   "name": "Registered Farm Start Fallback",
+   "body_path": "zsei_data/methodologies_created/methodology_1794298054_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40395,
+    "description": "Recover AMT re-expansion start failures by using registered farm MCP tools and shared-state reasoning.",
+    "remove_decision_rules": [
+     "farm_profile_start and registered farm fallbacks fail"
+    ]
+   },
+   "summary": {
+    "rules_before": 1,
+    "heuristics_before": 1,
+    "rules_after": 0,
+    "heuristics_after": 1
+   }
+  },
+  {
+   "methodology_id": 40126,
+   "name": "AMT Re-Expansion Initial Build Methodology",
+   "body_path": "zsei_data/methodologies_created/methodology_1794247596_40126.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40126,
+    "remove_decision_rules": [
+     "Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present",
+     "Container is resolved AND keyword 'initial build' is present",
+     "Keyword 'main amt' is present",
+     "Initial build completed successfully AND keyword 're-expansion' is present",
+     "Re-expansion completed AND no error flags are set on the container",
+     "farm_profile_start is required AND its input includes a profile_id parameter"
+    ],
+    "remove_heuristics": [
+     "Container ID is provided as a concrete numeric value (e.g., 40090)",
+     "Both 'initial build' and 're-expansion' keywords are present",
+     "'main amt' keyword is present alongside AMT",
+     "farm_profile_start is required AND its input includes a profile_id parameter",
+     "farm_profile_start is required AND a transient provider failure is detected"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "Input specifies a container ID AND the keyword 'amt' is present",
+      "outcome": "Resolve the target container by exact ID; verify the container exists in the registry and is classified under AMT; fail if the container does not exist or is not AMT-tagged.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R1",
+      "condition": "Container is resolved AND keyword 'initial build' is present",
+      "outcome": "Run the initial build for the AMT within the target container; do NOT proceed to re-expansion until the build reports success with zero errors.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R2",
+      "condition": "Keyword 'main amt' is present",
+      "outcome": "Inspect or establish that the AMT in the target container holds the 'main' designation; fail the workflow if the main AMT cannot be confirmed after resolution.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R3",
+      "condition": "Initial build completed successfully AND keyword 're-expansion' is present",
+      "outcome": "Execute re-expansion using the build artifacts as the baseline; preserve the main AMT designation throughout the expansion; abort if expansion encounters an error mid-way.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R4",
+      "condition": "Re-expansion completed AND no error flags are set on the container",
+      "outcome": "Validate that the container is in a consistent post-expansion state with the main AMT intact and sibling AMTs unaffected; report success or trigger automatic rollback to pre-expansion snapshot.",
+      "requires": []
+     },
+     {
+      "name": "rewrite R5",
+      "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+      "outcome": "Validate the profile_id format; if missing or malformed, abort the workflow immediately and roll back to the pre-expansion snapshot. If a transient provider failure occurs, retry with an increasing wait and stop when the same error comes back unchanged; on persistent failure or malformed profile_id, abort and roll back; never proceed to re-expansion with an invalid profile_id.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profile_start",
+        "purpose": "Invoke the profile start",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "Check the profile_id against the listed profiles",
+        "optional": false
+       }
+      ]
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 6,
+    "heuristics_before": 6,
+    "rules_after": 6,
+    "heuristics_after": 1
+   }
+  },
+  {
+   "methodology_id": 40125,
+   "name": "AMT Initial Build & Re-expansion Procedure",
+   "body_path": "zsei_data/methodologies_created/methodology_1794223728_new.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40125,
+    "remove_decision_rules": [
+     "Target is first-time setup of Main AMT in container 40047 OR prior build state is corrupt/missing"
+    ],
+    "remove_heuristics": [
+     "Container ID not found in registry",
+     "AMT version mismatch between current and target exceeds one minor release"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "Target is first-time setup of the Main AMT in the target container OR prior build state is corrupt/missing",
+      "outcome": "Execute INITIAL_BUILD mode: allocate container, provision base config, run full integration suite, mark SUCCESS only after all pass",
+      "requires": []
+     },
+     {
+      "name": "exact container targeting",
+      "condition": "Input specifies a container ID AND the work concerns an AMT",
+      "outcome": "Resolve the target container by its exact ID — never substitute or fuzzy-match it; verify it exists in the registry and is classified under AMT; fail if it does not exist or is not AMT-tagged.",
+      "requires": []
+     },
+     {
+      "name": "build then expand",
+      "condition": "An initial build is followed by a re-expansion of the same container",
+      "outcome": "Run the initial build first and do not start re-expansion until it reports success with zero errors; capture the build artifacts and use them as the re-expansion baseline; never run the two in parallel.",
+      "requires": []
+     },
+     {
+      "name": "main AMT designation",
+      "condition": "The work concerns the main AMT of a container",
+      "outcome": "Confirm the main designation before any build step (set it first if it is unset), preserve it through build and re-expansion, and fail the workflow if it cannot be confirmed.",
+      "requires": []
+     },
+     {
+      "name": "post-expansion validation",
+      "condition": "A re-expansion has completed AND no error flags are set on the container",
+      "outcome": "Validate that the container is in a consistent post-expansion state with the main AMT intact and sibling AMTs unaffected; report success, or restore the pre-expansion snapshot.",
+      "requires": []
+     },
+     {
+      "name": "snapshot before expansion",
+      "condition": "An initial build or re-expansion is about to run on a container",
+      "outcome": "Capture a snapshot of the container's current state first; if the operation fails, restore that snapshot.",
+      "requires": []
+     }
+    ],
+    "add_heuristics": [
+     {
+      "condition": "Container ID not found in registry",
+      "action": "Abort initial build; return error code REBUILD_REQUIRED with message 'Target container missing from registry; cannot proceed without prior registration'"
+     },
+     {
+      "condition": "The container's pre-operation state snapshot is missing",
+      "action": "Abort the operation and capture a fresh snapshot before retrying."
+     }
+    ],
+    "add_principles": [
+     {
+      "name": "Exact Container Targeting",
+      "description": "Always operate on the exact container ID provided; never substitute, generalize, or fuzzy-match the target container identifier.",
+      "priority": 5
+     },
+     {
+      "name": "Main AMT Hierarchy Preservation",
+      "description": "Preserve the 'main amt' designation through both build and re-expansion so the primary AMT remains primary and sibling AMTs remain subordinate.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 4,
+    "heuristics_before": 4,
+    "rules_after": 9,
+    "heuristics_after": 4
+   }
+  },
+  {
+   "methodology_id": 40396,
+   "name": "farm-profile-start-failure-recovery",
+   "body_path": "zsei_data/methodologies_created/methodology_1794346623_40396.json",
+   "payload": {
+    "action": "Update",
+    "methodology_id": 40396,
+    "description": "Methodology for diagnosing and recovering from farm_profile_start failures using only the registered farm MCP tools. Covers HTTP errors and unparseable ('[object Object]') response bodies, container and image problems, profile state conflicts, missing or malformed profile ids, and transient provider failures.",
+    "remove_decision_rules": [
+     "Any farm_profile_start failure occurs",
+     "farm_status shows farm healthy but start failed",
+     "Target profile shows 'running', 'starting', or 'paused' in farm_profiles",
+     "Error mentions 'CoordinationReceived' or 'AMT re-expansion'",
+     "Profile state unclear after farm_profiles",
+     "Multiple profiles need sequential restart after farm-wide issue",
+     "the failure involves container image pull, registry authentication, or a missing container-registry capability"
+    ],
+    "remove_heuristics": [
+     "farm_profile_start returns HTTP error or '[object Object]' response",
+     "target profile shows 'running' or 'starting' in farm_profiles but start failed",
+     "farm_status shows farm posture degraded or containers unhealthy",
+     "error mentions 'container 3644' or specific container ID",
+     "the error suggests a container, registry, or image pull problem"
+    ],
+    "add_decision_rules": [
+     {
+      "name": "rewrite R0",
+      "condition": "Any farm_profile_start failure occurs",
+      "outcome": "Call farm_status to assess farm-wide health before profile-specific actions",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_status",
+        "purpose": "Get overall farm posture and per-farm health metrics",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R1",
+      "condition": "farm_status shows farm healthy but start failed",
+      "outcome": "Call farm_profiles to see all profile states and identify conflicts",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "List all farm profiles with stripped secrets to inspect states",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R2",
+      "condition": "Target profile shows 'running', 'starting', or 'paused' in farm_profiles",
+      "outcome": "Call farm_profile_stop on the target profile, confirm with farm_profiles that it shows stopped, then retry farm_profile_start",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profile_stop",
+        "purpose": "Gracefully stop a farm profile before restart attempt",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "Confirm the profile shows stopped before the retry",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R3",
+      "condition": "Error mentions 'CoordinationReceived' or 'AMT re-expansion'",
+      "outcome": "Call farm_state_get to read coordination flags and container mappings",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_state_get",
+        "purpose": "Read farm shared state for coordination flags and container mappings",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R4",
+      "condition": "Profile state unclear after farm_profiles",
+      "outcome": "Call farm_profile on target profile for detailed state",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profile",
+        "purpose": "Get detailed single farm profile state",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "rewrite R5",
+      "condition": "Multiple profiles need sequential restart after farm-wide issue",
+      "outcome": "Use farm_state_set to write recovery coordination flags preventing concurrent starts",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_state_set",
+        "purpose": "Write farm shared state for recovery coordination",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "image pull / registry failure",
+      "condition": "The failure involves container image pull or registry authentication",
+      "outcome": "Read the stated cause with farm_status and farm_result and report it, with the container and profile ids, to the operator. The registered farm tools do not pull images or hold registry credentials, so do not retry the start until the cause is addressed.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_status",
+        "purpose": "Read the stated cause",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_result",
+        "purpose": "Read the Command Center RESULT record",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "unparseable response body",
+      "condition": "farm_profile_start returns a response body that is '[object Object]' or otherwise unparseable",
+      "outcome": "Do not extract fields from that body. Probe the endpoint again with farm_status: if it answers with valid JSON, retry farm_profile_start once farm_profiles shows the profile is not running; if every probe keeps returning unparseable bodies, mark the start permanently failed, do not retry, and record the profile id and the request path for the operator.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_status",
+        "purpose": "Probe the endpoint again",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "Confirm the profile is not running before the retry",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "missing or malformed profile id",
+      "condition": "farm_profile_start fails because the profile_id is missing, empty or malformed",
+      "outcome": "Do not retry with the same value and do not guess, derive or alter another id. Compare the value with the profile ids farm_profiles lists; if farm_state_get shows the coordination flags or container mapping for this container naming exactly one listed profile, use that one; otherwise halt this start and surface the offending value, the container id and the error history to the operator.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "List the profile ids that exist",
+        "optional": false
+       },
+       {
+        "kind": "tool",
+        "name": "farm_state_get",
+        "purpose": "Read coordination flags and container mappings",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "transient failure",
+      "condition": "farm_profile_start fails with a transient error (timeout, connection reset, provider unavailable)",
+      "outcome": "Retry with an increasing wait, carrying the original error and the attempt number forward; when the same error comes back unchanged after a retry and the farm shows no change, treat it as a permanent failure and surface it to the operator.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_status",
+        "purpose": "Check whether the farm state changed between retries",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "permanent failure",
+      "condition": "A farm_profile_start failure is permanent",
+      "outcome": "Surface the full error context (original payload, attempt number, error class, offending value) to the operator and keep the container in its current coordination state until the operator acknowledges; do not advance to the next coordination phase.",
+      "requires": []
+     },
+     {
+      "name": "one profile fails",
+      "condition": "farm_profile_start fails for one profile while farm_profiles shows the other profiles unaffected",
+      "outcome": "Continue with the other profiles and set the failed one aside for recovery; resolve each profile independently so a failure in one does not block or cascade into the rest.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_profiles",
+        "purpose": "See which profiles are unaffected",
+        "optional": false
+       }
+      ]
+     },
+     {
+      "name": "unresolved container id",
+      "condition": "A container id is present in the failure context but no earlier step has resolved it",
+      "outcome": "Resolve the container id first with farm_state_get (container mappings) before retrying the profile start.",
+      "requires": [
+       {
+        "kind": "tool",
+        "name": "farm_state_get",
+        "purpose": "Resolve the container mapping",
+        "optional": false
+       }
+      ]
+     }
+    ],
+    "add_heuristics": [
+     {
+      "condition": "farm_status shows farm posture degraded or containers unhealthy",
+      "action": "Check farm_state_get for coordination flags, then restart the affected profiles sequentially, starting each only after farm_profiles shows the previous one running"
+     },
+     {
+      "condition": "The error names a specific container id",
+      "action": "Use farm_state_get to read the container mapping, then farm_command to issue the container-specific recovery command, and read farm_result to confirm it was accepted before retrying farm_profile_start"
+     },
+     {
+      "condition": "Farm status or state shows paused, stopped, or mismatched profile",
+      "action": "Use farm_profile or farm_state_set to reconcile the state, then retry farm_profile_start."
+     },
+     {
+      "condition": "farm_profile_start fails with class farm and post /profiles/profile_#/start",
+      "action": "Check farm_status and farm_profiles, then use farm_command or farm_state_set to route the start and read farm_result to confirm it was accepted."
+     },
+     {
+      "condition": "A start fails and the container id is known",
+      "action": "Log the container id with the failure and do not retry until the id is resolved or confirmed dead."
+     }
+    ],
+    "add_principles": [
+     {
+      "name": "minimal-state-change",
+      "description": "Use farm_profile_stop, farm_profile_pause or farm_state_set only after the current state has been confirmed.",
+      "priority": 5
+     }
+    ]
+   },
+   "summary": {
+    "rules_before": 8,
+    "heuristics_before": 5,
+    "rules_after": 14,
+    "heuristics_after": 5
+   }
+  }
+ ],
+ "findings": [
+  {
+   "methodology_id": 40350,
+   "methodology": "Container Management",
+   "rule_kind": "decision_rule",
+   "condition": "a container is run",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "subsumed by R5 ('limit its privileges, resources, and network access'); R2 and R5 share the condition 'a container is run', so the Update removes both and R5 is re-added unchanged"
+  },
+  {
+   "methodology_id": 40350,
+   "methodology": "Container Management",
+   "rule_kind": "heuristic",
+   "condition": "a container is changed by hand",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "R0 already says to build and deploy a new image instead of changing a running container"
+  },
+  {
+   "methodology_id": 40222,
+   "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+   "rule_kind": "heuristic",
+   "condition": "The MCP tool 'farm_profile_start' fails with a transient error (timeout, connection reset, provider unavailable)",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "identical to R1 (retry with backoff)"
+  },
+  {
+   "methodology_id": 40222,
+   "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+   "rule_kind": "heuristic",
+   "condition": "AMT re-expansion container is [CoordinationReceived] and the required MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R0 (extract the malformed profile_id, halt)"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "heuristic",
+   "condition": "target profile shows 'running' or 'starting' in farm_profiles but start failed",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "identical to R2 (stop the running profile, retry start)"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "heuristic",
+   "condition": "farm_profile_start returns HTTP error or '[object Object]' response",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R0+R1 (farm_status then farm_profiles)"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "heuristic",
+   "condition": "amt-hierarchy-tool-v2 returns error on create operation",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "identical to R3, and names the invented tools"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "decision_rule",
+   "condition": "Hierarchy depth reaches 6 levels during initial build",
+   "review_class": "c-fixed-cap",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "a hard abort at 6 hierarchy levels is a fixed cap with no measurement behind it (operator: no fixed limits)"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "heuristic",
+   "condition": "hierarchy depth exceeds 6 levels",
+   "review_class": "c-fixed-cap",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "same 6-level fixed-cap abort as R4"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "heuristic",
+   "condition": "Container ID is provided as a concrete numeric value (e.g., 40090)",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R0 (use the exact container id); also carried a literal id"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "heuristic",
+   "condition": "Both 'initial build' and 're-expansion' keywords are present",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R1 + R3 (initial build first, then re-expansion)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "heuristic",
+   "condition": "'main amt' keyword is present alongside AMT",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R2 (confirm the main AMT flag)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "heuristic",
+   "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R5 (validate profile_id early)"
+  },
+  {
+   "methodology_id": 40262,
+   "methodology": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "rule_kind": "heuristic",
+   "condition": "The requested capability is 'container-registry-mcp' AND the provider has not been registered in the current session AND the session has not previously attempted registration without success",
+   "review_class": "a-duplicate",
+   "review_action": "retire",
+   "decision": "retire",
+   "reason": "restates R0 (declare the missing provider) — invented provider + literal id"
+  },
+  {
+   "methodology_id": 40125,
+   "methodology": "AMT Initial Build & Re-expansion Procedure",
+   "rule_kind": "decision_rule",
+   "condition": "Re-expansion target version differs from current by more than one minor release",
+   "review_class": "b-contradiction",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "version gap > one minor release -> abort and require INITIAL_BUILD: the explicit, logged form; the contradicting heuristic is retired"
+  },
+  {
+   "methodology_id": 40125,
+   "methodology": "AMT Initial Build & Re-expansion Procedure",
+   "rule_kind": "heuristic",
+   "condition": "AMT version mismatch between current and target exceeds one minor release",
+   "review_class": "b-contradiction",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "contradicted R3 (same gap: R3 aborts and requires INITIAL_BUILD, H1 said 're-expansion from scratch'); R3 is the one that matches the 'Idempotent Re-expansion' principle (a fresh build, not a patch)"
+  },
+  {
+   "methodology_id": 40084,
+   "methodology": "MCP Tool Failure & HTTP Response Recovery",
+   "rule_kind": "decision_rule",
+   "condition": "HTTP response contains '[object ob]' AND the same endpoint returns valid JSON on a subsequent probe within 5 seconds",
+   "review_class": "b-contradiction",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "contradiction with H0 resolved: R0 stays (retry decided by a fresh probe); the fixed '5 seconds' window dropped (no fixed numbers without a measurement)"
+  },
+  {
+   "methodology_id": 40084,
+   "methodology": "MCP Tool Failure & HTTP Response Recovery",
+   "rule_kind": "heuristic",
+   "condition": "HTTP response body contains '[object ob]' or similar unparseable object placeholder",
+   "review_class": "b-contradiction",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "contradiction with R0 resolved: H0 only says never to parse the malformed body; whether to retry is decided by a fresh probe (R0/R1)"
+  },
+  {
+   "methodology_id": 40305,
+   "methodology": "Configuration Management",
+   "rule_kind": "decision_rule",
+   "condition": "a configuration changes",
+   "review_class": "a-near-duplicate",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "the more specific audit-trail rule (who changed it, when, previous value); R0 reworded instead"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "decision_rule",
+   "condition": "Any farm_profile_start failure occurs",
+   "review_class": "d-requires-kind",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "requires named the TOOL farm_status with kind provider -> kind tool (resolves to browser-farm-mcp; a provider lookup never finds it and records a false missing capability)"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "decision_rule",
+   "condition": "farm_status shows farm healthy but start failed",
+   "review_class": "d-requires-kind",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "kind provider -> tool (farm_profiles)"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "decision_rule",
+   "condition": "Target profile shows 'running', 'starting', or 'paused' in farm_profiles",
+   "review_class": "d-requires-kind",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "kind provider -> tool (farm_profile_stop); the fixed 2 s delay replaced by a measurement: confirm the stop with farm_profiles before retrying"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "decision_rule",
+   "condition": "Error mentions 'CoordinationReceived' or 'AMT re-expansion'",
+   "review_class": "d-requires-kind",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "kind provider -> tool (farm_state_get)"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "decision_rule",
+   "condition": "Profile state unclear after farm_profiles",
+   "review_class": "d-requires-kind",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "kind provider -> tool (farm_profile)"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "decision_rule",
+   "condition": "Multiple profiles need sequential restart after farm-wide issue",
+   "review_class": "d-requires-kind",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "kind provider -> tool (farm_state_set)"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "requires the invented provider rollback-mcp and halts everything until it is 'installed'; literal container 40211"
+  },
+  {
+   "methodology_id": 40395,
+   "methodology": "Registered Farm Start Fallback",
+   "rule_kind": "decision_rule",
+   "condition": "farm_profile_start and registered farm fallbacks fail",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "'install and configure reexpansion-mcp': an invented provider whose requirement triggers tool creation for something that does not exist"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "literal container id '(e.g., 40090)' removed; requires container-registry-mcp dropped (no registered provider can resolve containers; the rule stays as reasoning)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Container is resolved AND keyword 'initial build' is present",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "requires build-mcp dropped (invented provider)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Keyword 'main amt' is present",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "requires amt-hierarchy-mcp dropped (invented provider)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Initial build completed successfully AND keyword 're-expansion' is present",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "requires reexpansion-mcp dropped (invented provider)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Re-expansion completed AND no error flags are set on the container",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "requires validation-mcp dropped (invented provider)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "requires farm-profile-mcp -> the registered TOOLS farm_profile_start + farm_profiles (they exist); rollback-mcp dropped (invented); fixed 'three retries' replaced by the observed behaviour"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "farm_profile_start is required AND its input includes a profile_id parameter",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "requires farm-profile-mcp -> the registered TOOLS farm_profile_start + farm_profiles (they exist); rollback-mcp dropped (invented); fixed 'three retries' replaced by the observed behaviour"
+  },
+  {
+   "methodology_id": 40394,
+   "methodology": "Farm Profile Start Failure Recovery",
+   "rule_kind": "decision_rule",
+   "condition": "Failure involves container image pull, registry authentication, or missing container-registry-mcp capability.",
+   "review_class": "d-provider-missing",
+   "review_action": "review",
+   "decision": "deferred",
+   "reason": "40394 is a duplicate of 40396 handled by the separate repoint+delete script (operator ruling); its R1 requirement dies with it, and 40396 no longer asks for container-registry-mcp"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "requires the invented provider rollback-mcp and halts everything until it is 'installed'; literal container 40211"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "rollback-mcp capability is installed and responding AND container 40211 state snapshot exists",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 40211 and rollback-mcp removed; the snapshot/restore reasoning is sound"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "heuristic",
+   "condition": "Container 40211 state snapshot is missing",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 40211 removed"
+  },
+  {
+   "methodology_id": 40222,
+   "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+   "rule_kind": "decision_rule",
+   "condition": "AMT re-expansion container 3645 is [CoordinationReceived] and MCP tool 'farm_profile_start' fails with class 'profile_id missing or malformed'; the malformed profile_id has been corrected at least once but persists across attempts",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 3645 removed"
+  },
+  {
+   "methodology_id": 40222,
+   "methodology": "AMT Re-expansion MCP Tool Failure Handling",
+   "rule_kind": "decision_rule",
+   "condition": "MCP tool 'farm_profile_start' fails after all bounded retries, or the malformed profile_id persists even after correction",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 3645 removed; 'all bounded retries' no longer names a count"
+  },
+  {
+   "methodology_id": 40396,
+   "methodology": "farm-profile-start-failure-recovery",
+   "rule_kind": "heuristic",
+   "condition": "error mentions 'container 3644' or specific container ID",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal 'container 3644' removed; 'if supported' vagueness replaced by reading farm_result to confirm the command was accepted (both tools are registered)"
+  },
+  {
+   "methodology_id": 40125,
+   "methodology": "AMT Initial Build & Re-expansion Procedure",
+   "rule_kind": "decision_rule",
+   "condition": "Target is first-time setup of Main AMT in container 40047 OR prior build state is corrupt/missing",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 40047 removed (the rule must hold for whichever container is the target)"
+  },
+  {
+   "methodology_id": 40125,
+   "methodology": "AMT Initial Build & Re-expansion Procedure",
+   "rule_kind": "heuristic",
+   "condition": "Container ID not found in registry",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 40047 removed from the message"
+  },
+  {
+   "methodology_id": 40262,
+   "methodology": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "The requested capability is 'container-registry-mcp' OR the request involves any registry operation (push, pull, list, delete, build) for container 40211",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "literal container 40211 and the invented provider container-registry-mcp; 'declare the provider under requires' would make every walk record a missing capability"
+  },
+  {
+   "methodology_id": 40262,
+   "methodology": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "The requested capability is 'container-registry-mcp' AND the provider is NOT installed AND the request is for container 40211 initialization",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "'direct HTTP API calls to the configured registry endpoint with stored credentials': no such endpoint/credentials exist anywhere on the system — a fabricated fallback"
+  },
+  {
+   "methodology_id": 40262,
+   "methodology": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Any registry operation targets container 40211",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container 40211 removed; the identity check itself is sound"
+  },
+  {
+   "methodology_id": 40262,
+   "methodology": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "rule_kind": "heuristic",
+   "condition": "The requested capability is 'container-registry-mcp' AND the provider has not been registered in the current session AND the session has not previously attempted registration without success",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "restates R0 (declare the missing provider) — invented provider + literal id"
+  },
+  {
+   "methodology_id": 40262,
+   "methodology": "AMT Re-expansion Initial Build Container 40211 — Registry Access Methodology",
+   "rule_kind": "heuristic",
+   "condition": "The requested capability involves creating or initializing container 40211 AND the registry provider is unavailable",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "'construct the container manifest locally, push via direct HTTP API' for container 40211: literal id + fabricated registry path"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "rewrite",
+   "reason": "literal container id '(e.g., 40090)' removed; requires container-registry-mcp dropped (no registered provider can resolve containers; the rule stays as reasoning)"
+  },
+  {
+   "methodology_id": 40126,
+   "methodology": "AMT Re-Expansion Initial Build Methodology",
+   "rule_kind": "heuristic",
+   "condition": "Container ID is provided as a concrete numeric value (e.g., 40090)",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "restates R0 (use the exact container id); also carried a literal id"
+  },
+  {
+   "methodology_id": 40226,
+   "methodology": "amt-reexpansion-profile-resolution",
+   "rule_kind": "heuristic",
+   "condition": "farm_profile_start was called with an empty, null, or non-string profile_id",
+   "review_class": "b-incident-literal",
+   "review_action": "rewrite",
+   "decision": "retire",
+   "reason": "derives a candidate id (e.g. 'C-3645') and names a tool that is not registered; the missing/empty cases are covered by R1/R2 without guessing"
+  },
+  {
+   "methodology_id": 40352,
+   "methodology": "Capability Management",
+   "rule_kind": "decision_rule",
+   "condition": "a capability is considered for development or investment",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for ORGANIZATIONAL capabilities; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40352,
+   "methodology": "Capability Management",
+   "rule_kind": "decision_rule",
+   "condition": "capabilities are assessed",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for ORGANIZATIONAL capabilities; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40352,
+   "methodology": "Capability Management",
+   "rule_kind": "decision_rule",
+   "condition": "a period passes or conditions change",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for ORGANIZATIONAL capabilities; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40352,
+   "methodology": "Capability Management",
+   "rule_kind": "decision_rule",
+   "condition": "resources are assigned",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for ORGANIZATIONAL capabilities; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40320,
+   "methodology": "Mapping",
+   "rule_kind": "decision_rule",
+   "condition": "a map is produced",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for cartographic maps; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40320,
+   "methodology": "Mapping",
+   "rule_kind": "decision_rule",
+   "condition": "map data is plotted",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for cartographic maps; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40320,
+   "methodology": "Mapping",
+   "rule_kind": "decision_rule",
+   "condition": "symbols or colors carry meaning",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for cartographic maps; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 40320,
+   "methodology": "Mapping",
+   "rule_kind": "decision_rule",
+   "condition": "features are drawn",
+   "review_class": "b-name-collision",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "sound for cartographic maps; the collision was in the name/description the gather step matches on, so the methodology is renamed and redescribed instead"
+  },
+  {
+   "methodology_id": 30024,
+   "methodology": "Incremental Layering Requires Reconciliation",
+   "rule_kind": "heuristic",
+   "condition": "Adding new CSS (or similarly append-only config/rule structures) for a component that plausibly already has existing rules.",
+   "review_class": "b-off-subject",
+   "review_action": "review",
+   "decision": "keep",
+   "reason": "not off-subject: CSS layered blocks are the canonical instance of 'incremental layering needs reconciliation', its condition already generalizes ('or similarly append-only config/rule structures'), and its real-incident example would be lost by a rewrite (add_heuristics stores no examples)"
+  },
+  {
+   "methodology_id": 40352,
+   "methodology": "Capability Management",
+   "rule_kind": "heuristic",
+   "condition": "a capability supports no objective",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "vague 'question whether' replaced by a testable action"
+  },
+  {
+   "methodology_id": 40352,
+   "methodology": "Capability Management",
+   "rule_kind": "heuristic",
+   "condition": "a capability is a gap",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "vague 'identify what is needed' replaced by a testable action"
+  },
+  {
+   "methodology_id": 40321,
+   "methodology": "Resilience Engineering",
+   "rule_kind": "heuristic",
+   "condition": "a near-miss is dismissed as harmless",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "vague 'review it as an early warning' replaced by the testable steps R2 already defines for a failure"
+  },
+  {
+   "methodology_id": 40383,
+   "methodology": "MCP Capability Management",
+   "rule_kind": "heuristic",
+   "condition": "a capability has not been used for a long time",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "'a long time' has no measurement; replaced by the use record rule R3 already creates, and the action made testable"
+  },
+  {
+   "methodology_id": 40315,
+   "methodology": "Hierarchy Construction",
+   "rule_kind": "heuristic",
+   "condition": "a node has only one child",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "vague 'check whether the level is needed' replaced by a testable action"
+  },
+  {
+   "methodology_id": 40382,
+   "methodology": "Input Validation & Data Integrity",
+   "rule_kind": "heuristic",
+   "condition": "a check exists in only one layer",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "vague 'consider whether a second layer is needed' replaced by a testable action"
+  },
+  {
+   "methodology_id": 40311,
+   "methodology": "Dependency Management",
+   "rule_kind": "heuristic",
+   "condition": "a dependency has had no maintenance for a long time",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "'a long time' has no measurement and 'consider' is untestable"
+  },
+  {
+   "methodology_id": 40305,
+   "methodology": "Configuration Management",
+   "rule_kind": "heuristic",
+   "condition": "the same deviation is recorded repeatedly",
+   "review_class": "c-vague",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "vague 'consider' replaced by a testable action; 'repeatedly' made 'more than once' (as H2 does)"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "requires the invented provider rollback-mcp and halts everything until it is 'installed'; literal container 40211"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "decision_rule",
+   "condition": "rollback-mcp capability is installed and responding AND container 40211 state snapshot exists",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "literal container 40211 and rollback-mcp removed; the snapshot/restore reasoning is sound"
+  },
+  {
+   "methodology_id": 40268,
+   "methodology": "AMT Re-expansion Rollback Methodology",
+   "rule_kind": "heuristic",
+   "condition": "Capability 'rollback-mcp' is not installed or not responding",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "'install the rollback-mcp provider package': invented provider"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "decision_rule",
+   "condition": "amt-hierarchy-tool-v2 is operational (no errors, successful responses)",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "names amt-hierarchy-tool-v2, which is not a registered tool or provider"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "decision_rule",
+   "condition": "amt-hierarchy-tool-v2 is unavailable OR returns persistent errors on retry",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "falls back to amt-hierarchy-tool (v1), which is not a registered tool or provider"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "decision_rule",
+   "condition": "amt-hierarchy-mcp is not installed but amt-hierarchy-tool-v2 is operational",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "'reconstruct amt-hierarchy-mcp functionality with amt-hierarchy-tool-v2': both are invented"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "heuristic",
+   "condition": "container_id matches pattern ^[A-Z]+-[A-Z]+-\\d{5}$",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "invented container-id format ^[A-Z]+-[A-Z]+-\\d{5}$ and the invented path /project/{code}/container/{suffix}"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "heuristic",
+   "condition": "container_id does not match standard pattern (non-standard format)",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "the 'non-standard format' branch of the invented id pattern ('continue build regardless')"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "heuristic",
+   "condition": "amt-hierarchy-tool-v2 returns error on create operation",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "identical to R3, and names the invented tools"
+  },
+  {
+   "methodology_id": 40264,
+   "methodology": "AMT Hierarchy Initial Build via Registered Tools",
+   "rule_kind": "heuristic",
+   "condition": "amt-hierarchy-tool-v2 returns success but node ID does not match expected path",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "tool name removed; the validation gate itself is sound"
+  },
+  {
+   "methodology_id": 40226,
+   "methodology": "amt-reexpansion-profile-resolution",
+   "rule_kind": "decision_rule",
+   "condition": "amt_reexpansion_coordination_received returns a profile_id field that is a non-empty string matching expected format (alphanumeric, hyphenated, or numeric), and farm_profile_start succeeds on first call.",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "named amt_reexpansion_coordination_received (not a registered tool) and an invented 'expected format'; now validates against the profile ids farm_profiles actually lists"
+  },
+  {
+   "methodology_id": 40226,
+   "methodology": "amt-reexpansion-profile-resolution",
+   "rule_kind": "decision_rule",
+   "condition": "amt_reexpansion_coordination_received response has no profile_id field or it is empty.",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "rewrite",
+   "reason": "named amt_reexpansion_container (not a registered tool) and DERIVED an id from the container id — fabricating an identifier; now looks in shared state and otherwise halts"
+  },
+  {
+   "methodology_id": 40226,
+   "methodology": "amt-reexpansion-profile-resolution",
+   "rule_kind": "heuristic",
+   "condition": "farm_profile_start was called with an empty, null, or non-string profile_id",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "derives a candidate id (e.g. 'C-3645') and names a tool that is not registered; the missing/empty cases are covered by R1/R2 without guessing"
+  },
+  {
+   "methodology_id": 40226,
+   "methodology": "amt-reexpansion-profile-resolution",
+   "rule_kind": "heuristic",
+   "condition": "amt_reexpansion_coordination_received returned no profile field at all",
+   "review_class": "d-tool-name-unregistered",
+   "review_action": "review",
+   "decision": "retire",
+   "reason": "names amt_reexpansion_container (not a registered tool) and 'constructs a minimal valid profile_id string' — fabricating an identifier"
+  }
+ ],
+ "added_by_this_pass": [
+  {
+   "methodology_id": 40305,
+   "rule_kind": "decision_rule",
+   "position": 0,
+   "condition": "a configuration item is created or changed",
+   "decision": "rewrite",
+   "reason": "R4 is the audit trail (who/when/previous value); R0 now says only what version control gives (retrievable versions) so the two no longer restate each other",
+   "new": {
+    "action": "keep it under version control so every earlier version can be retrieved"
+   }
+  },
+  {
+   "methodology_id": 40084,
+   "rule_kind": "decision_rule",
+   "position": 1,
+   "condition": "HTTP response contains '[object ob]' AND the endpoint consistently returns malformed responses over 3 consecutive probes",
+   "decision": "rewrite",
+   "reason": "fixed '3 consecutive probes' replaced by the observation itself (every probe malformed, no valid answer in between)",
+   "new": {
+    "condition": "HTTP response contains '[object ob]' AND the endpoint returns malformed responses on every probe, with no valid answer in between"
+   }
+  },
+  {
+   "methodology_id": 40222,
+   "rule_kind": "decision_rule",
+   "position": 1,
+   "condition": "MCP tool 'farm_profile_start' fails with a transient error (timeout, connection reset, provider unavailable) and the malformed profile_id has already been validated as well-formed",
+   "decision": "rewrite",
+   "reason": "fixed 'up to 3 times (1s,2s,4s)' replaced by the observed behaviour",
+   "new": {
+    "action": "Retry with exponential backoff starting at 1s; when the same error comes back unchanged after a retry, classify it as a permanent failure and surface it to the operator"
+   }
+  },
+  {
+   "methodology_id": 40222,
+   "rule_kind": "heuristic",
+   "position": 2,
+   "condition": "The same malformed profile_id is returned across multiple retry attempts after correction",
+   "decision": "retire",
+   "reason": "restates R0 (same malformed id after correction -> halt and escalate)"
+  },
+  {
+   "methodology_id": 40226,
+   "rule_kind": "decision_rule",
+   "position": 2,
+   "condition": "profile_id is present but does not match the expected schema (e.g., contains illegal characters, wrong length, or is a number type where a string is required).",
+   "decision": "rewrite",
+   "reason": "normalizing a malformed id ('replace illegal characters with underscores, cast to string') silently alters an identifier and can start the wrong profile; replaced by: no alteration, halt and escalate",
+   "new": {
+    "condition": "profile_id is present but is not exactly one that farm_profiles lists (illegal characters, wrong length, wrong type, or no such profile).",
+    "action": "Do not normalize or alter it. Halt this start and escalate for manual review with the exact value, the container id and the coordination id."
+   }
+  },
+  {
+   "methodology_id": 40226,
+   "rule_kind": "decision_rule",
+   "position": 3,
+   "condition": "farm_profile_start fails even after deriving and normalizing a candidate profile_id from the container context.",
+   "decision": "rewrite",
+   "reason": "'after deriving and normalizing' no longer exists; the rule now covers a start that fails although the id was verified",
+   "new": {
+    "condition": "farm_profile_start fails although the profile_id exactly matches a listed profile.",
+    "action": "Halt automated processing; log the container id, coordination id and profile_id for human intervention; do not proceed with any other re-expansion actions for this container."
+   }
+  },
+  {
+   "methodology_id": 40226,
+   "rule_kind": "heuristic",
+   "position": 2,
+   "condition": "farm_profile_start returned class: profile_id missing or malformed on first attempt",
+   "decision": "retire",
+   "reason": "retries with a derived candidate id (fabricated); the failing-after-verification case is R3"
+  },
+  {
+   "methodology_id": 40226,
+   "rule_kind": "heuristic",
+   "position": 3,
+   "condition": "Multiple containers are involved in the same re-expansion batch",
+   "decision": "keep",
+   "reason": "per-container sequential resolution: applies whenever several containers are in one batch"
+  },
+  {
+   "methodology_id": 40262,
+   "rule_kind": "heuristic",
+   "position": 1,
+   "condition": "The requested capability is 'container-registry-mcp' AND the provider IS registered but returns an authentication/authorization error",
+   "decision": "retire",
+   "reason": "credential refresh 'via the provider's configured credentials' / stored bearer tokens: no provider or tokens exist — fabricated"
+  },
+  {
+   "methodology_id": 40262,
+   "rule_kind": "heuristic",
+   "position": 2,
+   "condition": "The requested capability is 'container-registry-mcp' AND the provider IS registered but returns a network timeout or connection refused",
+   "decision": "retire",
+   "reason": "fixed backoff schedule + 'alternate registry endpoint' that does not exist — fabricated fallback"
+  },
+  {
+   "methodology_id": 40264,
+   "rule_kind": "decision_rule",
+   "position": 3,
+   "condition": "Any tool returns an error status on a create operation",
+   "decision": "rewrite",
+   "reason": "v1/v2 tool switching removed (neither exists); retry is decided by the error being transient; no fixed count",
+   "new": {
+    "condition": "Any hierarchy-building create operation returns an error status",
+    "action": "Retry with the same parameters only when the error is transient; if the same error returns, halt with partial-build status and log the full error context."
+   }
+  },
+  {
+   "methodology_id": 40395,
+   "rule_kind": "heuristic",
+   "position": 0,
+   "condition": "farm_profile_start fails with class farm and post /profiles/profile_#/start",
+   "decision": "keep",
+   "reason": "check farm_status/farm_profiles, then route the start with farm_command/farm_state_set: all registered tools; the only sound rule of this draft"
+  },
+  {
+   "methodology_id": 40126,
+   "rule_kind": "heuristic",
+   "position": 3,
+   "condition": "AMT re-expansion has been attempted previously on the same container and left a partial or failed state",
+   "decision": "keep",
+   "reason": "a partial/failed earlier expansion is rolled back before retrying: applies whenever the methodology is gathered"
+  },
+  {
+   "methodology_id": 40126,
+   "rule_kind": "heuristic",
+   "position": 5,
+   "condition": "farm_profile_start is required AND a transient provider failure is detected",
+   "decision": "retire",
+   "reason": "restates R5 (transient retry vs malformed id), and carried the fixed 'three retries' cap"
+  },
+  {
+   "methodology_id": 40396,
+   "rule_kind": "decision_rule",
+   "position": 6,
+   "condition": "farm status and state indicate the profile is stopped or idle and no container or registry error is present",
+   "decision": "keep",
+   "reason": "same sequence as the 40394 rule that is being repointed here; applies whenever the profile is stopped/idle with no container error"
+  },
+  {
+   "methodology_id": 40396,
+   "rule_kind": "decision_rule",
+   "position": 7,
+   "condition": "the failure involves container image pull, registry authentication, or a missing container-registry capability",
+   "decision": "retire",
+   "reason": "'require the container-registry capability' invents a capability no registered tool provides (the farm tools neither pull images nor hold registry credentials); replaced by an honest rule that reads the stated cause and reports it"
+  },
+  {
+   "methodology_id": 40396,
+   "rule_kind": "heuristic",
+   "position": 2,
+   "condition": "farm_status shows farm posture degraded or containers unhealthy",
+   "decision": "rewrite",
+   "reason": "fixed 3 s delays replaced by a measurement (start each profile after farm_profiles shows the previous one running)",
+   "new": {
+    "action": "Check farm_state_get for coordination flags, then restart the affected profiles sequentially, starting each only after farm_profiles shows the previous one running"
+   }
+  },
+  {
+   "methodology_id": 40396,
+   "rule_kind": "heuristic",
+   "position": 4,
+   "condition": "the error suggests a container, registry, or image pull problem",
+   "decision": "retire",
+   "reason": "routes to the invented 'container-registry capability'; replaced by the image-pull/registry rule that reports the stated cause"
+  }
+ ],
+ "reinstated": [
+  {
+   "methodology_id": 40350,
+   "rule_kind": "decision_rule",
+   "position": 5,
+   "condition": "a container is run",
+   "decision": "reinstate",
+   "reason": "shares its text with a retired entry, so the exact-text removal takes it too; it is re-added unchanged in the same Update"
+  }
+ ],
+ "providers": [
+  {
+   "provider": "rollback-mcp",
+   "used_in": [
+    "40268 R0 (requires)",
+    "40268 text",
+    "40126 R5 (requires)"
+   ],
+   "decision": "dropped",
+   "reason": "no registered provider/tool restores a container; 40268 R0/H0 retired (they only demanded installing it), 40268 R1/H1 and 40125 now carry the snapshot/restore reasoning with no requirement"
+  },
+  {
+   "provider": "reexpansion-mcp",
+   "used_in": [
+    "40395 R0 (requires)",
+    "40126 R3 (requires)"
+   ],
+   "decision": "dropped",
+   "reason": "no registered tool re-expands an AMT; 40395 R0 retired, 40126 R3 kept as reasoning"
+  },
+  {
+   "provider": "container-registry-mcp",
+   "used_in": [
+    "40126 R0 (requires)",
+    "40394 R1 (requires; not touched)",
+    "40262 text"
+   ],
+   "decision": "dropped",
+   "reason": "the registered providers are security-mcp, browser-farm-mcp, document-mcp, p2p-bridge-mcp — none serves a registry; 40262 reduced to its identity-check rule; 40394 goes with the separate script; 40396 now reports the stated cause instead of asking for the capability"
+  },
+  {
+   "provider": "build-mcp",
+   "used_in": [
+    "40126 R1 (requires)"
+   ],
+   "decision": "dropped",
+   "reason": "no registered build provider; rule kept as reasoning"
+  },
+  {
+   "provider": "amt-hierarchy-mcp",
+   "used_in": [
+    "40126 R2 (requires)",
+    "40264 text"
+   ],
+   "decision": "dropped",
+   "reason": "no registered provider; 40126 R2 kept as reasoning; 40264's tool-bound rules retired"
+  },
+  {
+   "provider": "validation-mcp",
+   "used_in": [
+    "40126 R4 (requires)"
+   ],
+   "decision": "dropped",
+   "reason": "no registered provider; rule kept as reasoning"
+  },
+  {
+   "provider": "farm-profile-mcp",
+   "used_in": [
+    "40126 R5 (requires)"
+   ],
+   "decision": "rewritten to registered tools",
+   "reason": "farm_profile_start and farm_profiles are registered tools of browser-farm-mcp -> requires [{kind:'tool', name:'farm_profile_start'}, {kind:'tool', name:'farm_profiles'}]"
+  }
+ ],
+ "requires_kind_fixes_40396": [
+  {
+   "methodology_id": 40396,
+   "rule": "R0",
+   "tool": "farm_status"
+  },
+  {
+   "methodology_id": 40396,
+   "rule": "R1",
+   "tool": "farm_profiles"
+  },
+  {
+   "methodology_id": 40396,
+   "rule": "R2",
+   "tool": "farm_profile_stop"
+  },
+  {
+   "methodology_id": 40396,
+   "rule": "R3",
+   "tool": "farm_state_get"
+  },
+  {
+   "methodology_id": 40396,
+   "rule": "R4",
+   "tool": "farm_profile"
+  },
+  {
+   "methodology_id": 40396,
+   "rule": "R5",
+   "tool": "farm_state_set"
+  }
+ ],
+ "canonical": {
+  "A": {
+   "in_place_id": 40396,
+   "create_body_file": "canonical_A_farm_profile_start_failure_recovery.create.json"
+  },
+  "B": {
+   "in_place_id": 40125,
+   "create_body_file": "canonical_B_amt_initial_build_and_reexpansion.create.json"
+  }
+ },
+ "delete_candidates_not_applied": [
+  {
+   "id": 40395,
+   "name": "Registered Farm Start Fallback",
+   "why": "after the fix its only rule is H0, which is now in 40396 (canonical A)"
+  },
+  {
+   "id": 40222,
+   "name": "AMT Re-expansion MCP Tool Failure Handling",
+   "why": "every remaining rule is in 40396 (profile id / transient / permanent failure)"
+  },
+  {
+   "id": 40226,
+   "name": "amt-reexpansion-profile-resolution",
+   "why": "its sound content (validate the id against farm_profiles, never derive) is in 40396 N3"
+  },
+  {
+   "id": 40126,
+   "name": "AMT Re-Expansion Initial Build Methodology",
+   "why": "every remaining rule is in 40125 (canonical B) or 40396 (R5)"
+  },
+  {
+   "id": 40268,
+   "name": "AMT Re-expansion Rollback Methodology",
+   "why": "snapshot/restore rules are now in 40125 (canonical B)"
+  },
+  {
+   "id": 40264,
+   "name": "AMT Hierarchy Initial Build",
+   "why": "left with one top-down rule + one validation gate; 40315 Hierarchy Construction covers the rest"
+  },
+  {
+   "id": 40262,
+   "name": "Container Registry Identity Verification",
+   "why": "left with one identity-check rule; 40351 Registry covers registry handling"
+  }
+ ],
+ "not_touched": {
+  "40252": "separate repoint+delete script",
+  "40394": "separate repoint+delete script",
+  "40348": "already deleted",
+  "40084": "kept as the general HTTP-response recovery methodology (contradiction fixed in place)",
+  "30024": "keep only, no Update"
+ },
+ "counts": {
+  "findings_total": 82,
+  "findings_by_decision": {
+   "retire": 34,
+   "keep": 11,
+   "rewrite": 36,
+   "deferred": 1
+  },
+  "review_findings_total": 46,
+  "review_by_decision": {
+   "keep": 11,
+   "retire": 13,
+   "rewrite": 21,
+   "deferred": 1
+  },
+  "operations": {
+   "retire": 35,
+   "rewrite": 40,
+   "add": 17,
+   "keep": 15,
+   "renamed": 4
+  },
+  "added_by_this_pass_not_in_review": 18,
+  "providers_invented": 7,
+  "providers_dropped": 6,
+  "providers_rewritten_to_registered_tools": 1,
+  "requires_kind_fixed": 6,
+  "updates": 19,
+  "canonical_bodies": 2
+ }
+}
