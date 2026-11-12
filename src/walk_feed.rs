@@ -112,7 +112,91 @@ pub fn bind_task(trace_id: &str, task_id: u64) {
     if let Err(e) = append_line(PARTICIPANTS_FILE, &row) {
         tracing::warn!("walk_feed: could not bind task {task_id}: {e}");
     }
+    task_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .0
+        .insert(task_id, trace_id.to_string());
     append_row(json!({ "kind": "task_bound", "trace_id": trace_id, "task_id": task_id }));
+}
+
+/// task_id -> the walk's canonical trace, loaded once from the participants file and kept current by `bind_task`.
+/// Every `/orchestrate` walk binds its task; a task that is not a walk (internal child tasks) is simply absent here,
+/// so the hot paths (`task_event`) never re-read the file for it.
+#[derive(Default)]
+struct TaskCache(std::collections::HashMap<u64, String>, bool);
+
+fn task_cache() -> &'static Mutex<TaskCache> {
+    static C: OnceLock<Mutex<TaskCache>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(TaskCache::default()))
+}
+
+fn task_trace(task_id: u64) -> Option<String> {
+    let mut c = task_cache().lock().unwrap_or_else(|e| e.into_inner());
+    if !c.1 {
+        c.1 = true;
+        let rows = read_rows(PARTICIPANTS_FILE);
+        for r in rows.iter().filter(|r| r["kind"] == "bind") {
+            if let (Some(t), Some(tr)) = (r["task_id"].as_u64(), r["trace_id"].as_str()) {
+                c.0.insert(t, canonical_trace(&rows, tr));
+            }
+        }
+    }
+    c.0.get(&task_id).cloned()
+}
+
+/// Follow `alias` rows (a RESUMED run has a new trace id) to the walk's original trace.
+fn canonical_trace(rows: &[Value], trace: &str) -> String {
+    let mut cur = trace.to_string();
+    // alias chains are short (one hop per resume); a visited bound avoids any cycle
+    for _ in 0..rows.len() + 1 {
+        match rows
+            .iter()
+            .rev()
+            .find(|r| r["kind"] == "alias" && r["trace_id"] == cur.as_str())
+        {
+            Some(a) => match a["of"].as_str() {
+                Some(of) if of != cur => cur = of.to_string(),
+                _ => break,
+            },
+            None => break,
+        }
+    }
+    cur
+}
+
+/// A resumed walk runs under a NEW trace id; alias it to the walk the task already belongs to so the participants'
+/// feed follows the resume instead of going quiet. No-op for a task that is not a recorded walk.
+pub fn alias_resumed(new_trace: &str, task_id: u64) {
+    let Some(orig) = task_trace(task_id) else {
+        return;
+    };
+    if orig == new_trace {
+        return;
+    }
+    let row = json!({ "kind": "alias", "trace_id": new_trace, "of": orig, "task_id": task_id, "at": now_secs() });
+    if let Err(e) = append_line(PARTICIPANTS_FILE, &row) {
+        tracing::warn!("walk_feed: could not alias resumed trace for task {task_id}: {e}");
+        return;
+    }
+    append_row(
+        json!({ "kind": "walk_resumed", "trace_id": orig, "resumed_trace_id": new_trace, "task_id": task_id }),
+    );
+}
+
+/// Is this task a recorded walk (bound to a trace)?
+pub fn is_walk_task(task_id: u64) -> bool {
+    task_trace(task_id).is_some()
+}
+
+/// Record one task-scoped event (work-order item completed/grafted, AMT expansion, awaiting_children, release) into the feed
+/// of the walk that owns the task. A task that is not a recorded walk writes nothing. Never blocks the caller on I/O errors.
+pub fn task_event(task_id: u64, kind: &str, detail: Value) {
+    if let Some(trace) = task_trace(task_id) {
+        append_row(
+            json!({ "kind": kind, "trace_id": trace, "task_id": task_id, "detail": detail }),
+        );
+    }
 }
 
 fn read_rows(file: &str) -> Vec<Value> {
@@ -160,11 +244,21 @@ fn resolve_rows(
                 .and_then(|r| r["trace_id"].as_str().map(String::from));
         }
     }
-    let trace = trace?;
+    let trace = canonical_trace(rows, &trace?);
     let mut out = rows
         .iter()
         .find(|r| r["kind"] == "walk" && r["trace_id"] == trace.as_str())?
         .clone();
+    // every trace this walk has run under: the original plus the resumed runs aliased to it
+    let mut traces = vec![trace.clone()];
+    for r in rows.iter().filter(|r| r["kind"] == "alias") {
+        if let Some(t) = r["trace_id"].as_str() {
+            if canonical_trace(rows, t) == trace && !traces.iter().any(|x| x == t) {
+                traces.push(t.to_string());
+            }
+        }
+    }
+    out["traces"] = json!(traces);
     if let Some(b) = rows
         .iter()
         .rev()
@@ -211,9 +305,9 @@ pub fn walks_for(agent: &str) -> Vec<Value> {
     out
 }
 
-/// Feed rows with `seq >= after` for one walk (matched by trace id), plus the cursor to ask for next. Rows carry the
+/// Feed rows with `seq >= after` for one walk (matched by the walk's traces: the original plus resumed runs), plus the cursor to ask for next. Rows carry the
 /// raw stage data the host recorded; nothing is summarised away and nothing is capped.
-pub fn read_feed(after: u64, trace_id: &str) -> (Vec<Value>, u64) {
+pub fn read_feed(after: u64, traces: &[String]) -> (Vec<Value>, u64) {
     let mut next = after;
     let mut out = Vec::new();
     for r in read_rows(FEED_FILE) {
@@ -225,7 +319,11 @@ pub fn read_feed(after: u64, trace_id: &str) -> (Vec<Value>, u64) {
             continue;
         }
         // lagged rows are global (a gap affects every walk): always shown to readers.
-        if r["trace_id"] == trace_id || r["kind"] == "lagged" {
+        let mine = r["trace_id"]
+            .as_str()
+            .map(|t| traces.iter().any(|x| x == t))
+            .unwrap_or(false);
+        if mine || r["kind"] == "lagged" {
             out.push(r);
         }
     }
@@ -274,5 +372,11 @@ mod tests {
             "tr1"
         );
         assert!(resolve_rows(&rows, Some("run-2"), None, None).is_none());
+        // a resumed run's new trace resolves to the same walk, and the walk lists both traces
+        let mut with_alias = rows.clone();
+        with_alias.push(json!({ "kind": "alias", "trace_id": "tr2", "of": "tr1", "task_id": 42 }));
+        let via_alias = resolve_rows(&with_alias, None, Some("tr2"), None).expect("alias resolves");
+        assert_eq!(via_alias["trace_id"], "tr1");
+        assert_eq!(via_alias["traces"], json!(["tr1", "tr2"]));
     }
 }

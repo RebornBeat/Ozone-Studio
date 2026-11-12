@@ -3007,6 +3007,11 @@ Return JSON:
         match task_result {
             Ok(task_id) => {
                 state.task_id = Some(task_id);
+                // participants (src/walk_feed.rs): bind the walk's trace to its task AT CREATION, so the agents taking part
+                // resolve the walk by task id for its whole life, not only once it returns
+                if let Some(t) = crate::trace::current_trace() {
+                    crate::walk_feed::bind_task(&t.trace_id, task_id);
+                }
 
             }
             Err(e) => {

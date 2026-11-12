@@ -1211,6 +1211,8 @@ Ok(task_id)
                 )
                 .await?;
                 let _ = self.save_to_disk().await;
+                // participants (src/walk_feed.rs): the walk's agents see that completion now waits, and on what
+                self.feed_event(task_id, "awaiting_children", serde_json::json!({ "blockers": ids })).await;
                 let scope = self.tasks.read().await.get(&task_id).map(|t| (t.workspace_id, t.project_id));
                 if let Some((workspace_id, project_id)) = scope {
                     emit_task_ripple("updated", task_id, workspace_id, project_id);
@@ -1250,6 +1252,7 @@ Ok(task_id)
             if let Some(tokens) = released {
                 let _ = self.after_completion(id, tokens).await;
                 tracing::info!(task_id = id, "parked task released: its last child work completed — completed (final)");
+                self.feed_event(id, "walk_released", serde_json::json!({ "status": "completed" })).await;
             }
             cur = parent;
         }
@@ -2465,6 +2468,34 @@ Ok(task_id)
             .min()
     }
 
+    /// Record a task event into the feed of the WALK that owns this task: the task itself when it is a recorded walk, else the nearest
+    /// ancestor that is (a work-order node or child task belongs to the walk above it). Nothing is written for a task outside any walk.
+    /// The originating task id travels in the row so a reader can tell which node the event is about (src/walk_feed.rs).
+    async fn feed_event(&self, task_id: TaskID, kind: &str, mut detail: serde_json::Value) {
+        let mut cur = Some(task_id);
+        let mut seen = std::collections::HashSet::new();
+        let mut root = None;
+        {
+            let tasks = self.tasks.read().await;
+            while let Some(id) = cur {
+                if !seen.insert(id) {
+                    break;
+                }
+                if crate::walk_feed::is_walk_task(id) {
+                    root = Some(id);
+                    break;
+                }
+                cur = tasks.get(&id).and_then(|t| t.parent_task_id);
+            }
+        }
+        if let Some(root) = root {
+            if let Some(o) = detail.as_object_mut() {
+                o.insert("origin_task_id".to_string(), serde_json::json!(task_id));
+            }
+            crate::walk_feed::task_event(root, kind, detail);
+        }
+    }
+
     /// Mark ONE checklist item done by the real event that completes it. Idempotent: an item that is already done is left exactly as it was
     /// (its original evidence / time / author stay the record) and `false` is returned. There is deliberately no way to set `done` back to
     /// false. After a tick the completion is re-derived for the task and its ancestors (`settle`).
@@ -2485,6 +2516,7 @@ Ok(task_id)
             }
         }
         if ticked {
+            self.feed_event(task_id, "work_event", serde_json::json!({ "event": "item_completed", "key": item_key, "by": by })).await;
             self.settle(task_id).await;
             self.release_awaiting(task_id).await; // the walk above may have been parked waiting for exactly this item
             let _ = self.save_to_disk().await;
@@ -2505,6 +2537,7 @@ Ok(task_id)
         }
         t.checklist.push(serde_json::json!({"key": key, "text": text, "done": false}));
         drop(tasks);
+        self.feed_event(task_id, "work_event", serde_json::json!({ "event": "item_grafted", "key": key, "text": text })).await;
         let _ = self.save_to_disk().await;
         Ok(true)
     }

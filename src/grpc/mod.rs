@@ -6409,10 +6409,16 @@ async fn mcp_call(
         }
     }
 
+    // The runtime and registry READ guards are released for the call itself: a tool call can be long (an agent-provider
+    // tool awaits the agent's report with no timeout — src/agent_requests.rs), and a held read guard would queue every
+    // writer (config set, reload) behind it. Everything the call needs is already cloned out; the guard is re-taken after.
+    drop(registry);
+    drop(runtime);
     let result = state
         .mcp
         .invoke(call, &state.mcp_usage, Some(&*hub))
         .await;
+    let runtime = state.runtime.read().await;
 
     // Real graph ripple for the call — this used to be a bare claim in the
     // "captured" list below with no emission anywhere behind it (found live,
@@ -7093,8 +7099,11 @@ pub struct WalkFeedQuery {
 async fn walk_feed_read(axum::extract::Query(q): axum::extract::Query<WalkFeedQuery>) -> Json<serde_json::Value> {
     match crate::walk_feed::resolve(q.run_token.as_deref(), q.trace_id.as_deref(), q.task_id) {
         Some(walk) => {
-            let trace = walk["trace_id"].as_str().unwrap_or("").to_string();
-            let (rows, next) = crate::walk_feed::read_feed(q.after.unwrap_or(0), &trace);
+            let traces: Vec<String> = walk["traces"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let (rows, next) = crate::walk_feed::read_feed(q.after.unwrap_or(0), &traces);
             Json(serde_json::json!({ "found": true, "walk": walk, "rows": rows, "next": next }))
         }
         None => Json(serde_json::json!({ "found": false })),

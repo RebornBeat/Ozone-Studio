@@ -217,6 +217,10 @@ impl PromptOrchestrator {
             return error.to_string(); // cannot record a task: report the plain failure
         };
         state.task_id = Some(task_id);
+        // participants (src/walk_feed.rs): the pre-task failure still created the task — bind the walk's trace to it
+        if let Some(t) = crate::trace::current_trace() {
+            crate::walk_feed::bind_task(&t.trace_id, task_id);
+        }
         self.write_checkpoint(state, Some((0, error)));
         self.task_manager.read().await.pause_for_error(task_id, 0, error).await;
         tracing::warn!(task_id, error, "walk failed before task creation — recorded as a PAUSED task (resume re-runs the walk from the start)");
@@ -281,6 +285,9 @@ impl PromptOrchestrator {
             }
             return response;
         }
+        // participants (src/walk_feed.rs): a resumed run has a NEW trace id — alias it to the walk the task belongs to so the
+        // agents following the walk keep seeing it (no-op for a task that is not a recorded walk)
+        crate::walk_feed::alias_resumed(&trace_id, cp.task_id);
         let mut state = self.init_state(cp.request.clone(), trace_id).await;
         state.task_id = Some(cp.task_id);
         state.cleaned_prompt = cp.cleaned_prompt.clone();

@@ -55,6 +55,14 @@ impl PromptOrchestrator {
                     "amt_expanded_in_walk",
                     serde_json::json!({"branch": branch, "node_id": node_id, "step": discovered_at}),
                 );
+                // participants (src/walk_feed.rs): the agents following this walk see the AMT grow as it happens
+                if let Some(tid) = state.task_id {
+                    crate::walk_feed::task_event(
+                        tid,
+                        "amt_expansion",
+                        serde_json::json!({"event": "node_added", "branch": branch, "node_id": node_id, "discovered_in_step": discovered_at}),
+                    );
+                }
             }
         }
 
@@ -148,6 +156,13 @@ impl PromptOrchestrator {
         self.materialize_work_order(state).await;
         if drafted_any {
             self.work_order_after_replan(state).await;
+        }
+        if let Some(tid) = state.task_id {
+            crate::walk_feed::task_event(
+                tid,
+                "amt_expansion",
+                serde_json::json!({"event": "steps_synthesized", "steps": added, "methodologies_drafted": drafted_any}),
+            );
         }
         Ok(added.len())
     }

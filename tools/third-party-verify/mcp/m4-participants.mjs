@@ -61,8 +61,11 @@ try {
   s.check("B4", "B and C read one shared record: identical rows", JSON.stringify(fb?.rows) === JSON.stringify(fc?.rows), `${fb?.rows?.length} vs ${fc?.rows?.length}`);
   const stages = (fb?.rows ?? []).filter((r) => r.kind === "stage");
   s.check("B5", "stage rows carry the walk's own trace id (set at submission)", stages.length > 0 && stages.every((r) => r.trace_id === fb?.walk?.trace_id), `${stages.length} stage rows`);
-  s.check("B6", "the walk is bound to its task id once the task exists", !!fb?.task_id, `task_id=${fb?.task_id}`);
-  const items = (fb?.rows ?? []).filter((r) => r.kind === "work_item");
-  s.pass("B7", "work-order item changes seen by participants", `${items.length} changes`);
+  s.check("B6", "the walk is bound to its task id (at task creation, so during the walk too)", !!fb?.task_id, `task_id=${fb?.task_id}`);
+  const kinds = {};
+  for (const r of fb?.rows ?? []) kinds[r.kind] = (kinds[r.kind] ?? 0) + 1;
+  const hostEvents = (fb?.rows ?? []).filter((r) => r.src === "host" && ["work_event", "amt_expansion", "awaiting_children", "walk_released"].includes(r.kind));
+  s.pass("B7", "task events pushed by the host into the feed (item completed/grafted, AMT expansion, awaiting_children, release), plus the diffed work_item rows", JSON.stringify(kinds));
+  s.check("B8", "every host task event names its walk's task (and the originating node)", hostEvents.every((r) => r.task_id === fb?.task_id && (r.detail?.origin_task_id ?? r.task_id)), `${hostEvents.length} host events`);
 } finally { close(); }
 process.exit(s.finish() ? 1 : 0);
