@@ -335,6 +335,30 @@ impl ZSEI {
         Ok(container)
     }
     
+    /// Restore a container from version `version` of its history (scope `container`). The CURRENT record is snapshotted first, so the
+    /// restore is itself reversible. A version captured from raw bytes of an unparseable record cannot be re-stored as a container: that
+    /// is returned as an error and the raw bytes stay available through git-mcp `read_version` for manual repair.
+    pub async fn restore_container_version(&self, container_id: ContainerID, version: u64) -> OzoneResult<()> {
+        let history = match self.integrity.as_ref() {
+            Some(i) => i.read().await.history_handle(),
+            None => crate::history::shared(),
+        };
+        let id = container_id.to_string();
+        let h2 = history.clone();
+        let bytes = tokio::task::spawn_blocking(move || h2.read_version("container", &id, version))
+            .await
+            .map_err(|e| crate::types::OzoneError::IntegrityError(format!("restore read task failed: {}", e)))?
+            .map_err(|e| crate::types::OzoneError::IntegrityError(format!("restore read failed: {}", e)))?;
+        let container: Container = serde_json::from_slice(&bytes)
+            .map_err(|e| crate::types::OzoneError::IntegrityError(format!("version {} is not a restorable container record: {}", version, e)))?;
+        if container.global_state.container_id != container_id {
+            return Err(crate::types::OzoneError::IntegrityError("version holds a different container id".into()));
+        }
+        self.pre_write_snapshot(container_id).await;
+        self.store_container(container).await?;
+        Ok(())
+    }
+
     /// Store a container
     pub async fn store_container(&self, container: Container) -> OzoneResult<ContainerID> {
         let id = container.global_state.container_id;

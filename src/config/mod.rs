@@ -591,6 +591,7 @@ pub struct IntegrityConfig {
     pub enabled: bool,
     pub check_interval_secs: u64,
     pub rollback_path: String,
+    /// IGNORED since 2026-11-12 (no-caps doctrine): snapshots are content-addressed and deduplicated, history is not pruned. Kept so old configs parse.
     pub max_versions: u32,
 }
 
@@ -599,7 +600,7 @@ impl Default for IntegrityConfig {
         Self {
             enabled: true,
             check_interval_secs: 3600, // 1 hour
-            rollback_path: "zsei_data/integrity/rollback".into(),
+            rollback_path: "zsei_data/history".into(),
             max_versions: 100,
         }
     }

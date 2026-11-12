@@ -43,6 +43,7 @@ pub mod model_windows;
 pub mod openrouter_quota;
 pub mod model_ledger;
 pub mod grpc;
+pub mod history;
 pub mod integrity;
 pub mod methodologies;
 pub mod monitor;
@@ -1066,8 +1067,14 @@ impl OzoneRuntime {
         let auth = auth::AuthSystem::new(&config.auth)?;
 
         // Initialize integrity monitor
+        // The monitor's snapshots live in the native history store (src/history), at the SAME root the file beacon and git-mcp use. The default
+        // config path resolves to <OZONE_ZSEI_DATA_DIR>/history so an env override is honoured; an explicit operator path is kept as given.
+        let mut integrity_cfg = config.integrity.clone();
+        if integrity_cfg.rollback_path == "zsei_data/history" || integrity_cfg.rollback_path == "zsei_data/integrity/rollback" {
+            integrity_cfg.rollback_path = history::default_root().to_string_lossy().into_owned();
+        }
         let integrity = Arc::new(RwLock::new(integrity::IntegrityMonitor::new(
-            &config.integrity,
+            &integrity_cfg,
         )?));
         // T-I4 call site — feed every container mutation's pre-write content
         // into the monitor's blake3-verified rollback layer (see

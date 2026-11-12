@@ -95,15 +95,25 @@ async fn poll_once(store: &dyn StoreAccess, cache: &mut HashMap<u64, FileState>)
         // sighting (None) establishes a baseline only, never fires a
         // spurious "changed" ripple for a file the beacon just started
         // watching this boot.
-        let changed = matches!(cache.insert(container_id, state), Some(prev) if prev != state);
+        let prev = cache.insert(container_id, state);
+        let changed = matches!(prev, Some(p) if p != state);
+        if prev.is_none() {
+            // BASELINE (history review 2026-11-12): the first sighting of a file this boot records its CURRENT content as a version when it
+            // differs from the newest recorded one, so (a) the very first change always has a "before" and (b) a change made while the host was
+            // down is captured. An unchanged file is a no-op (history dedupes by hash). A failed write forgets the cache entry so the next poll
+            // retries — nothing is skipped. No ripple on a baseline.
+            if !record_history(&container_id.to_string(), &path, "baseline") {
+                cache.remove(&container_id);
+            }
+        }
         if changed {
-            // NATIVE FILE HISTORY (operator vision: git-like, per-file, all
-            // changes, light on the graph): one JSONL row per change in
-            // file_history/<container_id>.jsonl + a content snapshot (no cap, no eviction)
-            // in file_history/snapshots/<container_id>/. The GRAPH carries
-            // only the container (ripple below) — the history lives in
-            // plain files, queryable through the git MCP.
-            record_history(&container_id.to_string(), &path, modified, meta.len());
+            // NATIVE HISTORY (src/history): one version row per DISTINCT content in history/versions/file/<container_id>.jsonl, content chunked
+            // and de-duplicated in history/objects (no cap, no eviction). git-mcp reads/diffs/restores it. The GRAPH carries only the container
+            // (ripple below). A failed write forgets the baseline so the next poll re-captures the file's then-current content.
+            if !record_history(&container_id.to_string(), &path, "changed") {
+                cache.remove(&container_id);
+                continue;
+            }
             match ripple_change(store, container_id).await {
                 Ok(()) => tracing::info!(
                     container_id,
@@ -179,44 +189,24 @@ async fn ripple_change(store: &dyn StoreAccess, container_id: u64) -> Result<(),
     store.update_container(container_id, updates_json).await
 }
 
-/// History dir under the beacon's own data area. OZONE_ZSEI_DATA_DIR is
-/// the established convention (amt_loop, image/3D pipelines).
-fn history_dir() -> std::path::PathBuf {
-    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".into());
-    std::path::Path::new(&dir).join("file_history")
-}
-
-/// Append one history row + keep a content snapshot. Snapshot naming:
-/// <unix_millis>_<size> so ordering is intrinsic; every snapshot is kept
-/// (no cap, no eviction). Content-addressed-enough for diff-on-demand (the
-/// git MCP reads two snapshots and diffs).
-fn record_history(container_id: &str, path: &str, modified: u64, size: u64) {
-    // The directory is created by the durable write itself (parents are created on every attempt and retried until they exist): a failing
-    // mkdir is a retried failure, never a silent `return` that loses the history row.
-    let dir = history_dir().join("snapshots").join(container_id);
-    let millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    // Snapshot copy: read the real file once, write once.
-    if let Ok(content) = std::fs::read(path) {
-        let snap = dir.join(format!("{}_{:x}.snap", millis, size));
-        // Durable (src/durable_write.rs): retried until the snapshot is on disk.
-        crate::durable_write::replace(&snap, content);
-        // NO eviction (operator ruling 2026-11-11: no fixed limits, history is never deleted silently). A full disk is not hidden either:
-        // the write above is durable (src/durable_write.rs) — a failing snapshot is retried in order, surfaced in `GET /durable_writes`
-        // and the `durable_write_stalled` event until space exists. Reclaiming space is an explicit operator act.
-    }
-    let hist = history_dir().join(format!("{}.jsonl", container_id));
-    {
-        let row = serde_json::json!({
-            "ts": millis,
-            "modified": modified,
-            "size": size,
-            "path": path,
-            "snapshot_dir": format!("snapshots/{}/", container_id),
-        });
-        crate::durable_write::append_json(hist, &row); // durable: retried in order until written
+/// Record the file's content AT THIS MOMENT as a history version (src/history: chunked, de-duplicated, hash-verified on read). Returns false
+/// when the write failed (caller retries on its next poll). A file that vanished between the stat and the read is not an error — the beacon
+/// only reports files that still exist.
+fn record_history(container_id: &str, path: &str, reason: &str) -> bool {
+    let content = match std::fs::read(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
+        Err(e) => {
+            tracing::error!(container_id, path, error = %e, "file beacon: cannot read file for history — will retry");
+            return false;
+        }
+    };
+    match crate::history::shared().record("file", container_id, &content, reason, Some(path)) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::error!(container_id, path, error = %e, "file beacon: history write failed — will retry");
+            false
+        }
     }
 }
 

@@ -2040,6 +2040,69 @@ async fn post_jurisdiction_policy_share(State(state): State<Arc<AppState>>, Json
     }
 }
 
+/// Accept an id given as a JSON string or number.
+fn history_id_of(body: &serde_json::Value) -> Option<String> {
+    match body.get("id") {
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// POST /history/list {scope: "file"|"container", id} — every recorded version of one item (the native history store, src/history).
+async fn post_history_list(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let Some(scope) = body.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()) else { return jx_err("body needs `scope` (file|container)") };
+    let Some(id) = history_id_of(&body) else { return jx_err("body needs `id`") };
+    let h = crate::history::shared();
+    match tokio::task::spawn_blocking(move || h.list(&scope, &id)).await {
+        Ok(Ok(rows)) => Json(serde_json::json!({ "success": true, "versions": rows })),
+        Ok(Err(e)) => jx_err(e.to_string()),
+        Err(e) => jx_err(e.to_string()),
+    }
+}
+
+/// POST /history/restore {scope, id, version, confirm: "RESTORE", by?} — OPERATOR action: put a recorded version back. The current state is
+/// recorded first (reason `pre-restore`), so a restore is reversible. Appends an audit row to `history_restores.jsonl` (never rotated).
+async fn post_history_restore(State(state): State<Arc<AppState>>, Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    if body.get("confirm").and_then(|v| v.as_str()) != Some("RESTORE") {
+        return jx_err("restore is an operator action: send confirm:\"RESTORE\"");
+    }
+    let Some(scope) = body.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()) else { return jx_err("body needs `scope` (file|container)") };
+    let Some(id) = history_id_of(&body) else { return jx_err("body needs `id`") };
+    let Some(version) = body.get("version").and_then(|v| v.as_u64()) else { return jx_err("body needs numeric `version`") };
+    let outcome: Result<String, String> = match scope.as_str() {
+        "container" => match id.parse::<u64>() {
+            Ok(cid) => {
+                let runtime = state.runtime.read().await;
+                let r = runtime.zsei.read().await.restore_container_version(cid, version).await;
+                r.map(|_| format!("container {cid} restored to version {version}")).map_err(|e| e.to_string())
+            }
+            Err(_) => Err("container id must be numeric".to_string()),
+        },
+        "file" => {
+            let h = crate::history::shared();
+            let id2 = id.clone();
+            match tokio::task::spawn_blocking(move || h.restore_file(&id2, version)).await {
+                Ok(Ok(p)) => Ok(format!("file {} restored to version {version}", p.display())),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        _ => Err("scope must be `file` or `container`".to_string()),
+    };
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let row = serde_json::json!({
+        "ts": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+        "scope": scope, "id": id, "version": version, "by": jx_by(&body), "ok": outcome.is_ok(),
+        "detail": match &outcome { Ok(s) => s.clone(), Err(e) => e.clone() },
+    });
+    crate::durable_write::append_json(std::path::Path::new(&data_dir).join("history_restores.jsonl"), &row);
+    match outcome {
+        Ok(msg) => Json(serde_json::json!({ "success": true, "restored": msg })),
+        Err(e) => jx_err(e),
+    }
+}
+
 /// GET /jurisdiction/policy/export — the live policy as a jurisdiction content file the marketplace staging accepts (manifest, no content).
 async fn get_jurisdiction_policy_export() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "success": true, "content": crate::orchestrator::jurisdiction::policy::export_policy_as_content() }))
@@ -5394,10 +5457,13 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/order/work/:task_id", get(get_work_order))
         .route("/jurisdiction/policy", get(get_jurisdiction_policy).post(post_jurisdiction_policy))
         .route("/jurisdiction/policy/adopt", post(post_jurisdiction_policy_adopt))
+        .route("/history/list", post(post_history_list))
+        .route("/history/restore", post(post_history_restore))
         .route("/jurisdiction/policy/export", get(get_jurisdiction_policy_export))
         .route("/jurisdiction/policy/share", post(post_jurisdiction_policy_share))
         .route("/jurisdiction/agree", post(post_jurisdiction_agree))
         .route("/jurisdiction/decisions", get(get_jurisdiction_decisions))
+        .route("/jurisdiction/outbound/check", post(post_jurisdiction_outbound_check))
         .route("/jurisdiction/outbound/approve", post(post_jurisdiction_outbound_approve))
         .route("/jurisdiction/erasure/plan", post(post_jurisdiction_erasure_plan))
         .route("/jurisdiction/erasure/apply", post(post_jurisdiction_erasure_apply))
@@ -5463,7 +5529,6 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/mcp/tools/unregister", post(mcp_unregister_tool))
         // AUTO-START CONFIG + process control (2026-10-18) — operator
         // opt-in per tool, real start/stop against the real supervisor.
-        .route("/jurisdiction/outbound/check", post(post_jurisdiction_outbound_check))
         .route("/mcp/tools/:name/autostart", post(mcp_set_autostart))
         .route("/mcp/tools/:name/start", post(mcp_start_tool))
         .route("/mcp/tools/:name/stop", post(mcp_stop_tool))

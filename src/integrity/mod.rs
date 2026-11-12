@@ -5,61 +5,59 @@
 //! Ensures no information is ever lost and provides rollback capability.
 
 use crate::config::IntegrityConfig;
-use crate::types::{ContainerID, OzoneError, OzoneResult, Blake3Hash};
+use crate::types::{ContainerID, OzoneError, OzoneResult};
 use crate::types::integrity::{
     IntegrityCheckType, IntegrityCheckResult,
     RollbackRequest, ImpactAnalysis,
 };
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-/// Integrity monitor
+/// Integrity monitor. Snapshots live in the native history store (`src/history`): content-chunked, de-duplicated, durably indexed, shared
+/// with the file beacon and git-mcp (operator 2026-11-12). Version numbers are the store's per-container `v`.
 pub struct IntegrityMonitor {
     /// Configuration
     config: IntegrityConfig,
-    
-    /// Rollback storage path
+
+    /// Rollback storage root (the history store root)
     rollback_path: PathBuf,
-    
-    /// Container version history
-    versions: Arc<RwLock<HashMap<ContainerID, Vec<ContainerVersion>>>>,
-    
+
+    /// The shared history store (scope `container`)
+    history: Arc<crate::history::History>,
+
     /// Last check results
     last_check: Arc<RwLock<Option<IntegrityCheckResult>>>,
-    
+
     /// Running flag
     running: Arc<RwLock<bool>>,
 }
 
-/// Container version for rollback
-#[derive(Debug, Clone)]
-struct ContainerVersion {
-    version: u32,
-    timestamp: u64,
-    hash: Blake3Hash,
-    snapshot_path: PathBuf,
-}
+const SCOPE: &str = "container";
 
 impl IntegrityMonitor {
+    /// The shared history store this monitor writes to.
+    pub fn history_handle(&self) -> Arc<crate::history::History> {
+        self.history.clone()
+    }
+
     /// Create new integrity monitor
     pub fn new(config: &IntegrityConfig) -> OzoneResult<Self> {
         let rollback_path = PathBuf::from(&config.rollback_path);
-        
+
         // Ensure rollback directory exists
         std::fs::create_dir_all(&rollback_path)
             .map_err(|e| OzoneError::IntegrityError(format!("Failed to create rollback dir: {}", e)))?;
-        
+
         Ok(Self {
             config: config.clone(),
+            history: crate::history::open_shared(rollback_path.clone()),
             rollback_path,
-            versions: Arc::new(RwLock::new(HashMap::new())),
             last_check: Arc::new(RwLock::new(None)),
             running: Arc::new(RwLock::new(false)),
         })
     }
-    
+
     /// Start integrity monitoring
     pub async fn start_monitoring(&self) -> OzoneResult<()> {
         if !self.config.enabled {
@@ -115,39 +113,28 @@ impl IntegrityMonitor {
         let repairs_made: Vec<String> = Vec::new();
         let mut containers_checked = 0u32;
         
-        // Check all versioned containers
-        let versions = self.versions.read().await;
-        for (container_id, container_versions) in versions.iter() {
-            containers_checked += 1;
-            
-            // Verify latest snapshot exists and is valid
-            if let Some(latest) = container_versions.last() {
-                if !latest.snapshot_path.exists() {
-                    issues_found.push(format!(
-                        "Container {} version {} snapshot missing at {:?}",
-                        container_id, latest.version, latest.snapshot_path
-                    ));
-                } else {
-                    // Verify hash
-                    if let Ok(data) = std::fs::read(&latest.snapshot_path) {
-                        let hash = blake3::hash(&data);
-                        if hash.as_bytes() != &latest.hash {
-                            issues_found.push(format!(
-                                "Container {} version {} hash mismatch - possible corruption",
-                                container_id, latest.version
-                            ));
-                        }
-                    }
+        // Verify the newest version of every container that has history: every chunk and the whole content are blake3-checked.
+        let history = self.history.clone();
+        let (containers_checked_n, found) = tokio::task::spawn_blocking(move || {
+            let mut checked = 0u32;
+            let mut issues: Vec<String> = Vec::new();
+            for (scope, id, _n) in history.scopes() {
+                if scope != SCOPE {
+                    continue;
+                }
+                checked += 1;
+                match history.verify_latest(&scope, &id) {
+                    Ok(_) => {}
+                    Err(e) => issues.push(format!("Container {} latest snapshot failed verification: {}", id, e)),
                 }
             }
-        }
-        
-        // Check rollback directory health
-        if let Ok(entries) = std::fs::read_dir(&self.rollback_path) {
-            let snapshot_count = entries.filter(|e| e.is_ok()).count();
-            tracing::debug!("Found {} snapshots in rollback directory", snapshot_count);
-        }
-        
+            (checked, issues)
+        })
+        .await
+        .map_err(|e| OzoneError::IntegrityError(format!("integrity check task failed: {}", e)))?;
+        containers_checked = containers_checked_n;
+        issues_found.extend(found);
+
         let result = IntegrityCheckResult {
             check_type: IntegrityCheckType::Full,
             passed: issues_found.is_empty(),
@@ -164,107 +151,53 @@ impl IntegrityMonitor {
         Ok(result)
     }
     
-    /// Create a snapshot for rollback
+    /// Create a snapshot for rollback: record `data` as the container's newest history version (identical to the latest = no new row).
     pub async fn create_snapshot(&self, container_id: ContainerID, data: &[u8]) -> OzoneResult<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        
-        // Calculate hash
-        let hash = blake3::hash(data);
-        let hash_bytes: Blake3Hash = *hash.as_bytes();
-        
-        // Reserve the version under the lock; the file write happens outside it so a
-        // slow disk never blocks other containers' version bookkeeping.
-        let snapshot_path = {
-            let mut versions = self.versions.write().await;
-            let container_versions = versions.entry(container_id).or_insert_with(Vec::new);
-            let version = container_versions.last()
-                .map(|v| v.version + 1)
-                .unwrap_or(1);
-            let snapshot_path = self.rollback_path.join(format!("{}_{}.snapshot", container_id, version));
-            container_versions.push(ContainerVersion {
-                version,
-                timestamp: now,
-                hash: hash_bytes,
-                snapshot_path: snapshot_path.clone(),
-            });
-            snapshot_path
-        };
-
-        if let Err(e) = tokio::fs::write(&snapshot_path, data).await {
-            let mut versions = self.versions.write().await;
-            if let Some(container_versions) = versions.get_mut(&container_id) {
-                container_versions.retain(|v| v.snapshot_path != snapshot_path);
-            }
-            return Err(OzoneError::IntegrityError(format!("Failed to write snapshot: {}", e)));
-        }
-
-        let stale: Vec<PathBuf> = {
-            let mut versions = self.versions.write().await;
-            let container_versions = versions.entry(container_id).or_insert_with(Vec::new);
-            let mut stale = Vec::new();
-            while container_versions.len() > self.config.max_versions as usize {
-                stale.push(container_versions.remove(0).snapshot_path);
-            }
-            stale
-        };
-        for path in stale {
-            let _ = tokio::fs::remove_file(path).await;
-        }
-
-        Ok(())
+        let history = self.history.clone();
+        let bytes = data.to_vec();
+        let id = container_id.to_string();
+        tokio::task::spawn_blocking(move || history.record(SCOPE, &id, &bytes, "pre-write", None))
+            .await
+            .map_err(|e| OzoneError::IntegrityError(format!("snapshot task failed: {}", e)))?
+            .map(|_| ())
+            .map_err(|e| OzoneError::IntegrityError(format!("Failed to record snapshot: {}", e)))
     }
-    
-    /// Rollback a container to a previous version
+
+    /// Rollback a container to a previous version: returns that version's bytes (chunk- and whole-hash verified). The caller restores them
+    /// (`ZSEI::restore_container_version` / `POST /history/restore`).
     pub async fn rollback(&self, request: RollbackRequest) -> OzoneResult<Vec<u8>> {
-        let versions = self.versions.read().await;
-        let container_versions = versions.get(&request.container_id)
-            .ok_or_else(|| OzoneError::NotFound(
-                format!("No versions for container {}", request.container_id)
-            ))?;
-        
-        // Find the requested version
-        let target_version = if let Some(version) = request.target_version {
-            container_versions.iter().find(|v| v.version == version)
-        } else {
-            // Rollback to previous version
-            container_versions.iter().rev().nth(1)
-        };
-        
-        let target = target_version
+        let history = self.history.clone();
+        let id = request.container_id.to_string();
+        let target = request.target_version;
+        let container_id = request.container_id;
+        tokio::task::spawn_blocking(move || -> OzoneResult<Vec<u8>> {
+            let rows = history.list(SCOPE, &id).map_err(|e| OzoneError::IntegrityError(e.to_string()))?;
+            if rows.is_empty() {
+                return Err(OzoneError::NotFound(format!("No versions for container {}", container_id)));
+            }
+            let row = match target {
+                Some(v) => rows.iter().find(|r| r.v == v as u64),
+                // previous version = the one before the newest
+                None => rows.iter().rev().nth(1),
+            }
             .ok_or_else(|| OzoneError::NotFound("Target version not found".into()))?;
-        
-        // Read snapshot
-        let data = std::fs::read(&target.snapshot_path)
-            .map_err(|e| OzoneError::IntegrityError(format!("Failed to read snapshot: {}", e)))?;
-        
-        // Verify hash
-        let hash = blake3::hash(&data);
-        if hash.as_bytes() != &target.hash {
-            return Err(OzoneError::IntegrityError("Snapshot hash mismatch".into()));
-        }
-        
-        tracing::info!(
-            "Rolling back container {} to version {}",
-            request.container_id,
-            target.version
-        );
-        
-        Ok(data)
+            tracing::info!("Rolling back container {} to version {}", container_id, row.v);
+            history.rebuild(row).map_err(|e| OzoneError::IntegrityError(format!("Failed to read snapshot: {}", e)))
+        })
+        .await
+        .map_err(|e| OzoneError::IntegrityError(format!("rollback task failed: {}", e)))?
     }
-    
+
     /// Analyze impact of a rollback
     pub async fn analyze_impact(&self, request: &RollbackRequest) -> OzoneResult<ImpactAnalysis> {
-        let versions = self.versions.read().await;
+        let rows = self.history.list(SCOPE, &request.container_id.to_string()).unwrap_or_default();
         let affected_containers = vec![request.container_id];
         let mut warnings = Vec::new();
         let mut estimated_data_loss = 0u64;
         
         // Find the target version
-        if let Some(container_versions) = versions.get(&request.container_id) {
-            let current_version = container_versions.last().map(|v| v.version).unwrap_or(0);
+        if !rows.is_empty() {
+            let current_version = rows.last().map(|v| v.v as u32).unwrap_or(0);
             let target_version = request.target_version.unwrap_or(current_version.saturating_sub(1));
             
             // Count versions that would be lost
@@ -279,7 +212,7 @@ impl IntegrityMonitor {
             }
             
             // Check if target version exists
-            if !container_versions.iter().any(|v| v.version == target_version) {
+            if !rows.iter().any(|v| v.v == target_version as u64) {
                 warnings.push(format!("Target version {} not found in history", target_version));
             }
         } else {
@@ -359,36 +292,29 @@ impl IntegrityMonitor {
         
         dependent_tasks
     }
-    /// Get version history for a container
+    /// Get version history for a container: `(version, unix seconds)`.
     pub async fn get_version_history(&self, container_id: ContainerID) -> Vec<(u32, u64)> {
-        self.versions.read().await
-            .get(&container_id)
-            .map(|versions| {
-                versions.iter()
-                    .map(|v| (v.version, v.timestamp))
-                    .collect()
-            })
+        self.history
+            .list(SCOPE, &container_id.to_string())
             .unwrap_or_default()
+            .into_iter()
+            .map(|r| (r.v as u32, r.ts / 1000))
+            .collect()
     }
-    
+
     /// Get last check result
     pub async fn get_last_check(&self) -> Option<IntegrityCheckResult> {
         self.last_check.read().await.clone()
     }
     
-    /// Verify a specific container's integrity
+    /// Verify a specific container's integrity: does `data` equal the newest recorded version?
     pub async fn verify_container(&self, container_id: ContainerID, data: &[u8]) -> OzoneResult<bool> {
-        let versions = self.versions.read().await;
-        
-        if let Some(container_versions) = versions.get(&container_id) {
-            if let Some(latest) = container_versions.last() {
-                let hash = blake3::hash(data);
-                return Ok(hash.as_bytes() == &latest.hash);
-            }
+        match self.history.latest(SCOPE, &container_id.to_string()) {
+            Ok(Some(latest)) => Ok(blake3::hash(data).to_hex().to_string() == latest.hash),
+            // No version history - assume valid
+            Ok(None) => Ok(true),
+            Err(e) => Err(OzoneError::IntegrityError(e.to_string())),
         }
-        
-        // No version history - assume valid
-        Ok(true)
     }
 }
 
@@ -458,7 +384,7 @@ mod tests {
             enabled: true,
             check_interval_secs: 3600,
             rollback_path: dir.to_string_lossy().into(),
-            max_versions: 10,
+            max_versions: 0,
         }
     }
 
@@ -482,11 +408,9 @@ mod tests {
 
         // Tamper: rewrite the snapshot file with different content — the
         // recorded blake3 hash no longer matches.
-        let snapshot_path = {
-            let versions = monitor.versions.read().await;
-            versions.get(&4242).unwrap().last().unwrap().snapshot_path.clone()
-        };
-        std::fs::write(&snapshot_path, b"tampered container content").unwrap();
+        let latest = monitor.history.latest(SCOPE, "4242").unwrap().unwrap();
+        let object = monitor.history.root().join("objects").join(&latest.chunks[0][..2]).join(&latest.chunks[0]);
+        std::fs::write(&object, b"tampered container content").unwrap();
 
         let result = monitor.run_check().await.unwrap();
         assert!(!result.passed, "tampered snapshot must fail the check");
@@ -523,7 +447,7 @@ mod tests {
             enabled: true,
             check_interval_secs: 3600,
             rollback_path: rollback_dir.to_string_lossy().into(),
-            max_versions: 10,
+            max_versions: 0,
         })
         .unwrap();
         zsei.set_integrity(Arc::new(tokio::sync::RwLock::new(monitor)));
@@ -557,19 +481,11 @@ mod tests {
             .unwrap();
 
         // The rollback layer must hold the PRE-WRITE content.
-        let snapshots: Vec<_> = std::fs::read_dir(&rollback_dir)
-            .expect("rollback dir exists")
-            .flatten()
-            .collect();
-        assert!(
-            !snapshots.is_empty(),
-            "UpdateContainer must leave a pre-write snapshot"
-        );
-        let raw = std::fs::read_to_string(snapshots[0].path()).unwrap();
-        assert!(
-            raw.contains("pre-update name"),
-            "snapshot must capture the OLD content, not the new"
-        );
+        let h = crate::history::open_shared(rollback_dir.clone());
+        let rows = h.list("container", &new_id.to_string()).unwrap();
+        assert!(!rows.is_empty(), "UpdateContainer must leave a pre-write snapshot");
+        let raw = String::from_utf8(h.read_version("container", &new_id.to_string(), rows[0].v).unwrap()).unwrap();
+        assert!(raw.contains("pre-update name"), "snapshot must capture the OLD content, not the new");
         assert!(!raw.contains("post-update name"));
 
         let _ = std::fs::remove_dir_all(&zdir);
