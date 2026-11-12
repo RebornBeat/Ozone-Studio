@@ -19,6 +19,9 @@
 
 use super::*;
 
+/// Per-instance jurisdiction POLICY surface (outbound gate, agreements, decision log, erasure) — see jurisdiction/policy.rs.
+pub(crate) mod policy;
+
 /// Where a rule applies. Global = worldwide (e.g. a real U.N.-level rule, if
 /// one is ever loaded); National/Local are free-form region labels matched
 /// against `JurisdictionConfig.instance_region` (e.g. "US", "US-CA") — not
@@ -127,6 +130,10 @@ pub struct JurisdictionGateResult {
 pub struct JurisdictionContentFile {
     pub disclaimer: String,
     pub rules: Vec<JurisdictionRule>,
+    /// Optional instance POLICY block (see `policy::JurisdictionPolicy`). Carried as raw JSON so a content file from a peer stays valid
+    /// for older readers; it is only ever ADOPTED by an explicit operator action, never applied by loading or staging.
+    #[serde(default)]
+    pub policy: Option<serde_json::Value>,
 }
 
 /// The minimal global rule set compiled into the binary, mirroring
@@ -462,6 +469,50 @@ impl PromptOrchestrator {
         .await;
         record_confirmation_awaiting(&self.data_dir, &result, state.task_id);
 
+        // POLICY + AUDIT: an unknown jurisdiction never passes silently (the instance policy says what happens), and every gate run is an
+        // append-only decision row (hashes and rule vocabulary only, never the request text).
+        let pol = policy::load_policy();
+        let mut held_unknown: Option<String> = None;
+        if region.is_none() {
+            let note = format!(
+                "No jurisdiction region is configured or detected — only Global rules applied (policy unknown_jurisdiction={})",
+                pol.unknown_jurisdiction
+            );
+            match pol.unknown_jurisdiction.as_str() {
+                "block" => {
+                    result.blocked = true;
+                    result.warnings.push(note);
+                }
+                "await_operator" => held_unknown = Some(note),
+                _ => result.warnings.push(note),
+            }
+        }
+        {
+            let matched_conditions: Vec<String> = result.matched.iter().map(|(r, _)| r.condition.clone()).collect();
+            let prompt_hash = blake3::hash(state.request.prompt.as_bytes()).to_hex().to_string();
+            let outcome = if result.blocked {
+                "blocked"
+            } else if !result.pending_reviews.is_empty() {
+                "held_review"
+            } else if held_unknown.is_some() {
+                "held_unknown_jurisdiction"
+            } else if !result.warnings.is_empty() {
+                "allowed_with_warnings"
+            } else {
+                "allowed"
+            };
+            policy::record_decision(
+                "orchestrate_intake",
+                &prompt_hash[..32],
+                region,
+                &pol,
+                &policy::rules_fingerprint(&rules),
+                outcome,
+                &matched_conditions,
+                &format!("rules_source={} rules_loaded={}", result.rules_source, result.rules_loaded),
+            );
+        }
+
         let blocked = result.blocked;
         state.jurisdiction_gate_result = Some(result.clone());
 
@@ -485,6 +536,18 @@ impl PromptOrchestrator {
 
         if blocked {
             return Err(jurisdiction_block_message(&result, "Request"));
+        }
+
+        if let Some(note) = held_unknown {
+            let _ = crate::orchestrator::awaiting::open(
+                &self.data_dir,
+                "jurisdiction_unknown_region",
+                "instance",
+                state.task_id.map(|t| t.to_string()).as_deref(),
+                None,
+                &note,
+            );
+            return Err(format!("{} {}", policy::AWAITING_PREFIX, note));
         }
 
         Ok(())
@@ -556,6 +619,31 @@ impl PromptOrchestrator {
             record_confirmation_awaiting(&self.data_dir, &result, state.task_id);
         }
 
+        {
+            let pol = policy::load_policy();
+            let matched_conditions: Vec<String> = result.matched.iter().map(|(r, _)| r.condition.clone()).collect();
+            let plan_hash = blake3::hash(plan.as_bytes()).to_hex().to_string();
+            let outcome = if result.blocked {
+                "blocked"
+            } else if !result.pending_reviews.is_empty() {
+                "held_review"
+            } else if !result.warnings.is_empty() {
+                "allowed_with_warnings"
+            } else {
+                "allowed"
+            };
+            policy::record_decision(
+                "orchestrate_full_gate",
+                &plan_hash[..32],
+                region,
+                &pol,
+                &policy::rules_fingerprint(&rules),
+                outcome,
+                &matched_conditions,
+                &format!("rules_source={} rules_loaded={}", result.rules_source, result.rules_loaded),
+            );
+        }
+
         let blocked = result.blocked;
         // Merge into the carried gate result so the response's
         // jurisdiction_gate view reflects BOTH runs (intake + full).
@@ -565,6 +653,10 @@ impl PromptOrchestrator {
             intake.confirmations.extend(result.confirmations.clone());
             intake.pending_reviews.extend(result.pending_reviews.clone());
             intake.blocked = intake.blocked || blocked;
+        } else {
+            // A resumed walk does not carry the intake result (run_checkpoint rebuilds the state without it): keep the full-gate result so
+            // its warnings still reach the response instead of vanishing.
+            state.jurisdiction_gate_result = Some(result.clone());
         }
 
         // Stage key 14: Stage 8 is the Consciousness Gate — both used to

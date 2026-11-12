@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from "react";
 import { useOzoneStore } from "../services/store";
 import { fetchRemotePipelines } from "../ozoneClient";
+import { JurisdictionPolicyPanel } from "./JurisdictionPolicyPanel";
 
 interface SetupConfig {
   modelType: "api" | "local" | "zcode" | null;
@@ -950,11 +951,17 @@ export function SetupWizard({ onComplete }: Props) {
               </p>
 
               <p className="feature-note">
-                💡 Jurisdiction is AUTO-DETECTED from this machine's
-                timezone/locale/IP (when at least two signals agree) — we
-                never ask. Nothing to configure here; rule sets load
-                separately from the jurisdiction content pack.
+                💡 The jurisdiction REGION is auto-detected from this
+                machine's timezone/locale (when two signals agree); rule sets
+                load from the jurisdiction content pack. What YOUR instance
+                agrees to and requires is yours to set: accept each
+                requirement below (you are asked again whenever one changes)
+                and note where this instance is hosted. Defaults are on; you
+                can change the whole policy later in Marketplace →
+                Jurisdiction. Peers you publish to cannot recall what they
+                received.
               </p>
+              <JurisdictionPolicyPanel compact />
 
               <div className="setup-buttons">
                 <button className="setup-back" onClick={handleSetupBack}>

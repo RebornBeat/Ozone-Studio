@@ -1,0 +1,60 @@
+{
+  "disclaimer": "Engineering defaults for an instance's jurisdiction POLICY. NOT legal advice and NOT verified compliance. Every key is an instance decision: the operator edits it in the UI (versioned, visible) and an instance with different agreements or requirements hardens, relaxes or extends it. Requirement texts are engineering acknowledgements drafted from the sources listed in docs/evidence/jurisdiction-deepening/SOURCES.md (many were read only as search summaries); qualified counsel must review them before reliance.",
+  "version": 0,
+  "enabled": true,
+  "hosting_region": "unspecified",
+  "residency_note": "",
+  "providers": [
+    { "endpoint_contains": "localhost", "region": "local", "note": "same machine" },
+    { "endpoint_contains": "127.0.0.1", "region": "local", "note": "same machine" },
+    { "endpoint_contains": "openrouter.ai", "region": "third_country_unverified", "note": "aggregator: the serving provider and its region are chosen per request, not by this instance; set zero-data-retention routing and a DPA on the account, then declare a different region here if the operator verifies one" }
+  ],
+  "default_region_unlisted_endpoint": "third_country_unverified",
+  "allow_personal_data_regions": ["local", "eea"],
+  "on_personal_data_outbound": "await_operator",
+  "unknown_jurisdiction": "global_only_flagged",
+  "conflict_resolution": "strictest",
+  "require_agreements_before_outbound": true,
+  "requirements": [
+    {
+      "key": "transfer-awareness",
+      "title": "Transfers to third-party model providers",
+      "text": "Prompts, file text and derived content may be sent to model providers outside the EEA or in an unverified region. Before relying on such calls for personal data you confirm that a transfer mechanism and the provider's data-processing terms are in place (GDPR Chapter V, Art. 44-49; EDPB Guidelines 05/2021), or you keep personal data out of those calls.",
+      "source": "GDPR Art. 44 (fetched); Art. 45-49 and EDPB Guidelines 05/2021 (not fetched / search summary)",
+      "version": 1
+    },
+    {
+      "key": "erasure-and-logs",
+      "title": "Erasure and append-only logs",
+      "text": "Hit, judgment, decision and run logs are append-only and never rotated, and derived copies (graphs, keywords, run files) can hold personal data. You accept responsibility for running the erasure path when a valid request arrives (GDPR Art. 17); where a legal obligation requires retention (Art. 17(3)(b)) you record that decision.",
+      "source": "GDPR Art. 17(1), 17(2), 17(3)(b) (fetched); EDPB Guidelines 02/2025 on blockchain used by analogy (search summary)",
+      "version": 1
+    },
+    {
+      "key": "peer-exposure",
+      "title": "Peer sharing cannot be recalled",
+      "text": "Manifests, tool findings and rule sets published to peers over the marketplace reach other instances and cannot be recalled once received. Peers act on them only through their own operator gate. Do not publish anything that contains personal data.",
+      "source": "GDPR Art. 17(2) (reasonable steps to inform others; fetched); engineering design of the P2P marketplace",
+      "version": 1
+    }
+  ],
+  "detection": {
+    "deterministic": true,
+    "kinds": ["email", "phone", "iban", "card_number"],
+    "vote": true,
+    "vote_model": "",
+    "vote_model_region": ""
+  },
+  "erasure": {
+    "enabled": true,
+    "keep_before_copy": false,
+    "retention_days": null,
+    "covers": ["jsonl_logs", "json_state", "run_files"]
+  },
+  "p2p": {
+    "publish_kinds": ["methodology", "jurisdiction_rule_set", "pipeline", "tool"],
+    "recall_notice": true,
+    "share_policy_as_offer": true
+  },
+  "exempt_pipelines": []
+}

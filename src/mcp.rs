@@ -169,6 +169,24 @@ fn installed_call_gate() -> Option<CallGate> {
 /// Shared by `call_global` (in-process tool calls) and the external
 /// `/pipeline/execute` route, so neither path can skip jurisdiction.
 pub fn check_call_gate(span_kind: &str, subject: &str, text: &str) -> Result<(), String> {
+    let verdict = check_call_gate_inner(span_kind, subject, text);
+    // AUDIT (jurisdiction deepening): every call-gate run is an append-only decision row — hashes and the entry-point label only.
+    let pol = crate::orchestrator::jurisdiction::policy::load_policy();
+    let h = blake3::hash(format!("{subject} {text}").as_bytes()).to_hex().to_string();
+    crate::orchestrator::jurisdiction::policy::record_decision(
+        span_kind,
+        &h[..32],
+        None,
+        &pol,
+        "",
+        if verdict.is_ok() { "allowed" } else { "blocked" },
+        &[],
+        "call gate (Block rules only; rule snapshot refreshed every 10 min or the compiled Global set when none is installed)",
+    );
+    verdict
+}
+
+fn check_call_gate_inner(span_kind: &str, subject: &str, text: &str) -> Result<(), String> {
     match installed_call_gate() {
         Some(gate) => {
             // WHOLE text (no-cap doctrine, 2026-11-04): this used to inspect only the first 4,000 characters, so a Block phrase
@@ -181,9 +199,19 @@ pub fn check_call_gate(span_kind: &str, subject: &str, text: &str) -> Result<(),
             Ok(())
         }
         None => {
+            // NEVER FAIL OPEN (jurisdiction deepening): before the loaded-rule gate is installed the Global layer is still unconditional,
+            // so the compiled global set judges the call instead of letting it through unchecked.
             static WARNED: OnceLock<()> = OnceLock::new();
             if WARNED.set(()).is_ok() {
-                tracing::warn!("no jurisdiction call gate installed yet — in-process/external calls rely on upstream gates only");
+                tracing::warn!("no jurisdiction call gate installed yet — the compiled Global rule set judges calls until the loaded rules are installed");
+            }
+            let hay: String = format!("{} {}", subject, text);
+            if let Err(reason) = crate::orchestrator::jurisdiction::step_gate_check(
+                &crate::orchestrator::jurisdiction::compiled_global_fallback_rules(),
+                &hay,
+            ) {
+                crate::orchestrator::entry_gate::record_gate_verdict(span_kind, subject, "blocked", Some(&reason), None);
+                return Err(reason);
             }
             Ok(())
         }

@@ -1,0 +1,8 @@
+- L170: jurisdiction POLICY surface — per-instance, versioned, durable (`policy.rs`, `policy.default.json`, `/jurisdiction/policy`); parse-only, unverified. Superseded: "jurisdiction is never asked" (SetupWizard note, JURISDICTION_SETUP.md).
+- L171: outbound content gate at the two pipeline seams (adapter + `PipelineRegistry::execute`, closing the direct `/pipeline/execute` bypass); task-local clear mark; HOLD (AWAITING_OPERATOR) never fail-open; parse-only.
+- L172: per-requirement agreements (re-asked on version/text change), held-transfer approvals, UI `JurisdictionPolicyPanel` (wizard compact form + Marketplace → Jurisdiction); parse-only. DEPLOY NOTE: first boot holds third-country calls until requirements are accepted.
+- L173: append-only decision log `jurisdiction_decisions.jsonl` (hashes + rule vocabulary only) from Stage 0, 8b and every call-gate run; unknown jurisdiction now policy-driven and flagged; full-gate result kept on resumed walks; call/step gates no longer fail open.
+- L174: erasure plan/apply (file-level redaction; not-covered list) — store-held copies/indexes remain open (G10); retention_days/covers keys unenforced (G8).
+- L175: EU content +10 rules (all Log; sources and read-depth stated per rule; SOURCES.md); registry regenerated.
+- L176: third-party jurisdiction suite `tools/third-party-verify/jurisdiction/j1-j4` (not run).
+- L177 OPEN: G2 (confirm reviews on /pipeline/execute), G3 (step gate default-off), G4 (agent-provider content), G5 (p2p.publish_kinds), G6 (search bridge), G7 (bridges review), G9 (rule snapshot refresh), G11 (held-call retry behaviour).

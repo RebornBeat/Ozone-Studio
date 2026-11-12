@@ -2,12 +2,12 @@
 
 Generated from real, currently-shipped content under `assets/jurisdiction/` by `tools/generate_jurisdiction_registry.py` — do not hand-edit, regenerate instead. This is the "approved sources" list: before sourcing new content for a country/topic, check here first for an already-cited, already-used source for that scope.
 
-Generated: 2026-10-28T09:49:16.092351+00:00
-Total scopes: 132 · Total rules: 648
+Generated: 2026-11-12T02:14:34.055752+00:00
+Total scopes: 132 · Total rules: 658
 
 ## Gap summary
 
-- 220 rules where `official_source` is not confirmed `true` (not necessarily wrong — many are legitimately hand-curated or a reputable secondary source per method 21 — but worth a look before treating as a primary official citation).
+- 225 rules where `official_source` is not confirmed `true` (not necessarily wrong — many are legitimately hand-curated or a reputable secondary source per method 21 — but worth a look before treating as a primary official citation).
 - 53 rules with no `retrieved_snippet` recorded (older content that predates this field being populated, or hand-curated content like global.json that cites an article directly).
 - 3 national/local-scope rules with a non-Log action. Shipped national content is Log-only; every non-Log entry here must trace to an explicit operator elevation decision (see `assets/jurisdiction/elevation-queue/` and docs/JURISDICTION_SETUP.md). global.json is the documented baseline exception and is excluded from this check.
 
@@ -473,7 +473,7 @@ Total scopes: 132 · Total rules: 648
 
 ### eu
 
-33 rule(s) · disclaimer present: True
+43 rule(s) · disclaimer present: True
 
 | Topic | Action | Source | Official | Snippet | Aliases |
 |---|---|---|---|---|---|
@@ -510,6 +510,16 @@ Total scopes: 132 · Total rules: 648
 | automated decision | Log | GDPR Article 22 — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; CJEU C-634/21 https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:62021CJ0634 | yes | yes | 0 |
 | data transfer | Log | GDPR Chapter V (Articles 44-49) — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; EDPB https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en | yes | yes | 0 |
 | right to erasure | Log | GDPR Article 17 — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; Commission https://commission.europa.eu/law/law-topic/data-protection/information-individuals_en | yes | yes | 0 |
+| data protection impact assessment | Log | GDPR Art. 35 — https://gdpr-info.eu/art-35-gdpr/ (text of Art. 35(1) and 35(3)(a)-(c) fetched 2026-11-11; unofficial mirror of Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj) | no | yes | 1 |
+| international transfer | Log | GDPR Art. 44 — https://gdpr-info.eu/art-44-gdpr/ (fetched 2026-11-11); EDPB Guidelines 05/2021 v2.0 — https://edpb.europa.eu/system/files/2023-02/edpb_guidelines_05-2021_interplay_between_the_application_of_art3_chapter_v_of_the_gdpr_v2_en_0.pdf | yes | yes | 1 |
+| adequacy decision | Log | EU-US Data Privacy Framework — Latombe v Commission, T-553/23 (General Court, 3 Sep 2025, upheld); appeal C-703/25 P filed 31 Oct 2025 — https://www.wilmerhale.com/en/insights/blogs/wilmerhale-privacy-and-cybersecurity-law-blog/20251201-european-court-of-justice-to-review-challenge-to-eu-us-data-privacy-framework | no | yes | 1 |
+| legitimate interest | Log | EDPB Opinion 28/2024 (adopted 17 Dec 2024) on personal data in AI models — https://hunton.com/privacy-and-information-security-law/edpb-publishes-opinion-on-processing-of-personal-data-in-the-context-of-ai-models | no | yes | 0 |
+| training data | Log | EDPB Opinion 28/2024 on personal data in AI models — https://cms.law/en/int/legal-updates/edpb-opinion-28-2024-key-takeaways-on-processing-personal-data-in-the-context-of-ai-models | no | yes | 0 |
+| general-purpose ai | Log | EU AI Act (Regulation (EU) 2024/1689) GPAI model obligations, reported as applying from 2 Aug 2025 and unchanged by the Digital Omnibus on AI — https://cdp.cooley.com/digital-ai-omnibus-delays-key-deadlines-introduces-new-rules/ | no | yes | 1 |
+| privacy by design | Log | GDPR Art. 25 (data protection by design and by default) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj | yes | yes | 1 |
+| data processor | Log | GDPR Art. 28 (processor) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj | yes | yes | 1 |
+| records of processing | Log | GDPR Art. 30 (records of processing activities) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj | yes | yes | 0 |
+| data minimisation | Log | GDPR Art. 5(1)(c) (data minimisation) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj | yes | yes | 1 |
 
 ### fi
 

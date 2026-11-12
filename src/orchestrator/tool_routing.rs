@@ -166,16 +166,20 @@ pub async fn tool_context_for_step_gated(
     let verdict: Result<(), String> = match &step_gate {
         Some(g) => g(step_description),
         None => {
+            // NEVER FAIL OPEN (jurisdiction deepening): with no installed gate (the first seconds after boot, or a rule load that has not
+            // completed) the Global layer is still unconditional, so the compiled global set judges the step. The env switch below can
+            // only ever make this stricter (refuse outright), never looser.
+            static WARNED: OnceLock<()> = OnceLock::new();
+            if WARNED.set(()).is_ok() {
+                tracing::warn!("tool routing: no per-step gate installed (set_step_gate) — the compiled Global rule set judges each step until the loaded rules are installed");
+            }
             if std::env::var(ENV_REQUIRE_GATE).as_deref() == Ok("1") {
                 Err("no step gate installed and OZONE_TOOL_ROUTING_REQUIRE_GATE=1".to_string())
             } else {
-                static WARNED: OnceLock<()> = OnceLock::new();
-                if WARNED.set(()).is_ok() {
-                    tracing::warn!(
-                        "tool routing: no per-step gate installed (set_step_gate) — calls rely on the stage-0/8b jurisdiction passes only"
-                    );
-                }
-                Ok(())
+                crate::orchestrator::jurisdiction::step_gate_check(
+                    &crate::orchestrator::jurisdiction::compiled_global_fallback_rules(),
+                    step_description,
+                )
             }
         }
     };
@@ -296,7 +300,11 @@ fn step_verdict(step_gate: &Option<StepGate>, step_description: &str) -> Result<
             if std::env::var(ENV_REQUIRE_GATE).as_deref() == Ok("1") {
                 Err("no step gate installed and OZONE_TOOL_ROUTING_REQUIRE_GATE=1".to_string())
             } else {
-                Ok(())
+                // never fail open: the compiled Global set judges the step when no loaded-rule gate is installed
+                crate::orchestrator::jurisdiction::step_gate_check(
+                    &crate::orchestrator::jurisdiction::compiled_global_fallback_rules(),
+                    step_description,
+                )
             }
         }
     }

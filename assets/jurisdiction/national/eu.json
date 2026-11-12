@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, current EU legislation (GDPR — Regulation (EU) 2016/679; Digital Services Act — Regulation (EU) 2022/2065; Unfair Commercial Practices Directive — Directive 2005/29/EC), retrieved via web search against official EUR-Lex summaries and the regulation texts themselves, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified EU legal counsel before relying on it for any real compliance purpose. Scope: National(\"EU\") applies this content to any EU member state's instance_region, since these are EU-wide regulations that apply uniformly across all 27 member states (national implementing/supplementary law, e.g. a specific member state's own data protection act, is NOT covered here and would need its own per-country file). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — EU law is amended and reinterpreted over time; re-verify before relying on it. ENRICHMENT 2026-10-27: further EU-wide instruments (DMA, NIS2, Data Act, Data Governance Act, ePrivacy, Terrorist Content Online Regulation, DSM copyright Directive, AVMSD, AML Regulation, EU sanctions, MiCA, Product Liability Directive, political advertising Regulation, Directive 2011/93, Consumer Rights Directive, Framework Decision 2008/913/JHA, Directive 2013/40/EU, Cyber Resilience Act, GDPR Articles 9/17/22 and Chapter V, AI Act omnibus prohibition) were added from live web retrieval on 2026-10-27 against eur-lex.europa.eu, europa.eu, consilium.europa.eu, edpb.europa.eu and ec.europa.eu; summaries are close paraphrases of what those pages returned, not legal text. Bills and proposals (e.g. the CSA Regulation 2022/0155(COD)) are mentioned only to state they are NOT law. Every added rule's action is Log. PROVENANCE NOTE (2026-10-27): the snippets added in this enrichment come from web-search result summaries of the cited pages (the search tool returned page-derived text); only the AI Act omnibus rule (Commission AI Act page) was additionally confirmed by fetching the page itself, and the Product Liability Directive page fetch returned empty so that rule rests on the search summary alone (with its corrigendum caveat).",
+  "disclaimer": "Drafted from real, current EU legislation (GDPR — Regulation (EU) 2016/679; Digital Services Act — Regulation (EU) 2022/2065; Unfair Commercial Practices Directive — Directive 2005/29/EC), retrieved via web search against official EUR-Lex summaries and the regulation texts themselves, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified EU legal counsel before relying on it for any real compliance purpose. Scope: National(\"EU\") applies this content to any EU member state's instance_region, since these are EU-wide regulations that apply uniformly across all 27 member states (national implementing/supplementary law, e.g. a specific member state's own data protection act, is NOT covered here and would need its own per-country file). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — EU law is amended and reinterpreted over time; re-verify before relying on it. ENRICHMENT 2026-10-27: further EU-wide instruments (DMA, NIS2, Data Act, Data Governance Act, ePrivacy, Terrorist Content Online Regulation, DSM copyright Directive, AVMSD, AML Regulation, EU sanctions, MiCA, Product Liability Directive, political advertising Regulation, Directive 2011/93, Consumer Rights Directive, Framework Decision 2008/913/JHA, Directive 2013/40/EU, Cyber Resilience Act, GDPR Articles 9/17/22 and Chapter V, AI Act omnibus prohibition) were added from live web retrieval on 2026-10-27 against eur-lex.europa.eu, europa.eu, consilium.europa.eu, edpb.europa.eu and ec.europa.eu; summaries are close paraphrases of what those pages returned, not legal text. Bills and proposals (e.g. the CSA Regulation 2022/0155(COD)) are mentioned only to state they are NOT law. Every added rule's action is Log. PROVENANCE NOTE (2026-10-27): the snippets added in this enrichment come from web-search result summaries of the cited pages (the search tool returned page-derived text); only the AI Act omnibus rule (Commission AI Act page) was additionally confirmed by fetching the page itself, and the Product Liability Directive page fetch returned empty so that rule rests on the search summary alone (with its corrigendum caveat). ADDENDUM 2026-11-11 (jurisdiction deepening): ten rules were added (condition: data protection impact assessment, international transfer, adequacy decision, legitimate interest, training data, general-purpose ai, privacy by design, data processor, records of processing, data minimisation). Each `retrieved_snippet` says exactly what was read: GDPR Art. 35, 44 (and 17 for the existing erasure rule) were fetched; Art. 5, 25, 28, 30, the EDPB opinions/guidelines, the DPF case status and the AI Act dates were read only as search summaries or not at all. See docs/evidence/jurisdiction-deepening/SOURCES.md. All new rules are Log (a cited warning, never blocking); elevation is an operator act.",
   "rules": [
     {
       "scope": {
@@ -318,6 +318,130 @@
       "source": "GDPR Article 17 — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; Commission https://commission.europa.eu/law/law-topic/data-protection/information-individuals_en",
       "retrieved_snippet": "Commission: people can ask for their data to be deleted when it is no longer needed or was used unlawfully; the right (often called the 'right to be forgotten') is not absolute and exceptions include freedom of expression, legal obligations and legal claims.",
       "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "data protection impact assessment",
+      "action": "Log",
+      "source": "GDPR Art. 35 — https://gdpr-info.eu/art-35-gdpr/ (text of Art. 35(1) and 35(3)(a)-(c) fetched 2026-11-11; unofficial mirror of Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj)",
+      "retrieved_snippet": "fetched: \"Where a type of processing in particular using new technologies ... is likely to result in a high risk to the rights and freedoms of natural persons, the controller shall, prior to the processing, carry out an assessment of the impact of the envisaged processing operations on the protection of personal data.\" 35(3) lists automated evaluation/profiling with legal effects, large-scale special categories, large-scale monitoring of public areas.",
+      "official_source": false,
+      "aliases": [
+        "dpia"
+      ]
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "international transfer",
+      "action": "Log",
+      "source": "GDPR Art. 44 — https://gdpr-info.eu/art-44-gdpr/ (fetched 2026-11-11); EDPB Guidelines 05/2021 v2.0 — https://edpb.europa.eu/system/files/2023-02/edpb_guidelines_05-2021_interplay_between_the_application_of_art3_chapter_v_of_the_gdpr_v2_en_0.pdf",
+      "retrieved_snippet": "Art. 44 fetched: any transfer of personal data to a third country shall take place only if the Chapter V conditions are complied with, including onward transfers, so that the level of protection is not undermined. EDPB guidelines: search summary only (PDF not opened) — three criteria define a transfer; a Chapter V mechanism is needed even if the importer is itself subject to the GDPR.",
+      "official_source": true,
+      "aliases": [
+        "third country transfer"
+      ]
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "adequacy decision",
+      "action": "Log",
+      "source": "EU-US Data Privacy Framework — Latombe v Commission, T-553/23 (General Court, 3 Sep 2025, upheld); appeal C-703/25 P filed 31 Oct 2025 — https://www.wilmerhale.com/en/insights/blogs/wilmerhale-privacy-and-cybersecurity-law-blog/20251201-european-court-of-justice-to-review-challenge-to-eu-us-data-privacy-framework",
+      "retrieved_snippet": "search summary (not fetched, secondary source): adequacy for DPF-certified US recipients stands but is under appeal at the Court of Justice; status after Dec 2025 NOT verified — check the CJEU register for C-703/25 P before relying on it.",
+      "official_source": false,
+      "aliases": [
+        "data privacy framework"
+      ]
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "legitimate interest",
+      "action": "Log",
+      "source": "EDPB Opinion 28/2024 (adopted 17 Dec 2024) on personal data in AI models — https://hunton.com/privacy-and-information-security-law/edpb-publishes-opinion-on-processing-of-personal-data-in-the-context-of-ai-models",
+      "retrieved_snippet": "search summary of law-firm commentary (the Opinion itself was not read): legitimate interest can in principle be a legal basis for AI model development and deployment, but the controller must pass the three-step test (legitimate interest, necessity, balancing).",
+      "official_source": false,
+      "aliases": []
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "training data",
+      "action": "Log",
+      "source": "EDPB Opinion 28/2024 on personal data in AI models — https://cms.law/en/int/legal-updates/edpb-opinion-28-2024-key-takeaways-on-processing-personal-data-in-the-context-of-ai-models",
+      "retrieved_snippet": "search summary of law-firm commentary (the Opinion itself was not read): whether a model trained on personal data is anonymous is case by case; a controller taking over a model must assess whether it was developed by unlawfully processing personal data.",
+      "official_source": false,
+      "aliases": []
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "general-purpose ai",
+      "action": "Log",
+      "source": "EU AI Act (Regulation (EU) 2024/1689) GPAI model obligations, reported as applying from 2 Aug 2025 and unchanged by the Digital Omnibus on AI — https://cdp.cooley.com/digital-ai-omnibus-delays-key-deadlines-introduces-new-rules/",
+      "retrieved_snippet": "search summary (secondary sources, some figures disagree): GPAI obligations applied from 2 Aug 2025; high-risk Annex III reported moved to 2 Dec 2027 and Annex I to 2 Aug 2028 by Regulation (EU) 2026/1744. Verify in the Official Journal.",
+      "official_source": false,
+      "aliases": [
+        "gpai"
+      ]
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "privacy by design",
+      "action": "Log",
+      "source": "GDPR Art. 25 (data protection by design and by default) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "retrieved_snippet": "Article text NOT fetched this pass (the EUR-Lex capture ended at the recitals); cited by article number only. Verify wording before relying on it.",
+      "official_source": true,
+      "aliases": [
+        "data protection by design"
+      ]
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "data processor",
+      "action": "Log",
+      "source": "GDPR Art. 28 (processor) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "retrieved_snippet": "Article text NOT fetched this pass; cited by article number only. A model provider receiving personal data on the instance's behalf is plausibly a processor; confirm with counsel and the provider's DPA (for example https://openrouter.ai/assets/data-processing-agreement.pdf, search result only).",
+      "official_source": true,
+      "aliases": [
+        "processor agreement"
+      ]
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "records of processing",
+      "action": "Log",
+      "source": "GDPR Art. 30 (records of processing activities) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "retrieved_snippet": "Article text NOT fetched this pass; cited by article number only.",
+      "official_source": true,
+      "aliases": []
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "data minimisation",
+      "action": "Log",
+      "source": "GDPR Art. 5(1)(c) (data minimisation) — Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "retrieved_snippet": "Article text NOT fetched this pass; cited by article number only.",
+      "official_source": true,
+      "aliases": [
+        "data minimization"
+      ]
     }
   ]
 }

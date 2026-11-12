@@ -1834,6 +1834,131 @@ async fn get_capability_gaps() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "success": true, "count": gaps.len(), "by_status": by_status, "gaps": gaps }))
 }
 
+// ============================================================================
+// JURISDICTION POLICY SURFACE (jurisdiction/policy.rs) — operator-facing, versioned, auditable
+// ============================================================================
+
+fn jx_by(body: &serde_json::Value) -> String {
+    body.get("by").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty()).unwrap_or("operator").to_string()
+}
+
+fn jx_err(msg: impl Into<String>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "success": false, "error": msg.into() }))
+}
+
+/// GET /jurisdiction/policy — the live policy, its fingerprint, requirement acceptance (current version only) and the open holds.
+async fn get_jurisdiction_policy() -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let p = policy::load_policy();
+    let dd = policy::data_dir();
+    let holds: Vec<_> = crate::orchestrator::awaiting::load_all(&dd)
+        .into_iter()
+        .filter(|i| {
+            i.status == crate::orchestrator::awaiting::STATUS_AWAITING
+                && matches!(i.kind.as_str(), policy::KIND_OUTBOUND_TRANSFER | policy::KIND_AGREEMENT | "jurisdiction_unknown_region")
+        })
+        .collect();
+    Json(serde_json::json!({
+        "success": true,
+        "fingerprint": policy::policy_fingerprint(&p),
+        "agreements": policy::agreement_status(&p),
+        "unaccepted": policy::unaccepted_requirements(&p),
+        "holds": holds,
+        "policy": p,
+    }))
+}
+
+/// POST /jurisdiction/policy {policy, by} — save a new policy VERSION (history is append-only). An empty provider/region list is refused:
+/// an empty policy must never become an open gate.
+async fn post_jurisdiction_policy(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let Some(raw) = body.get("policy").cloned() else { return jx_err("body needs a `policy` object") };
+    let next: policy::JurisdictionPolicy = match serde_json::from_value(raw) {
+        Ok(p) => p,
+        Err(e) => return jx_err(format!("policy invalid: {e}")),
+    };
+    if next.providers.is_empty() || next.allow_personal_data_regions.is_empty() {
+        return jx_err("a policy must name providers and allowed regions");
+    }
+    match policy::save_policy(next, &jx_by(&body), "operator") {
+        Ok(saved) => Json(serde_json::json!({ "success": true, "version": saved.version, "fingerprint": policy::policy_fingerprint(&saved) })),
+        Err(e) => jx_err(e),
+    }
+}
+
+/// POST /jurisdiction/agree {key, accepted, by} — accept or withdraw ONE requirement at its current version.
+async fn post_jurisdiction_agree(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let Some(key) = body.get("key").and_then(|v| v.as_str()) else { return jx_err("body needs `key`") };
+    let accepted = body.get("accepted").and_then(|v| v.as_bool()).unwrap_or(true);
+    match policy::record_agreement(key, accepted, &jx_by(&body)) {
+        Ok(row) => {
+            // Held calls retry on their own backoff; wake them now.
+            crate::orchestrator::awaiting::await_wake().notify_waiters();
+            Json(serde_json::json!({ "success": true, "agreement": row }))
+        }
+        Err(e) => jx_err(e),
+    }
+}
+
+/// GET /jurisdiction/decisions?since=<ms> — the append-only decision log (hashes and rule vocabulary only; never content).
+async fn get_jurisdiction_decisions(axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> Json<serde_json::Value> {
+    let since = q.get("since").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+    let rows = crate::orchestrator::jurisdiction::policy::read_decisions(since);
+    Json(serde_json::json!({ "success": true, "count": rows.len(), "decisions": rows }))
+}
+
+/// POST /jurisdiction/outbound/approve {scope: content|region, key, approve, by, await_id?} — the operator's decision on a held transfer.
+async fn post_jurisdiction_outbound_approve(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let (Some(scope), Some(key)) = (body.get("scope").and_then(|v| v.as_str()), body.get("key").and_then(|v| v.as_str())) else {
+        return jx_err("body needs `scope` (content|region) and `key`");
+    };
+    let approve = body.get("approve").and_then(|v| v.as_bool()).unwrap_or(false);
+    let await_id = body.get("await_id").and_then(|v| v.as_str());
+    match policy::record_outbound_approval(scope, key, approve, &jx_by(&body), await_id) {
+        Ok(()) => {
+            crate::orchestrator::awaiting::await_wake().notify_waiters();
+            Json(serde_json::json!({ "success": true }))
+        }
+        Err(e) => jx_err(e),
+    }
+}
+
+/// POST /jurisdiction/erasure/plan {needle} — READ-ONLY: which data-dir files hold the needle (counts only, never the text).
+async fn post_jurisdiction_erasure_plan(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let Some(needle) = body.get("needle").and_then(|v| v.as_str()) else { return jx_err("body needs `needle`") };
+    match crate::orchestrator::jurisdiction::policy::erasure_plan(needle) {
+        Ok(plan) => Json(serde_json::json!({ "success": true, "plan": plan })),
+        Err(e) => jx_err(e),
+    }
+}
+
+/// POST /jurisdiction/erasure/apply {needle, confirm:"ERASE", by} — DESTRUCTIVE file-level redaction (see policy::erasure_apply).
+async fn post_jurisdiction_erasure_apply(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let (Some(needle), Some(confirm)) = (body.get("needle").and_then(|v| v.as_str()), body.get("confirm").and_then(|v| v.as_str())) else {
+        return jx_err("body needs `needle` and `confirm`");
+    };
+    match crate::orchestrator::jurisdiction::policy::erasure_apply(needle, confirm, &jx_by(&body)) {
+        Ok(plan) => Json(serde_json::json!({ "success": true, "plan": plan })),
+        Err(e) => jx_err(e),
+    }
+}
+
+/// POST /jurisdiction/policy/adopt {path, by} — adopt the policy block of a STAGED peer jurisdiction file (operator action, never automatic).
+async fn post_jurisdiction_policy_adopt(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let Some(path) = body.get("path").and_then(|v| v.as_str()) else { return jx_err("body needs `path`") };
+    match crate::orchestrator::jurisdiction::policy::adopt_staged_policy(path, &jx_by(&body)) {
+        Ok(p) => Json(serde_json::json!({ "success": true, "version": p.version })),
+        Err(e) => jx_err(e),
+    }
+}
+
+/// GET /jurisdiction/policy/export — the live policy as a jurisdiction content file the marketplace staging accepts (manifest, no content).
+async fn get_jurisdiction_policy_export() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "success": true, "content": crate::orchestrator::jurisdiction::policy::export_policy_as_content() }))
+}
+
 /// GET /methodology/refinement — what the rule gate recorded and what the refinement action did (read-only). `report` is
 /// `methodology_refinement_report.json` (an empty well-formed object when it has not been written yet); `actions` are the parsed lines of
 /// `methodology_refinement_actions.jsonl` read LIVE (the report embeds a copy that is only refreshed once per meta-loop pass); `candidates`
@@ -5183,6 +5308,14 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/list", post(list_tasks))
         .route("/order/global", get(get_global_order))
         .route("/order/work/:task_id", get(get_work_order))
+        .route("/jurisdiction/policy", get(get_jurisdiction_policy).post(post_jurisdiction_policy))
+        .route("/jurisdiction/policy/adopt", post(post_jurisdiction_policy_adopt))
+        .route("/jurisdiction/policy/export", get(get_jurisdiction_policy_export))
+        .route("/jurisdiction/agree", post(post_jurisdiction_agree))
+        .route("/jurisdiction/decisions", get(get_jurisdiction_decisions))
+        .route("/jurisdiction/outbound/approve", post(post_jurisdiction_outbound_approve))
+        .route("/jurisdiction/erasure/plan", post(post_jurisdiction_erasure_plan))
+        .route("/jurisdiction/erasure/apply", post(post_jurisdiction_erasure_apply))
         .route("/capability/gaps", get(get_capability_gaps))
         .route("/callgraph/system", get(get_callgraph_system))
         .route("/callgraph/live", get(get_callgraph_live))

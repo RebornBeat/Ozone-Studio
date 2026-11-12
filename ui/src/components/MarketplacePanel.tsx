@@ -25,8 +25,9 @@ import {
 } from "../ozoneClient";
 import { KeywordChips } from "./KeywordChips";
 import { MethodologyRefinementPanel } from "./MethodologyRefinementPanel";
+import { JurisdictionPolicyPanel } from "./JurisdictionPolicyPanel";
 
-type View = "catalog" | "installed" | "relations" | "contribute" | "refinement";
+type View = "catalog" | "installed" | "relations" | "contribute" | "refinement" | "jurisdiction";
 
 const card: React.CSSProperties = { border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "9px 12px", background: "rgba(255,255,255,0.02)" };
 const chip: React.CSSProperties = { display: "inline-block", fontSize: 11, padding: "1px 7px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", color: "#9fb3c8", marginRight: 5, marginBottom: 3 };
@@ -197,9 +198,9 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "10px 0" }}>
-        {(["catalog", "installed", "relations", "contribute", "refinement"] as View[]).map((v) => (
+        {(["catalog", "installed", "relations", "contribute", "refinement", "jurisdiction"] as View[]).map((v) => (
           <button key={v} style={tabBtn(view === v)} onClick={() => setView(v)}>
-            {{ catalog: "Catalog", installed: "Installed & Offers", relations: "Relations", contribute: "Publish & Policy", refinement: "Refinement" }[v]}
+            {{ catalog: "Catalog", installed: "Installed & Offers", relations: "Relations", contribute: "Publish & Policy", refinement: "Refinement", jurisdiction: "Jurisdiction" }[v]}
             {v === "installed" && pendingOffers > 0 && <span className="omkt-badge" aria-label={`${pendingOffers} offers waiting`}>{pendingOffers}</span>}
           </button>
         ))}
@@ -426,6 +427,8 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
 
       {view === "refinement" && <MethodologyRefinementPanel />}
 
+      {view === "jurisdiction" && <JurisdictionPolicyPanel />}
+
       {view === "contribute" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={card}>
@@ -452,7 +455,7 @@ export const MarketplacePanel: React.FC<{ pollMs?: number }> = ({ pollMs = 15000
               <strong>Publishing is {publishOn ? "ON" : "OFF"}</strong>
               <span className="opanel-sub" style={{ marginLeft: 10 }}>
                 {publishOn
-                  ? "New methodologies, jurisdiction rule sets and pipelines are published as manifests (blueprints never); one notification reaches every connected peer."
+                  ? "New methodologies, jurisdiction rule sets and pipelines are published as manifests (blueprints never); one notification reaches every connected peer. Anything published CANNOT be recalled once a peer has received it — do not publish personal data."
                   : "Set marketplace_publish = true to publish (the older auto_broadcast_sync = true still enables publishing and accepting offers together). Nothing leaves this host while it is off."}
               </span>
             </div>

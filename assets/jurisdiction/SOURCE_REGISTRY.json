@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-28T09:49:16.103989+00:00",
+  "generated_at": "2026-11-12T02:14:34.063169+00:00",
   "generator": "tools/generate_jurisdiction_registry.py",
   "total_scopes": 132,
-  "total_rules": 648,
+  "total_rules": 658,
   "scopes": {
     "global": {
       "rule_count": 41,
@@ -473,7 +473,7 @@
       ]
     },
     "eu": {
-      "rule_count": 33,
+      "rule_count": 43,
       "disclaimer_present": true,
       "topics": [
         "personal data",
@@ -508,7 +508,17 @@
         "health data",
         "automated decision",
         "data transfer",
-        "right to erasure"
+        "right to erasure",
+        "data protection impact assessment",
+        "international transfer",
+        "adequacy decision",
+        "legitimate interest",
+        "training data",
+        "general-purpose ai",
+        "privacy by design",
+        "data processor",
+        "records of processing",
+        "data minimisation"
       ]
     },
     "fi": {
@@ -3904,6 +3914,96 @@
       "aliases": 0
     },
     {
+      "scope": "eu",
+      "condition": "data protection impact assessment",
+      "action": "Log",
+      "source": "GDPR Art. 35 \u2014 https://gdpr-info.eu/art-35-gdpr/ (text of Art. 35(1) and 35(3)(a)-(c) fetched 2026-11-11; unofficial mirror of Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj)",
+      "official_source": false,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
+      "scope": "eu",
+      "condition": "international transfer",
+      "action": "Log",
+      "source": "GDPR Art. 44 \u2014 https://gdpr-info.eu/art-44-gdpr/ (fetched 2026-11-11); EDPB Guidelines 05/2021 v2.0 \u2014 https://edpb.europa.eu/system/files/2023-02/edpb_guidelines_05-2021_interplay_between_the_application_of_art3_chapter_v_of_the_gdpr_v2_en_0.pdf",
+      "official_source": true,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
+      "scope": "eu",
+      "condition": "adequacy decision",
+      "action": "Log",
+      "source": "EU-US Data Privacy Framework \u2014 Latombe v Commission, T-553/23 (General Court, 3 Sep 2025, upheld); appeal C-703/25 P filed 31 Oct 2025 \u2014 https://www.wilmerhale.com/en/insights/blogs/wilmerhale-privacy-and-cybersecurity-law-blog/20251201-european-court-of-justice-to-review-challenge-to-eu-us-data-privacy-framework",
+      "official_source": false,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
+      "scope": "eu",
+      "condition": "legitimate interest",
+      "action": "Log",
+      "source": "EDPB Opinion 28/2024 (adopted 17 Dec 2024) on personal data in AI models \u2014 https://hunton.com/privacy-and-information-security-law/edpb-publishes-opinion-on-processing-of-personal-data-in-the-context-of-ai-models",
+      "official_source": false,
+      "has_retrieved_snippet": true,
+      "aliases": 0
+    },
+    {
+      "scope": "eu",
+      "condition": "training data",
+      "action": "Log",
+      "source": "EDPB Opinion 28/2024 on personal data in AI models \u2014 https://cms.law/en/int/legal-updates/edpb-opinion-28-2024-key-takeaways-on-processing-personal-data-in-the-context-of-ai-models",
+      "official_source": false,
+      "has_retrieved_snippet": true,
+      "aliases": 0
+    },
+    {
+      "scope": "eu",
+      "condition": "general-purpose ai",
+      "action": "Log",
+      "source": "EU AI Act (Regulation (EU) 2024/1689) GPAI model obligations, reported as applying from 2 Aug 2025 and unchanged by the Digital Omnibus on AI \u2014 https://cdp.cooley.com/digital-ai-omnibus-delays-key-deadlines-introduces-new-rules/",
+      "official_source": false,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
+      "scope": "eu",
+      "condition": "privacy by design",
+      "action": "Log",
+      "source": "GDPR Art. 25 (data protection by design and by default) \u2014 Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "official_source": true,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
+      "scope": "eu",
+      "condition": "data processor",
+      "action": "Log",
+      "source": "GDPR Art. 28 (processor) \u2014 Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "official_source": true,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
+      "scope": "eu",
+      "condition": "records of processing",
+      "action": "Log",
+      "source": "GDPR Art. 30 (records of processing activities) \u2014 Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "official_source": true,
+      "has_retrieved_snippet": true,
+      "aliases": 0
+    },
+    {
+      "scope": "eu",
+      "condition": "data minimisation",
+      "action": "Log",
+      "source": "GDPR Art. 5(1)(c) (data minimisation) \u2014 Regulation (EU) 2016/679, https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+      "official_source": true,
+      "has_retrieved_snippet": true,
+      "aliases": 1
+    },
+    {
       "scope": "fi",
       "condition": "personal data",
       "action": "Log",
@@ -7280,7 +7380,7 @@
     }
   ],
   "gaps": {
-    "no_official_source": 220,
+    "no_official_source": 225,
     "no_retrieved_snippet": 53,
     "non_log_national_actions": 3
   }

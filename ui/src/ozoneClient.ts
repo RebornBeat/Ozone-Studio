@@ -840,3 +840,66 @@ export interface MethodologyRefinementResponse {
 export function fetchMethodologyRefinement(): Promise<MethodologyRefinementResponse> {
   return hostGet<MethodologyRefinementResponse>("/methodology/refinement");
 }
+
+// ── Jurisdiction policy surface (GET/POST /jurisdiction/*) ───────────────────────────────────
+// The instance's OWN jurisdiction policy (versioned, durable), per-requirement agreements, held outbound transfers, the append-only decision log
+// (hashes + rule vocabulary only), and the erasure path. Hardening is the operator's per-instance policy, not a fixed rule.
+export interface JurisdictionRequirementStatus {
+  key: string; title: string; text: string; source: string; version: number;
+  accepted_current: boolean; accepted_version: number | null; stale: boolean; by: string | null; at: number | null;
+}
+export interface JurisdictionPolicy {
+  disclaimer?: string; version: number; updated_at: number; updated_by: string; origin: string;
+  enabled: boolean; hosting_region: string; residency_note: string;
+  providers: { endpoint_contains: string; region: string; note?: string }[];
+  default_region_unlisted_endpoint: string;
+  allow_personal_data_regions: string[];
+  on_personal_data_outbound: string; unknown_jurisdiction: string; conflict_resolution: string;
+  require_agreements_before_outbound: boolean;
+  requirements: { key: string; title: string; text: string; source?: string; version: number }[];
+  detection: { deterministic: boolean; kinds: string[]; vote: boolean; vote_model: string; vote_model_region: string };
+  erasure: { enabled: boolean; keep_before_copy: boolean; retention_days: number | null; covers: string[] };
+  p2p: { publish_kinds: string[]; recall_notice: boolean; share_policy_as_offer: boolean };
+  exempt_pipelines: number[];
+}
+export interface JurisdictionHold { await_id: string; kind: string; status: string; subject: string; reason: string; created_at_ms: number }
+export interface JurisdictionPolicyResponse {
+  success: boolean; fingerprint: string; policy: JurisdictionPolicy;
+  agreements: JurisdictionRequirementStatus[]; unaccepted: string[]; holds: JurisdictionHold[];
+}
+export interface JurisdictionDecision {
+  at: number; entry_point: string; subject_hash: string; region: string | null; region_known: boolean;
+  policy_version: number; policy_fp: string; rules_fp: string; outcome: string; matched: string[]; detail: string;
+}
+export interface ErasurePlanResponse {
+  success: boolean; error?: string;
+  plan?: { needle_hash: string; total_matches: number; files: { path: string; matches: number; kind: string }[]; not_covered: string[] };
+}
+
+export function fetchJurisdictionPolicy(): Promise<JurisdictionPolicyResponse> {
+  return hostGet<JurisdictionPolicyResponse>("/jurisdiction/policy");
+}
+export function saveJurisdictionPolicy(policy: JurisdictionPolicy, by = "operator") {
+  return hostPost<{ success: boolean; error?: string; version?: number }>("/jurisdiction/policy", { policy, by });
+}
+export function setJurisdictionAgreement(key: string, accepted: boolean, by = "operator") {
+  return hostPost<{ success: boolean; error?: string }>("/jurisdiction/agree", { key, accepted, by });
+}
+export function fetchJurisdictionDecisions(since = 0) {
+  return hostGet<{ success: boolean; count: number; decisions: JurisdictionDecision[] }>(`/jurisdiction/decisions?since=${since}`);
+}
+export function decideOutboundTransfer(scope: "content" | "region", key: string, approve: boolean, awaitId?: string, by = "operator") {
+  return hostPost<{ success: boolean; error?: string }>("/jurisdiction/outbound/approve", { scope, key, approve, await_id: awaitId, by });
+}
+export function planErasure(needle: string) {
+  return hostPost<ErasurePlanResponse>("/jurisdiction/erasure/plan", { needle });
+}
+export function applyErasure(needle: string, confirm: string, by = "operator") {
+  return hostPost<ErasurePlanResponse>("/jurisdiction/erasure/apply", { needle, confirm, by });
+}
+export function adoptStagedJurisdictionPolicy(path: string, by = "operator") {
+  return hostPost<{ success: boolean; error?: string; version?: number }>("/jurisdiction/policy/adopt", { path, by });
+}
+export function exportJurisdictionPolicy() {
+  return hostGet<{ success: boolean; content: unknown }>("/jurisdiction/policy/export");
+}

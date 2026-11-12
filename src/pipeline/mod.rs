@@ -241,6 +241,16 @@ impl PipelineRegistry {
         input: PipelineInput,
         task_id: Option<TaskID>, //
     ) -> OzoneResult<PipelineOutput> {
+        // JURISDICTION OUTBOUND GATE for DIRECT dispatches (HTTP /pipeline/execute, gRPC, tools): every pipeline call reaches here, but calls
+        // from the orchestrator adapter already passed the gate (with its personal-data vote) and carry the task-local mark, so this only
+        // judges the ones that did not. Deterministic detection only here (no vote executor); a call that cannot be cleared is HELD, never let through.
+        if !crate::orchestrator::jurisdiction::policy::passed() {
+            let json_in = crate::orchestrator::jurisdiction::policy::input_to_json(&input.data);
+            let verdict = crate::orchestrator::jurisdiction::policy::check_outbound(pipeline_id, &json_in, None).await;
+            if !verdict.allow {
+                return Err(OzoneError::PipelineError(verdict.reason));
+            }
+        }
         // LOCK-SCOPE FIX (same class as the adapter fix, one level down):
         // the read guard used to be held across the ENTIRE pipeline
         // execution — a queued writer (pipeline self-registration) then

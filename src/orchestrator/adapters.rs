@@ -61,6 +61,15 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
         }
         drop(registry);
 
+        // JURISDICTION OUTBOUND GATE (jurisdiction/policy.rs): the single seam every pipeline call crosses (model calls, graph analysis,
+        // loop prompts, tool-creation drafts). It reads the instance's jurisdiction policy: destination region, accepted agreements,
+        // personal-data detection, operator approvals. A call that cannot be cleared is HELD (AWAITING_OPERATOR, durable awaiting item) —
+        // never let through unjudged — and the pause/resume machinery retries it once the operator decides.
+        let verdict = crate::orchestrator::jurisdiction::policy::check_outbound(pipeline_id, &input, Some(self)).await;
+        if !verdict.allow {
+            return Err(verdict.reason);
+        }
+
         // "_execution_context", if present, carries the caller's real
         // ExecutionContext (user/device/workspace/project ids) — e.g. a step
         // rerun (grpc/mod.rs rerun_step) needs the ORIGINAL task's context,
@@ -129,16 +138,15 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
             registry_secs.max(1800)
         };
         let output = if watchdog_secs == u64::MAX {
-            self.registry
-                .read()
-                .await
-                .execute(pipeline_id, pipeline_input, None)
-                .await
-                .map_err(|e| e.to_string())?
+            crate::orchestrator::jurisdiction::policy::scoped_passed(async {
+                self.registry.read().await.execute(pipeline_id, pipeline_input, None).await
+            })
+            .await
+            .map_err(|e| e.to_string())?
         } else {
             let exec_fut = async {
                 let registry = self.registry.read().await;
-                registry.execute(pipeline_id, pipeline_input, None).await
+                crate::orchestrator::jurisdiction::policy::scoped_passed(registry.execute(pipeline_id, pipeline_input, None)).await
             };
             // PROGRESS-AWARE WATCHDOG (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing work"): the budget
             // is a STALL budget, not a wall-clock cap. Past `watchdog_secs` the invocation is kept while a model call made progress in
