@@ -13,6 +13,11 @@ const EVIDENCE_DIR = path.resolve(HERE, "../../docs/evidence/test-runs");
 const KEY_PATH = path.join(os.homedir(), ".ozone-cli", "device-key.pem");
 
 export async function http(method, p, body, headers = {}, timeoutMs = 120000) {
+  // Strict hosts (default ON) gate protected route families on `Authorization: Bearer <session>`: once a device session exists, every call
+  // carries it (the auth handshake itself and /health never need one).
+  if (session && !headers.authorization && !headers.Authorization && !p.startsWith("/auth/") && p !== "/health") {
+    headers = { ...headers, authorization: `Bearer ${session}` };
+  }
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -61,11 +66,14 @@ export async function pipeline(id, data, ctx = {}) {
 }
 
 export async function mcp(tool, input = {}, agent = "e2e") {
+  await sessionToken();
   return (await http("POST", "/mcp/call", { tool, agent, input })).json;
 }
 
 export async function orchestrate(body, { pollMs = 15000, maxMs = 3600000 } = {}) {
-  const ack = (await http("POST", "/orchestrate", { user_id: 1, device_id: 1, consciousness_enabled: false, token_budget: 100000, session_token: "", ...body, submit_only: true })).json;
+  // /orchestrate REQUIRES a credential on strict hosts: a real device session (body token + Bearer header).
+  const sess = await sessionToken();
+  const ack = (await http("POST", "/orchestrate", { user_id: 1, device_id: 1, consciousness_enabled: false, token_budget: 100000, session_token: sess, ...body, submit_only: true })).json;
   const tok = ack.run_token;
   const t0 = Date.now();
   for (;;) {

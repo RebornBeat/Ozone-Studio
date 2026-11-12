@@ -719,7 +719,16 @@ async fn session_gate(
         "/jurisdiction/",
         // The native history store: /history/restore overwrites a file or container with an older version — an operator action.
         "/history/",
+        // Credentials pass (2026-11-12): unregistering a remote pipeline, feeding node events into the graph ripple, running a consciousness
+        // review pass and cancelling a pipeline were open to any local process. Callers: UI (Electron attaches the device session as a
+        // header), tools (internal token via tools/shared/guard.mjs), spawned modality pipelines (OZONE_INTERNAL_TOKEN env, `x-oz-internal`).
+        "/pipelines/unregister",
+        "/orchestration/",
+        "/consciousness/review_pass",
+        "/pipeline/cancel",
     ];
+    // Mutating-only: the activity feed is READ openly (UI indicators poll it) but WRITING it injects events into the monitor.
+    const PROTECTED_MUTATING: &[&str] = &["/monitor/activity"];
     const PROTECTED_EXEMPT: &[&str] = &["/jurisdiction/outbound/check"];
     // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
     // gate stands down entirely — the setup wizard must be able to write
@@ -733,7 +742,9 @@ async fn session_gate(
     };
     if crate::config::switch_on("OZONE_REQUIRE_SESSION")
         && !first_run
-        && PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
+        && (PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
+            || (req.method() != axum::http::Method::GET
+                && PROTECTED_MUTATING.iter().any(|p| req.uri().path().starts_with(p))))
         && !PROTECTED_EXEMPT.contains(&req.uri().path())
     {
         // Read headers into OWNED strings BEFORE any await: a closure holding
@@ -2049,6 +2060,141 @@ fn history_id_of(body: &serde_json::Value) -> Option<String> {
         Some(serde_json::Value::Number(n)) => Some(n.to_string()),
         _ => None,
     }
+}
+
+/// POST /history/status {scope?} — every item that has history: versions, last change, size, recorded path.
+async fn post_history_status(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let scope_filter = body.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let h = crate::history::shared();
+    let out = tokio::task::spawn_blocking(move || {
+        let mut items: Vec<serde_json::Value> = Vec::new();
+        for (scope, id, n) in h.scopes() {
+            if scope_filter.as_deref().map_or(false, |f| f != scope) {
+                continue;
+            }
+            let rows = h.list(&scope, &id).unwrap_or_default();
+            let Some(last) = rows.last() else { continue };
+            let path = rows.iter().rev().find_map(|r| r.path.clone());
+            items.push(serde_json::json!({ "scope": scope, "id": id, "versions": n, "last_ts": last.ts, "last_reason": last.reason, "size": last.size, "path": path }));
+        }
+        items.sort_by(|a, b| b["last_ts"].as_u64().cmp(&a["last_ts"].as_u64()));
+        items
+    })
+    .await;
+    match out {
+        Ok(items) => Json(serde_json::json!({ "success": true, "items": items })),
+        Err(e) => jx_err(e.to_string()),
+    }
+}
+
+/// POST /history/diff {scope, id, from?, to?} — hunks between two versions (default: the one before the newest -> the newest). Binary
+/// content reports changed chunks. Read-only.
+async fn post_history_diff(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let Some(scope) = body.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()) else { return jx_err("body needs `scope` (file|container)") };
+    let Some(id) = history_id_of(&body) else { return jx_err("body needs `id`") };
+    let (from, to) = (body.get("from").and_then(|v| v.as_u64()), body.get("to").and_then(|v| v.as_u64()));
+    let h = crate::history::shared();
+    let out = tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let rows = h.list(&scope, &id).map_err(|e| e.to_string())?;
+        if rows.is_empty() {
+            return Err(format!("no history for {scope}/{id}"));
+        }
+        let to_row = match to {
+            Some(v) => rows.iter().find(|r| r.v == v),
+            None => rows.last(),
+        }
+        .ok_or("`to` version not found")?;
+        let from_row = match from {
+            Some(v) => rows.iter().find(|r| r.v == v),
+            None => rows.iter().rev().find(|r| r.v < to_row.v),
+        };
+        let Some(from_row) = from_row else {
+            return Ok(serde_json::json!({ "note": "only one version recorded — nothing to compare", "to": { "v": to_row.v, "ts": to_row.ts, "size": to_row.size } }));
+        };
+        let a = h.rebuild(from_row).map_err(|e| e.to_string())?;
+        let b = h.rebuild(to_row).map_err(|e| e.to_string())?;
+        let mut d = crate::history::diff::diff_versions(&a, &b, &from_row.chunks, &to_row.chunks);
+        if let Some(o) = d.as_object_mut() {
+            o.insert("from".into(), serde_json::json!({ "v": from_row.v, "ts": from_row.ts, "size": from_row.size, "reason": from_row.reason }));
+            o.insert("to".into(), serde_json::json!({ "v": to_row.v, "ts": to_row.ts, "size": to_row.size, "reason": to_row.reason }));
+        }
+        Ok(d)
+    })
+    .await;
+    match out {
+        Ok(Ok(v)) => Json(serde_json::json!({ "success": true, "diff": v })),
+        Ok(Err(e)) => jx_err(e),
+        Err(e) => jx_err(e.to_string()),
+    }
+}
+
+/// POST /history/read {scope, id, version, offset?, length?, encoding?: "utf8"|"base64"} — a version's content, read in chunks (omit offset/length
+/// = the whole content; there is no size refusal). `total` is the full byte length so a reader can page.
+async fn post_history_read(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let Some(scope) = body.get("scope").and_then(|v| v.as_str()).map(|s| s.to_string()) else { return jx_err("body needs `scope` (file|container)") };
+    let Some(id) = history_id_of(&body) else { return jx_err("body needs `id`") };
+    let Some(version) = body.get("version").and_then(|v| v.as_u64()) else { return jx_err("body needs numeric `version`") };
+    let offset = body.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let length = body.get("length").and_then(|v| v.as_u64()).map(|n| n as usize);
+    let base64 = body.get("encoding").and_then(|v| v.as_str()) == Some("base64");
+    let h = crate::history::shared();
+    let out = tokio::task::spawn_blocking(move || h.read_version(&scope, &id, version)).await;
+    match out {
+        Ok(Ok(bytes)) => {
+            let total = bytes.len();
+            let start = offset.min(total);
+            let end = length.map(|l| start.saturating_add(l).min(total)).unwrap_or(total);
+            let slice = &bytes[start..end];
+            let content = if base64 {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(slice)
+            } else {
+                String::from_utf8_lossy(slice).into_owned()
+            };
+            Json(serde_json::json!({ "success": true, "version": version, "total": total, "offset": start, "returned": slice.len(), "encoding": if base64 { "base64" } else { "utf8" }, "content": content }))
+        }
+        Ok(Err(e)) => jx_err(e.to_string()),
+        Err(e) => jx_err(e.to_string()),
+    }
+}
+
+/// GET /jurisdiction/held?since=<ms> — outbound calls CURRENTLY held by the jurisdiction gate: each open hold with its age, attempts and the
+/// next retry, the requirements still unaccepted, and the recent `held_*` decision rows (hashes and rule vocabulary only, never content).
+/// Held calls wait and retry on their own (`policy::held_backoff`); nothing here releases one — approvals/agreements are the operator's
+/// `/jurisdiction/outbound/approve` and `/jurisdiction/agree`.
+async fn get_jurisdiction_held(axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    let since = q.get("since").and_then(|s| s.parse::<u64>().ok()).unwrap_or(now.saturating_sub(24 * 3600 * 1000));
+    let dd = policy::data_dir();
+    let items: Vec<serde_json::Value> = crate::orchestrator::awaiting::load_all(&dd)
+        .into_iter()
+        .filter(|i| {
+            i.status == crate::orchestrator::awaiting::STATUS_AWAITING
+                && matches!(i.kind.as_str(), policy::KIND_OUTBOUND_TRANSFER | policy::KIND_AGREEMENT | "jurisdiction_unknown_region")
+        })
+        .map(|i| {
+            serde_json::json!({
+                "await_id": i.await_id, "kind": i.kind, "subject": i.subject, "reason": i.reason, "task_id": i.task_id,
+                "created_at_ms": i.created_at_ms, "age_ms": now.saturating_sub(i.created_at_ms),
+                "attempts": i.attempts, "next_attempt_at_ms": i.next_attempt_at_ms,
+                "backoff_secs": crate::orchestrator::awaiting::backoff_secs(i.attempts),
+            })
+        })
+        .collect();
+    let p = policy::load_policy();
+    let held_decisions: Vec<serde_json::Value> = policy::read_decisions(since)
+        .into_iter()
+        .filter(|d| d["outcome"].as_str().map_or(false, |o| o.starts_with("held")))
+        .collect();
+    Json(serde_json::json!({
+        "success": true,
+        "now_ms": now,
+        "held": items,
+        "unaccepted_requirements": policy::unaccepted_requirements(&p),
+        "held_decisions": held_decisions,
+        "note": "held calls wait and retry on their own (250 ms doubling to 30 s per call); there is no timeout and no fail-open",
+    }))
 }
 
 /// POST /history/list {scope: "file"|"container", id} — every recorded version of one item (the native history store, src/history).
@@ -3991,6 +4137,10 @@ fn paid_policy_refusal(models: &serde_json::Value) -> Option<String> {
                 return Some(format!("refused: api_endpoint '{ep}' is a paid direct provider; {POLICY}"));
             }
         }
+        // A CLI agent (codex / claude / zcode) runs on the vendor's account: same class as the paid direct API.
+        if ep.starts_with("cli:") {
+            return Some(format!("refused: api_endpoint '{ep}' is a vendor CLI agent (paid); {POLICY}"));
+        }
     }
     if let Some(model) = models.get("api_model").and_then(|v| v.as_str()) {
         match crate::model_windows::catalog_entry(model) {
@@ -4134,10 +4284,6 @@ async fn set_config(
             // and a wholesale replace risks one clobbering the other's
             // concurrent edit on a stale fetch-then-save.
             if let Some(v) = models.get("add_model") {
-        // A CLI agent (codex / claude / zcode) runs on the vendor's account: same class as the paid direct API.
-        if ep.starts_with("cli:") {
-            return Some(format!("refused: api_endpoint '{ep}' is a vendor CLI agent (paid); {POLICY}"));
-        }
                 if let Ok(mut m) = serde_json::from_value::<crate::config::AvailableModel>(v.clone()) {
                     // The host owns each vendor's endpoint and wire protocol (config::VENDOR_PRESETS): an entry that names only its provider is
                     // completed here, so the UI never has to know (or get wrong) a URL. A CLI agent's destination is `cli:<provider>`.
@@ -4398,8 +4544,31 @@ async fn set_config(
 // Orchestration Handler — full 14-stage AMT flow
 // ============================================================================
 
+/// Does this request carry a credential in its HEADERS: the host's internal token (`x-oz-internal`) or a valid device session
+/// (`Authorization: Bearer` / `x-oz-session`)? The same acceptance rule as `session_gate`, for handlers that must apply it themselves
+/// because their route also takes a body token.
+async fn header_credential_ok(state: &Arc<AppState>, headers: &axum::http::HeaderMap) -> bool {
+    let hv = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string()).unwrap_or_default();
+    let internal = hv("x-oz-internal");
+    if !internal.is_empty() && INTERNAL_TOKEN.get().map_or(false, |t| *t == internal) {
+        return true;
+    }
+    let bearer = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+    let token = bearer.unwrap_or_else(|| hv("x-oz-session"));
+    if token.is_empty() {
+        return false;
+    }
+    let runtime = state.runtime.read().await;
+    let auth = runtime.auth.read().await;
+    auth.validate_session(&hex::decode(&token).unwrap_or_default()).await.is_ok()
+}
+
 async fn orchestrate(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<OrchestrateRequest>,
 ) -> Json<OrchestrateResponse> {
     let start = std::time::Instant::now();
@@ -4407,10 +4576,44 @@ async fn orchestrate(
     // SESSION VALIDATION (CC's long-standing finding, closed 2026-09-29):
     // /orchestrate never read session_token — every caller was implicitly
     // trusted. Now: a PROVIDED token is validated against the real
-    // AuthSystem; an INVALID token is rejected outright. A MISSING token
-    // remains allowed under the documented localhost-only trust boundary
-    // (the Electron UI does not yet attach sessions to /orchestrate —
-    // wiring that is the remaining half, tracked in CHECKLIST).
+    // AuthSystem; an INVALID token is rejected outright. CREDENTIALS PASS
+    // (2026-11-12): on a strict host (OZONE_REQUIRE_SESSION, default ON, once
+    // setup is complete) a MISSING credential is refused too — the caller must
+    // present a valid body session_token, a valid Bearer/x-oz-session header,
+    // or the host's internal token. Every in-repo caller attaches one (Electron
+    // main.js, ozone-cli, tools/e2e, third-party-verify, ozone-mcp). A
+    // non-strict host keeps the localhost-trust behaviour.
+    let body_token_given = req.session_token.as_deref().map(|t| !t.trim().is_empty()).unwrap_or(false);
+    if !body_token_given && crate::config::switch_on("OZONE_REQUIRE_SESSION") {
+        let setup_done = {
+            let rt = state.runtime.read().await;
+            rt.config.general.setup_complete && rt.config.general.user_setup_complete
+        };
+        if setup_done && !header_credential_ok(&state, &headers).await {
+            return Json(OrchestrateResponse {
+                success: false,
+                response: None,
+                task_id: None,
+                blueprint_id: None,
+                stages_completed: vec![],
+                needs_clarification: false,
+                clarification_points: vec![],
+                error: Some("This host requires a session: send a device session (body session_token or Authorization: Bearer) or the internal token".into()),
+                execution_time_ms: start.elapsed().as_millis() as u64,
+                model_used: None,
+                total_tokens_used: None,
+                amt_summary: None,
+                thinking_log: vec![],
+                attempt_trail: vec![],
+                refusals: vec![],
+                awaiting: false,
+                await_id: None,
+                status: None,
+                accepted: false,
+                run_token: None,
+            });
+        }
+    }
     if let Some(token) = &req.session_token {
         if !token.trim().is_empty() {
             let auth_guard = state.runtime.read().await;
@@ -5477,6 +5680,10 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/jurisdiction/policy", get(get_jurisdiction_policy).post(post_jurisdiction_policy))
         .route("/jurisdiction/policy/adopt", post(post_jurisdiction_policy_adopt))
         .route("/history/list", post(post_history_list))
+        .route("/history/status", post(post_history_status))
+        .route("/history/diff", post(post_history_diff))
+        .route("/history/read", post(post_history_read))
+        .route("/jurisdiction/held", get(get_jurisdiction_held))
         .route("/history/restore", post(post_history_restore))
         .route("/jurisdiction/policy/export", get(get_jurisdiction_policy_export))
         .route("/jurisdiction/policy/share", post(post_jurisdiction_policy_share))
@@ -5584,6 +5791,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/walk/mine", get(walk_mine))
         // AGENT PROVIDER (src/agent_requests.rs): steps handed to a participating agent, answered by its report.
         .route("/agent/requests", get(agent_requests_list))
+        .route("/agent/open", get(agent_requests_open))
         .route("/agent/report", post(agent_report))
         .layer(cors)
         .layer(axum::middleware::from_fn_with_state(state.clone(), session_gate))
@@ -7490,6 +7698,12 @@ pub struct AgentRequestsQuery {
 /// GET /agent/requests?agent= — pending agent-provider requests this agent may answer.
 async fn agent_requests_list(axum::extract::Query(q): axum::extract::Query<AgentRequestsQuery>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "agent": q.agent, "requests": crate::agent_requests::pending_for(&q.agent) }))
+}
+
+/// GET /agent/open — every walk step currently waiting on an agent (target agent, caller, tool, task/trace context, age). Read-only; protected
+/// (`/agent/`). There is no timeout: a request stays here until its agent reports (or the operator cancels the task).
+async fn agent_requests_open() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "success": true, "requests": crate::agent_requests::open_requests() }))
 }
 
 #[derive(Debug, Deserialize)]

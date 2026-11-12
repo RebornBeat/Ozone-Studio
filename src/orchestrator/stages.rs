@@ -3771,6 +3771,21 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // branch a given file belongs to; the compaction pass right
             // below still protects against this overflowing a small
             // model's budget.
+            // HISTORY (2026-11-12): what CHANGED in the attached files since their previous recorded version (src/history, written
+            // automatically by the file beacon). A read-only addition to the context text; no walk control flow involved. Absent history = absent block.
+            let full_context = {
+                let paths: Vec<String> = state.attached_file_contents.iter().map(|(p, _)| p.clone()).collect();
+                let block = if paths.is_empty() {
+                    None
+                } else {
+                    let h = crate::history::shared();
+                    tokio::task::spawn_blocking(move || h.changes_block(&paths)).await.ok().flatten()
+                };
+                match block {
+                    Some(b) => format!("[Recent changes to the attached files (history store)]\n{}\n\n{}", b, full_context),
+                    None => full_context,
+                }
+            };
             let full_context = if state.attached_file_contents.is_empty() {
                 full_context
             } else {

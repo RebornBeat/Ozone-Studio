@@ -25,7 +25,7 @@
 import { createServer } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { guardOk } from "../shared/guard.mjs";
+import { guardOk, internalHeaders } from "../shared/guard.mjs";
 
 const PORT = Number(process.env.OZONE_GIT_PORT ?? 3235);
 const DATA_DIR = process.env.OZONE_ZSEI_DATA_DIR
@@ -94,8 +94,8 @@ function diffLines(aLines, bLines) {
     for (const s of b) ops.push({ t: "+", s });
   } else {
     const max = n + m;
-    const off = max;
-    let v = new Int32Array(2 * max + 2);
+    const off = max + 1; // one spare cell below: at d == max the slice starts at off - d - 1
+    let v = new Int32Array(2 * max + 4);
     const trace = [];
     let traceInts = 0;
     let found = false;
@@ -223,7 +223,8 @@ async function hostRestore(scope, id, v, confirm) {
   if (confirm !== "RESTORE") throw new Error('restore is an operator action: pass confirm:"RESTORE"');
   const r = await fetch(`${HOST}/history/restore`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // strict hosts: the host's /history/ routes need a session OR the internal token (same-user file-permission boundary)
+    headers: internalHeaders(),
     body: JSON.stringify({ scope, id, version: Number(v), confirm: "RESTORE", by: "git-mcp" }),
   });
   return r.json();

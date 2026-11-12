@@ -1523,7 +1523,7 @@ async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisRes
             let poi_type = poi.poi_type.clone();
             tokio::spawn(async move {
                 let client = reqwest::Client::new();
-                let _ = client.post(format!("{host}/orchestration/node-event"))
+                let _ = client.post(format!("{host}/orchestration/node-event")).header("x-oz-internal", std::env::var("OZONE_INTERNAL_TOKEN").unwrap_or_default())
                     .json(&serde_json::json!({
                         "project_id": p_id,
                         "modality": "geospatial",

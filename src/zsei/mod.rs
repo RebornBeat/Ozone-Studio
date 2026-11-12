@@ -335,9 +335,13 @@ impl ZSEI {
         Ok(container)
     }
     
-    /// Restore a container from version `version` of its history (scope `container`). The CURRENT record is snapshotted first, so the
-    /// restore is itself reversible. A version captured from raw bytes of an unparseable record cannot be re-stored as a container: that
-    /// is returned as an error and the raw bytes stay available through git-mcp `read_version` for manual repair.
+    /// Restore a container's record from version `version` of its history (scope `container`) THROUGH THE NORMAL UPDATE PATH
+    /// (`ZSEIQuery::UpdateContainer`), so everything an update does still happens: the pre-write snapshot of the CURRENT record (the restore is
+    /// itself reversible), write-time keyword gate + keyword-program bookkeeping (`record_keywords_changed`), cache invalidation, version bump
+    /// and the graph ripple event. Restored parts = metadata, context (keywords/scope), storage pointers, traversal hints — the parts
+    /// `ContainerUpdate` carries. NOT restored: structure (parent/children), type-specific contexts (file/code/text/external), integrity data.
+    /// A version captured from RAW bytes of an unparseable record cannot be re-applied as a container: error, bytes stay readable through
+    /// `POST /history/read`. A container that no longer exists is not re-created here (error says so).
     pub async fn restore_container_version(&self, container_id: ContainerID, version: u64) -> OzoneResult<()> {
         let history = match self.integrity.as_ref() {
             Some(i) => i.read().await.history_handle(),
@@ -354,8 +358,19 @@ impl ZSEI {
         if container.global_state.container_id != container_id {
             return Err(crate::types::OzoneError::IntegrityError("version holds a different container id".into()));
         }
-        self.pre_write_snapshot(container_id).await;
-        self.store_container(container).await?;
+        if self.get_container(container_id).await?.is_none() {
+            return Err(crate::types::OzoneError::NotFound(format!(
+                "container {container_id} no longer exists; re-creating a deleted container from history is not supported (read the version via /history/read)"
+            )));
+        }
+        let local = container.local_state;
+        let updates = crate::types::zsei::ContainerUpdate {
+            metadata: Some(local.metadata),
+            context: Some(local.context),
+            storage: Some(local.storage),
+            hints: Some(local.hints),
+        };
+        self.query(ZSEIQuery::UpdateContainer { container_id, updates }).await?;
         Ok(())
     }
 

@@ -42,6 +42,19 @@ function internalToken() {
   return "";
 }
 
+/** The host's internal token (same lookup the guard uses), or "" when none is available. For tool -> host calls on strict hosts. */
+export function internalTokenValue() {
+  return internalToken();
+}
+
+/** Headers for a tool -> host call: JSON content type plus `x-oz-internal` when a token exists. Never logs or returns the token elsewhere. */
+export function internalHeaders(extra = {}) {
+  const h = { "content-type": "application/json", ...extra };
+  const t = internalToken();
+  if (t) h["x-oz-internal"] = t;
+  return h;
+}
+
 export function guardRequired() {
   return process.env.OZONE_MCP_REQUIRE_INTERNAL === "1" || process.env.OZONE_REQUIRE_SESSION === "1";
 }

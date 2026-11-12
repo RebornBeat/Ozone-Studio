@@ -25,6 +25,7 @@ import FabricPanel from './panels/FabricPanel';
 import HierarchyPanel from './panels/HierarchyPanel';
 import CapturePanel from './panels/CapturePanel';
 import FilesPanel from './panels/FilesPanel';
+import HistoryTab from './panels/HistoryTab';
 import EnginesPanel from './panels/EnginesPanel';
 import CoordinationPanel from './panels/CoordinationPanel';
 import LivingNetworkPanel from './panels/LivingNetworkPanel';
@@ -276,6 +277,8 @@ export const CORE_TAB_DEFINITIONS = [
   { id: 'coordination',   pipelineId: 1009, label: 'Coordination', icon: '🤝', order: 14 },
   { id: 'living-network', pipelineId: 1010, label: 'Network',      icon: '🌐', order: 15 },
   { id: 'marketplace',    pipelineId: 1012, label: 'Marketplace',  icon: '🛒', order: 16 },
+  // Native history store (src/history): every watched file / container record, diffs, operator-only restore. Synthetic id like the tabs above.
+  { id: 'history-view',   pipelineId: 1013, label: 'History',      icon: '🕓', order: 17 },
 ] as const;
 
 export function getPipelineIcon(pipelineId: number): string {
@@ -320,6 +323,7 @@ export function createCoreTabs(): InjectedTab[] {
     'coordination': CoordinationPanel,
     'living-network': LivingNetworkPanel,
     'marketplace': MarketplacePanel,
+    'history-view': HistoryTab,
   };
 
   return CORE_TAB_DEFINITIONS.map(def => ({

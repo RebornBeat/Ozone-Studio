@@ -69,10 +69,14 @@ struct FileState {
 pub fn spawn(store: Arc<dyn StoreAccess>) {
     tokio::spawn(async move {
         let mut cache: HashMap<u64, FileState> = HashMap::new();
+        let mut watch_cache: HashMap<String, FileState> = HashMap::new();
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         loop {
             interval.tick().await;
             poll_once(&*store, &mut cache).await;
+            // Resources that are not linked file containers (checklists, step/evidence docs, status files): history-only, see `poll_watch`.
+            let c = std::mem::take(&mut watch_cache);
+            watch_cache = tokio::task::spawn_blocking(move || poll_watch(c)).await.unwrap_or_default();
         }
     });
 }
@@ -187,6 +191,92 @@ async fn ripple_change(store: &dyn StoreAccess, container_id: u64) -> Result<(),
     };
     let updates_json = serde_json::to_value(&updates).map_err(|e| e.to_string())?;
     store.update_container(container_id, updates_json).await
+}
+
+/// WATCH ROOTS (history integration, 2026-11-12): evidence/checklist/step/status files are resources too, but they are usually not linked
+/// file containers, so the container walk above never sees them. `OZONE_HISTORY_WATCH` (":"-separated files or directories; default: those of
+/// `docs`, `CHECKLIST.md`, `AGENTS.md`, `.ozone-context` that exist relative to the working directory) is polled on the same interval and every
+/// text-like file (`OZONE_HISTORY_WATCH_EXT`, default md,txt,json,jsonl,toml,yaml,yml,rs,ts,tsx,js,mjs,cjs,py,sh,html,css) is recorded into the
+/// history store (scope `file`, id `p<24 hex of blake3(path)>`) on first sight (baseline) and on every change. History-only: no container is
+/// created and no ripple fires, so this never changes walk behaviour. Unreadable/missing roots are skipped (they are not linked content).
+fn watch_roots() -> Vec<std::path::PathBuf> {
+    match std::env::var("OZONE_HISTORY_WATCH") {
+        Ok(v) => v.split(':').filter(|s| !s.trim().is_empty()).map(std::path::PathBuf::from).collect(),
+        Err(_) => ["docs", "CHECKLIST.md", "AGENTS.md", ".ozone-context"].iter().map(std::path::PathBuf::from).filter(|p| p.exists()).collect(),
+    }
+}
+
+fn watch_exts() -> Vec<String> {
+    std::env::var("OZONE_HISTORY_WATCH_EXT")
+        .unwrap_or_else(|_| "md,txt,json,jsonl,toml,yaml,yml,rs,ts,tsx,js,mjs,cjs,py,sh,html,css".to_string())
+        .split(',')
+        .map(|s| s.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn collect_watched(root: &std::path::Path, exts: &[String], out: &mut Vec<std::path::PathBuf>) {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(p) = stack.pop() {
+        let Ok(meta) = std::fs::symlink_metadata(&p) else { continue };
+        if meta.is_dir() {
+            let Ok(rd) = std::fs::read_dir(&p) else { continue };
+            for e in rd.filter_map(|e| e.ok()) {
+                let name = e.file_name().to_string_lossy().to_string();
+                // build output / vendored trees are not resources; hidden dirs are skipped except the shared-context state dir
+                if name == "node_modules" || name == "target" || (name.starts_with('.') && name != ".ozone-context") {
+                    continue;
+                }
+                stack.push(e.path());
+            }
+        } else if meta.is_file() {
+            let ext_ok = p.extension().and_then(|x| x.to_str()).map(|x| exts.contains(&x.to_ascii_lowercase())).unwrap_or(false);
+            // a file named explicitly as a root is always watched, whatever its extension
+            if ext_ok || p == root {
+                out.push(p);
+            }
+        }
+    }
+}
+
+fn poll_watch(mut cache: HashMap<String, FileState>) -> HashMap<String, FileState> {
+    let exts = watch_exts();
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for root in watch_roots() {
+        collect_watched(&root, &exts, &mut files);
+    }
+    let history = crate::history::shared();
+    for path in files {
+        let Ok(meta) = std::fs::metadata(&path) else { continue };
+        let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+        let state = FileState { modified, size: meta.len() };
+        let key = path.to_string_lossy().to_string();
+        let prev = cache.insert(key.clone(), state);
+        if prev == Some(state) {
+            continue;
+        }
+        let abs = std::fs::canonicalize(&path).unwrap_or(path.clone()).to_string_lossy().to_string();
+        let id = format!("p{}", &blake3::hash(abs.as_bytes()).to_hex()[..24]);
+        let reason = if prev.is_none() { "baseline" } else { "changed" };
+        let ok = match std::fs::read(&path) {
+            Ok(bytes) => match history.record("file", &id, &bytes, reason, Some(&abs)) {
+                Ok(_) => true,
+                Err(e) => {
+                    tracing::error!(path = %abs, error = %e, "history watch: write failed — will retry");
+                    false
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
+            Err(e) => {
+                tracing::error!(path = %abs, error = %e, "history watch: cannot read — will retry");
+                false
+            }
+        };
+        if !ok {
+            cache.remove(&key); // forget it: the next poll treats it as first sight and retries
+        }
+    }
+    cache
 }
 
 /// Record the file's content AT THIS MOMENT as a history version (src/history: chunked, de-duplicated, hash-verified on read). Returns false

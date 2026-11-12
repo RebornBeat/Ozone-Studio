@@ -7062,7 +7062,7 @@ RESPOND ONLY WITH JSON."#,
                 let rid = doc_node_id;
                 tokio::spawn(async move {
                     let client = reqwest::Client::new();
-                    let _ = client.post(format!("{host}/orchestration/node-event"))
+                    let _ = client.post(format!("{host}/orchestration/node-event")).header("x-oz-internal", std::env::var("OZONE_INTERNAL_TOKEN").unwrap_or_default())
                         .json(&serde_json::json!({
                             "project_id": pid,
                             "modality": "text",

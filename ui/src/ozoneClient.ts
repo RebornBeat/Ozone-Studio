@@ -907,3 +907,104 @@ export function adoptStagedJurisdictionPolicy(path: string, by = "operator") {
 export function exportJurisdictionPolicy() {
   return hostGet<{ success: boolean; content: unknown }>("/jurisdiction/policy/export");
 }
+
+// ── Native history store (src/history; routes /history/*) ────────────────────────────────────────────────────────────────────────────
+export interface HistoryRow {
+  v: number;
+  ts: number;
+  reason: string;
+  path?: string | null;
+  size: number;
+  hash: string;
+  chunks: string[];
+}
+export interface HistoryItem {
+  scope: "file" | "container" | string;
+  id: string;
+  versions: number;
+  last_ts: number;
+  last_reason: string;
+  size: number;
+  path: string | null;
+}
+export interface HistoryHunk {
+  header: string;
+  lines: string[];
+}
+export interface HistoryDiff {
+  binary: boolean;
+  coarse?: boolean;
+  hunks?: HistoryHunk[];
+  chunks_from?: number;
+  chunks_to?: number;
+  chunks_shared?: number;
+  chunks_added?: number;
+  chunks_removed?: number;
+  note?: string;
+  from?: { v: number; ts: number; size: number; reason: string };
+  to?: { v: number; ts: number; size: number; reason: string };
+}
+export function fetchHistoryStatus(scope?: "file" | "container") {
+  return hostPost<{ success: boolean; error?: string; items: HistoryItem[] }>("/history/status", { scope: scope ?? null });
+}
+export function fetchHistoryList(scope: string, id: string | number) {
+  return hostPost<{ success: boolean; error?: string; versions: HistoryRow[] }>("/history/list", { scope, id: String(id) });
+}
+export function fetchHistoryDiff(scope: string, id: string | number, from?: number, to?: number) {
+  return hostPost<{ success: boolean; error?: string; diff: HistoryDiff }>("/history/diff", { scope, id: String(id), from: from ?? null, to: to ?? null });
+}
+export function fetchHistoryContent(scope: string, id: string | number, version: number, offset?: number, length?: number) {
+  return hostPost<{ success: boolean; error?: string; total: number; offset: number; returned: number; content: string }>("/history/read", {
+    scope,
+    id: String(id),
+    version,
+    offset: offset ?? null,
+    length: length ?? null,
+  });
+}
+/** Operator action: put a recorded version back. The host records the CURRENT state first (reason pre-restore), so a restore is reversible. */
+export function restoreHistoryVersion(scope: string, id: string | number, version: number, by = "operator") {
+  return hostPost<{ success: boolean; error?: string; restored?: string }>("/history/restore", { scope, id: String(id), version, confirm: "RESTORE", by });
+}
+
+// ── Held outbound calls (jurisdiction gate; GET /jurisdiction/held) ───────────────────────────────────────────────────────────────────
+export interface HeldCall {
+  await_id: string;
+  kind: string;
+  subject: string;
+  reason: string;
+  task_id?: string | null;
+  created_at_ms: number;
+  age_ms: number;
+  attempts: number;
+  next_attempt_at_ms: number;
+  backoff_secs: number;
+}
+export interface HeldCallsResponse {
+  success: boolean;
+  error?: string;
+  now_ms: number;
+  held: HeldCall[];
+  unaccepted_requirements: string[];
+  held_decisions: Array<Record<string, unknown>>;
+  note?: string;
+}
+export function fetchHeldCalls(since?: number) {
+  return hostGet<HeldCallsResponse>(`/jurisdiction/held${since ? `?since=${since}` : ""}`);
+}
+
+// ── Walk steps waiting on an agent (GET /agent/open) ──────────────────────────────────────────────────────────────────────────────────
+export interface OpenAgentRequest {
+  id: string;
+  tool: string;
+  target: string;
+  caller: string;
+  trace_id: string;
+  at: number;
+  age_secs: number;
+  context?: { task_id?: number | string | null; step_index?: number | null; [k: string]: unknown } | null;
+  input?: unknown;
+}
+export function fetchOpenAgentRequests() {
+  return hostGet<{ success: boolean; requests: OpenAgentRequest[] }>("/agent/open");
+}

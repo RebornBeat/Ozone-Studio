@@ -2803,7 +2803,7 @@ async fn create_graph(
                 let ev_node_id = step_node_id;
                 tokio::spawn(async move {
                     let client = shared_http_client();
-                    let _ = client.post(format!("{host}/orchestration/node-event"))
+                    let _ = client.post(format!("{host}/orchestration/node-event")).header("x-oz-internal", std::env::var("OZONE_INTERNAL_TOKEN").unwrap_or_default())
                         .json(&serde_json::json!({
                             "project_id": ev_project_id,
                             "modality": "math",

@@ -426,14 +426,31 @@ async function ensureSessionToken() {
 const SLOW_ENDPOINT_TIMEOUT_MS = 0;
 const SLOW_ENDPOINTS = ["/orchestrate", "/task/step/rerun", "/consciousness/review_pass"];
 
+// Routes that need no credential (liveness, the auth handshake itself, pairing pages).
+const PUBLIC_PATHS = ["/health", "/auth/", "/pairing/", "/pair/"];
+
+// STRICT SESSION (default ON): the host's gate reads `Authorization: Bearer <session>` on its protected route families (/task/, /marketplace/,
+// /network/, /mcp/, /history/, /jurisdiction/, ...). The body `session_token` alone does not satisfy it, so every non-public call carries the
+// device session as a header too. A failed handshake (host not up, setup not finished) sends no header — the host's first-run exemption covers
+// the setup wizard, and a strict host refuses with a real 401 that the caller sees.
+async function authHeaders(path) {
+  if (PUBLIC_PATHS.some((p) => path.startsWith(p))) return undefined;
+  try {
+    return { Authorization: `Bearer ${await ensureSessionToken()}` };
+  } catch (e) {
+    log.warn(`[HTTP] no session header for ${path}: ${e && e.message ? e.message : e}`);
+    return undefined;
+  }
+}
+
 async function backendRequest(method, path, body = null) {
   if (body && typeof body === "object" && "session_token" in body) {
     body.session_token = await ensureSessionToken();
   }
-  return rawRequest(method, path, body);
+  return rawRequest(method, path, body, undefined, await authHeaders(path));
 }
 
-function rawRequest(method, path, body = null, timeoutMs) {
+function rawRequest(method, path, body = null, timeoutMs, extraHeaders) {
   const start = Date.now();
   log.info(
     `[HTTP] ${method} ${path} body=${JSON.stringify(body).slice(0, 200)}...`,
@@ -447,7 +464,7 @@ function rawRequest(method, path, body = null, timeoutMs) {
       port: BACKEND_PORT,
       path: path,
       method: method,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(extraHeaders || {}) },
       timeout: effectiveTimeout,
     };
 
@@ -784,7 +801,7 @@ ipcMain.handle("orchestrate", async (event, request) => {
   let ack;
   for (let attempt = 0; ; attempt++) {
     try {
-      ack = await rawRequest("POST", "/orchestrate", { ...request, submit_only: true, session_token: await ensureSessionToken() }, 60000);
+      ack = await rawRequest("POST", "/orchestrate", { ...request, submit_only: true, session_token: await ensureSessionToken() }, 60000, await authHeaders("/orchestrate"));
       break;
     } catch (e) {
       if (!isPreSend(e) || attempt >= 9) throw e; // not delivered ⇒ safe to retry; 10 tries (~1 min of host start-up) then surface the real error

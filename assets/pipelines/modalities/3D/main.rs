@@ -2776,7 +2776,7 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                                 let node_type_name = format!("{:?}", etype);
                                 tokio::spawn(async move {
                                     let client = reqwest::Client::new();
-                                    let _ = client.post(format!("{host}/orchestration/node-event"))
+                                    let _ = client.post(format!("{host}/orchestration/node-event")).header("x-oz-internal", std::env::var("OZONE_INTERNAL_TOKEN").unwrap_or_default())
                                         .json(&serde_json::json!({
                                             "project_id": project_id,
                                             "modality": "3d",

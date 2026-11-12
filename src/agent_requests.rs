@@ -234,6 +234,29 @@ pub fn pending_for(agent: &str) -> Vec<Value> {
     out
 }
 
+/// EVERY open (pending) request, oldest first — the operator's view ("which walk steps are waiting on which agent"), unlike `pending_for`
+/// which is one agent's inbox. Each row carries `age_secs`. There is no timeout: a pending request stays pending until its agent reports.
+pub fn open_requests() -> Vec<Value> {
+    let mut s = store().lock().unwrap_or_else(|e| e.into_inner());
+    ensure_loaded(&mut s);
+    let now = now_secs();
+    let mut out: Vec<Value> = s
+        .by_id
+        .values()
+        .filter(|e| e.row["status"] == "pending")
+        .map(|e| {
+            let mut r = e.row.clone();
+            let at = r["at"].as_u64().unwrap_or(0);
+            if let Some(o) = r.as_object_mut() {
+                o.insert("age_secs".into(), json!(now.saturating_sub(at)));
+            }
+            r
+        })
+        .collect();
+    out.sort_by_key(|r| r["at"].as_u64().unwrap_or(0));
+    out
+}
+
 /// One request by id (any status).
 pub fn get(id: &str) -> Option<Value> {
     let mut s = store().lock().unwrap_or_else(|e| e.into_inner());

@@ -7,6 +7,7 @@
  * path. `compact` is the setup-wizard form (requirements + residency only). Engineering input, NOT legal advice.
  */
 import React, { useCallback, useEffect, useState } from "react";
+import HeldCallsPanel from "./HeldCallsPanel";
 import {
   JurisdictionDecision,
   JurisdictionPolicy,
@@ -84,6 +85,7 @@ export const JurisdictionPolicyPanel: React.FC<{ compact?: boolean; pollMs?: num
         agreements and requirements need. This is engineering configuration, not legal advice — have qualified counsel review it.
       </div>
       {msg && <div style={{ ...card, color: "#9fd4b4" }}>{msg}</div>}
+      {!compact && <HeldCallsPanel />}
       {data.region_known === false && (
         <div style={{ ...card, color: "#f0c987" }}>
           <strong>This instance's region is not set or detected.</strong> Only Global (U.N.-level) rules apply, and the policy action for an unknown

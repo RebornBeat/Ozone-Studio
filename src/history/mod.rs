@@ -19,6 +19,8 @@
 //! Erasure (jurisdiction): history is append-only, so an erasure of personal data must reach this store too — see
 //! `docs/evidence/jurisdiction-deepening/` gap G10; `scopes()` + `list()` + `read_version()` give the erasure planner what it needs.
 
+pub mod diff;
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -115,11 +117,13 @@ pub struct History {
     root: PathBuf,
     /// Serialises writers and caches each item's latest row (None = known empty).
     latest: Mutex<HashMap<String, Option<VersionRow>>>,
+    /// Recorded path -> file-scope id (lazily built from disk, kept current by `record_with`): lets a walk ask "what changed in THIS file".
+    by_path: Mutex<Option<HashMap<String, String>>>,
 }
 
 impl History {
     pub fn open(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into(), latest: Mutex::new(HashMap::new()) }
+        Self { root: root.into(), latest: Mutex::new(HashMap::new()), by_path: Mutex::new(None) }
     }
 
     pub fn root(&self) -> &Path {
@@ -243,11 +247,83 @@ impl History {
             f.sync_data()?;
         }
         g.insert(key, Some(row.clone()));
+        if scope == "file" {
+            if let Some(p) = path {
+                let mut bp = self.by_path.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(map) = bp.as_mut() {
+                    map.insert(p.to_string(), id.to_string());
+                }
+            }
+        }
         Ok(row)
     }
 
     pub fn record(&self, scope: &str, id: &str, bytes: &[u8], reason: &str, path: Option<&str>) -> std::io::Result<VersionRow> {
         self.record_with(scope, id, bytes, reason, path, now_ms())
+    }
+
+    /// The file-scope id recorded for a path (the newest recorded path wins), if any.
+    pub fn id_for_path(&self, path: &str) -> Option<String> {
+        let mut bp = self.by_path.lock().unwrap_or_else(|e| e.into_inner());
+        if bp.is_none() {
+            let mut map: HashMap<String, String> = HashMap::new();
+            let mut items: Vec<(u64, String, String)> = Vec::new();
+            for (scope, id, _) in self.scopes() {
+                if scope != "file" {
+                    continue;
+                }
+                if let Some(last) = self.read_rows(&scope, &id).into_iter().rev().find(|r| r.path.is_some()) {
+                    items.push((last.ts, id, last.path.unwrap_or_default()));
+                }
+            }
+            items.sort();
+            for (_, id, p) in items {
+                map.insert(p, id);
+            }
+            *bp = Some(map);
+        }
+        bp.as_ref().and_then(|m| m.get(path).cloned())
+    }
+
+    /// One line per file that has history: its newest version, when, why, size, and the line delta against the version before it. This is the
+    /// "what changed" context a walk gets for the files it reads. No window and no cap: the NEWEST change is always shown, whatever its age.
+    pub fn changes_block(&self, paths: &[String]) -> Option<String> {
+        let mut lines: Vec<String> = Vec::new();
+        for path in paths {
+            let Some(id) = self.id_for_path(path) else { continue };
+            let rows = self.read_rows("file", &id);
+            let Some(last) = rows.last() else { continue };
+            let mut line = format!("- {path}: version {} of {} (recorded {} ms since epoch, {}, {} bytes)", last.v, rows.len(), last.ts, last.reason, last.size);
+            if rows.len() >= 2 {
+                let prev = &rows[rows.len() - 2];
+                if let (Ok(a), Ok(b)) = (self.rebuild(prev), self.rebuild(last)) {
+                    let d = diff::diff_versions(&a, &b, &prev.chunks, &last.chunks);
+                    if d["binary"].as_bool() == Some(true) {
+                        line.push_str(&format!("; binary, {} chunk(s) added, {} removed vs the previous version", d["chunks_added"], d["chunks_removed"]));
+                    } else {
+                        let (mut add, mut del) = (0usize, 0usize);
+                        for h in d["hunks"].as_array().cloned().unwrap_or_default() {
+                            for l in h["lines"].as_array().cloned().unwrap_or_default() {
+                                match l.as_str().and_then(|s| s.chars().next()) {
+                                    Some('+') => add += 1,
+                                    Some('-') => del += 1,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        line.push_str(&format!("; +{add} / -{del} lines vs the previous version"));
+                    }
+                }
+            } else {
+                line.push_str("; first recorded version (baseline)");
+            }
+            lines.push(line);
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
     }
 
     /// Rebuild version `v` (every chunk and the whole are blake3-verified).

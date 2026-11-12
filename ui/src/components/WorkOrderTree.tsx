@@ -15,7 +15,7 @@
  * REAL DATA ONLY: counts are the host's items_done / items_total (recursed here by plain addition), no percentages, no scores.
  */
 import React, { useEffect, useState } from "react";
-import { fetchWorkOrder, type WorkOrderItem, type WorkOrderNode } from "../ozoneClient";
+import { fetchOpenAgentRequests, fetchWorkOrder, type OpenAgentRequest, type WorkOrderItem, type WorkOrderNode } from "../ozoneClient";
 
 const KIND_LABEL: Record<string, string> = {
   wo_branch: "AMT branch",
@@ -125,6 +125,51 @@ export interface WorkOrderTreeProps {
   onOpenTask?: (id: number) => void;
 }
 
+function ageText(secs: number): string {
+  if (secs < 90) return `${secs}s`;
+  if (secs < 5400) return `${Math.round(secs / 60)} min`;
+  return `${(secs / 3600).toFixed(1)} h`;
+}
+
+/**
+ * Walk steps WAITING ON AN AGENT (an MCP agent registered as a provider — ozone_agent_offer). The step does not time out and does not fail
+ * open: the walk is parked, visibly, until that agent reports (or the operator cancels the task). Shown for this task only; reads GET /agent/open.
+ */
+const AgentWaiting: React.FC<{ taskId: number }> = ({ taskId }) => {
+  const [reqs, setReqs] = useState<OpenAgentRequest[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      try {
+        const r = await fetchOpenAgentRequests();
+        if (cancelled || !r?.success) return;
+        setReqs(r.requests.filter((q) => Number(q.context?.task_id) === taskId));
+      } catch {
+        /* an older host has no /agent/open: show nothing rather than a fake state */
+      }
+    };
+    void load();
+    const id = window.setInterval(() => { void load(); }, 8000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [taskId]);
+  if (reqs.length === 0) return null;
+  return (
+    <div className="owo-agent-wait" style={{ border: "1px solid #a37f2a", borderRadius: 8, padding: "8px 10px", margin: "8px 0", background: "#1d1a10", color: "#e8d9a8" }}>
+      <div style={{ fontWeight: 600 }}>
+        Waiting on {reqs.length === 1 ? "an agent" : `${reqs.length} agents`} — this walk is parked until {reqs.length === 1 ? "it reports" : "they report"}
+      </div>
+      {reqs.map((q) => (
+        <div key={q.id} style={{ fontSize: 12.5, marginTop: 4 }}>
+          <strong>{q.target === "*" ? "any participant of this walk" : q.target}</strong> · step {q.context?.step_index ?? "?"} · tool {q.tool} · asked by {q.caller} · waiting {ageText(q.age_secs)}
+        </div>
+      ))}
+      <div style={{ fontSize: 11.5, opacity: 0.8, marginTop: 4 }}>
+        No timeout and no fail-open: the step completes only when the agent reports through ozone_agent_report. Cancelling the task releases it.
+      </div>
+    </div>
+  );
+};
+
 export const WorkOrderTree: React.FC<WorkOrderTreeProps> = ({ taskId, refreshKey, onOpenTask }) => {
   const [tree, setTree] = useState<WorkOrderNode | null>(null);
   const [missing, setMissing] = useState(false);
@@ -162,6 +207,7 @@ export const WorkOrderTree: React.FC<WorkOrderTreeProps> = ({ taskId, refreshKey
       <div className="omono" style={{ color: "#e8eef6", fontWeight: 600, marginBottom: 6 }}>
         Work order{t.total > 0 ? <span className="owo-count"> {t.done}/{t.total} items done</span> : null}
       </div>
+      <AgentWaiting taskId={taskId} />
       {hasStructure
         ? <NodeView node={tree} depth={0} onOpenTask={onOpenTask} />
         : <div className="oempty" style={{ textAlign: "left" }}>No work order recorded for this task (it ran before work orders existed, or it has not reached blueprint design).</div>}

@@ -30,13 +30,13 @@ const OZONE_HOST = process.env.OZONE_HOST ?? "http://127.0.0.1:50051";
 const CONFIG_DIR = path.join(os.homedir(), ".ozone-cli");
 const KEY_PATH = path.join(CONFIG_DIR, "device-key.pem");
 
-function req(method, urlPath, body) {
+function req(method, urlPath, body, extraHeaders) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlPath, OZONE_HOST);
     const data = body ? JSON.stringify(body) : null;
     const transport = url.protocol === "https:" ? https : http;
     const r = transport.request(
-      { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { "Content-Type": "application/json" }, timeout: 300000 },
+      { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method, headers: { "Content-Type": "application/json", ...(extraHeaders || {}) }, timeout: 300000 },
       (res) => {
         let d = "";
         res.on("data", (c) => (d += c));
@@ -53,6 +53,13 @@ function req(method, urlPath, body) {
 }
 
 let cachedToken = null;
+
+/** A host call WITH the device session as `Authorization: Bearer` (strict hosts gate /task/, /mcp/, /marketplace/ ... on that header; the body
+ *  `session_token` alone does not satisfy it). Use for every route except /health and the auth handshake. */
+async function areq(method, urlPath, body) {
+  const tok = await ensureSessionToken();
+  return req(method, urlPath, body && typeof body === "object" ? { ...body, session_token: tok } : body, { Authorization: `Bearer ${tok}` });
+}
 
 async function ensureSessionToken() {
   if (cachedToken) return cachedToken;
@@ -102,7 +109,7 @@ async function cmdStatus() {
 async function cmdOrder(args) {
   const dueArg = args.includes("--due") ? args[args.indexOf("--due") + 1] : null;
   const q = dueArg ? `?due=${encodeURIComponent(dueArg)}` : "";
-  const order = await req("GET", `/order/global${q}`);
+  const order = await areq("GET", `/order/global${q}`);
   for (const bucket of ["live", "queued", "paused", "interrupted"]) {
     const items = order[bucket] ?? [];
     if (items.length === 0) continue;
@@ -132,7 +139,7 @@ async function cmdCapture(args) {
   const kind = args.includes("--kind") ? args[args.indexOf("--kind") + 1] : "todo";
   const dueArg = args.includes("--due") ? args[args.indexOf("--due") + 1] : null;
   const due_at = dueArg ? Math.floor(new Date(dueArg).getTime() / 1000) : undefined;
-  const result = await req("POST", "/task/create", {
+  const result = await areq("POST", "/task/create", {
     prompt: text, session_token: "", created_by: "cli", kind, due_at,
     note_body: kind === "note" ? text : undefined,
   });
@@ -144,7 +151,7 @@ async function cmdChat(args) {
   const prompt = args.join(" ");
   if (!prompt.trim()) { console.error('usage: ozone chat "<prompt>"'); process.exit(1); }
   console.log("Thinking (this runs the full orchestration pipeline, can take a while)...");
-  const result = await req("POST", "/orchestrate", {
+  const result = await areq("POST", "/orchestrate", {
     prompt, user_id: 0, device_id: 0, consciousness_enabled: true, // the consciousness gate participates (config [consciousness].enabled gates the loops; this is the per-request gate) token_budget: 100000,
   });
   if (result.response) console.log(`\n${result.response}\n`);
@@ -152,7 +159,7 @@ async function cmdChat(args) {
 }
 
 async function cmdMcpList() {
-  const result = await req("GET", "/mcp/tools");
+  const result = await areq("GET", "/mcp/tools");
   printTable(result.tools ?? [], [
     { label: "name", get: (r) => r.name },
     { label: "version", get: (r) => r.server_version ?? "-" },
@@ -168,7 +175,7 @@ async function cmdMcpCall(args) {
   const token = await ensureSessionToken();
   const result = await req("POST", "/mcp/call", {
     tool, agent: "ozone-cli", input, context: { session_token: token },
-  });
+  }, { Authorization: `Bearer ${token}` });
   console.log(JSON.stringify(result, null, 2));
 }
 

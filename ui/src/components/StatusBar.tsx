@@ -27,6 +27,7 @@
 import React, { useEffect, useState } from 'react';
 import { PeerState } from '../graphkit/indicators';
 import { GateChip, CaptureChip, LoopChips } from './WorkspaceStatusStrip';
+import { HeldCallsChip } from './HeldCallsPanel';
 import { hostGet } from '../ozoneClient';
 import { useOzoneStore } from '../services/store';
 import { SystemStats } from '../App';
@@ -151,6 +152,7 @@ export function StatusBar() {
 
       <div className="status-divider" />
       <div className="status-item"><GateChip /></div>
+      <div className="status-item"><HeldCallsChip /></div>
       <div className="status-item"><CaptureChip /></div>
       <div className="status-item"><LoopChips /></div>
 
