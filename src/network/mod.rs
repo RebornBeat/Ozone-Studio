@@ -1545,6 +1545,15 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                             .filter(|b| body_hash(b.as_bytes()) == hash);
                         // G5: a body goes out only for a kind this instance's policy still lets it publish (a policy change withdraws serving too)
                         let body = body.filter(|_| crate::orchestrator::jurisdiction::policy::publish_kind_allowed(item_type));
+                        // PHASE 3: the body is judged like every other outbound hop (personal-data shapes → withheld until the operator approves this content).
+                        let mut withheld: Option<String> = None;
+                        let body = body.filter(|b| match crate::orchestrator::jurisdiction::policy::check_p2p_body(item_type, name, b) {
+                            Ok(()) => true,
+                            Err(reason) => {
+                                withheld = Some(reason);
+                                false
+                            }
+                        });
                         let net = network.read().await;
                         match body {
                             Some(body) => {
@@ -1567,7 +1576,7 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                             }
                             None => {
                                 let msg = serde_json::json!({"kind": "fetch_error", "item_type": item_type, "name": name, "body_hash": hash,
-                                    "reason": "not published here, or its content changed since it was announced"})
+                                    "reason": withheld.clone().unwrap_or_else(|| "not published here, or its content changed since it was announced".to_string())})
                                 .to_string();
                                 let _ = net.send_to_connected_peer(&peer, msg.as_bytes()).await;
                             }

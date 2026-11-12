@@ -223,3 +223,9 @@ The seven items are REMOVED (each superseder verified, behaviour captured, no re
 - **§9 / §3.3 test totals:** "291" is stale (later forks added tests: call_graph +4, file_reader +3, graph_on_link +4, others); compare by test name.
 - **New suites to run after the swap (all drafted, never run):** `tools/third-party-verify/` 01–07 + `mcp/` m1–m4 (§11), `tools/methodology-from-prompts/apply.mjs` (§12.3), `tools/methodology-duplicate-repoint` (§12.5).
 - **Push (§13):** only after the build gate and the operator's go; local backup branch `backup-2026-11-11-pre-build` (not pushed).
+
+## 16. JURISDICTION PHASE 3 (2026-11-12, parse-only; checklist L204–L210)
+- **Check first at `cargo check`:** `policy.rs` `enum Egress` + `pipeline_egress` + `forced_kind`; `check_outbound_to_endpoint` / `tool_egress_destination` / `check_p2p_body`; `mcp.rs` HTTP/SSE gate (early `return McpResult`); `pipeline/remote.rs` gate before `to_value`; `network/mod.rs` `withheld` closure capture; `grpc/mod.rs` `PROTECTED_EXEMPT`; prompt pipeline crate (`jurisdiction_clearance`, builds with the pipelines script).
+- **First-walk checklist front:** run `tools/third-party-verify/jurisdiction/` j1–j6 BEFORE the first walk (j6 checks the per-pipeline destination, the unaudited-id label and the strict-host session protection).
+- **Expect on a strict host:** UI and e2e tools need a session for `/jurisdiction/*`; the prompt binary needs the host reachable at `OZONE_HOST` (default 127.0.0.1:50051) or its provider requests are not sent.
+- **Operator decisions open:** `tools/bridges` direct provider calls (inventory §E: A patch / B route through host / C do not run the console); vote model endpoint must be listed in `providers`.

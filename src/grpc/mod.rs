@@ -713,7 +713,12 @@ async fn session_gate(
         "/pipelines/register",
         "/walk/",
         "/agent/",
+        // PHASE 3: the jurisdiction surface changes instance policy, accepts agreements, approves held transfers, adopts staged policy and
+        // runs erasure — operator actions that must not be open on a strict host. EXCEPT the read-only outbound CHECK below, which the
+        // prompt pipeline (a spawned child with no session) calls before every provider request.
+        "/jurisdiction/",
     ];
+    const PROTECTED_EXEMPT: &[&str] = &["/jurisdiction/outbound/check"];
     // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
     // gate stands down entirely — the setup wizard must be able to write
     // config BEFORE any pairing/session exists (previously the gate 401'd
@@ -727,6 +732,7 @@ async fn session_gate(
     if crate::config::switch_on("OZONE_REQUIRE_SESSION")
         && !first_run
         && PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
+        && !PROTECTED_EXEMPT.contains(&req.uri().path())
     {
         // Read headers into OWNED strings BEFORE any await: a closure holding
         // &Request across an await makes the future !Send (the body is not
@@ -1939,6 +1945,19 @@ async fn get_jurisdiction_decisions(axum::extract::Query(q): axum::extract::Quer
     let since = q.get("since").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
     let rows = crate::orchestrator::jurisdiction::policy::read_decisions(since);
     Json(serde_json::json!({ "success": true, "count": rows.len(), "decisions": rows }))
+}
+
+/// POST /jurisdiction/outbound/check {pipeline_id, input} — the JUDGEMENT of one outbound call, for a process that sends content out on its
+/// own (the prompt pipeline's provider request, which also runs when a modality pipeline spawns the prompt binary directly and never crosses
+/// the registry seam). Same gate as `RegistryExecutorAdapter` (agreements → destination region → personal-data shapes → operator approvals →
+/// policy action) with the destination taken from `input.model_override_config.api_endpoint`. Read-only apart from the awaiting item and the
+/// decision row a held call opens. Returns `allow=false` + the `AWAITING_OPERATOR:` reason when held; the caller must NOT send.
+async fn post_jurisdiction_outbound_check(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let pipeline_id = body.get("pipeline_id").and_then(|v| v.as_u64()).unwrap_or(9);
+    let input = body.get("input").cloned().unwrap_or(serde_json::Value::Null);
+    let v = policy::check_outbound(pipeline_id, &input, None).await;
+    Json(serde_json::json!({ "success": true, "allow": v.allow, "reason": v.reason, "region": v.region, "kinds": v.kinds, "await_id": v.await_id }))
 }
 
 /// POST /jurisdiction/outbound/approve {scope: content|region, key, approve, by, await_id?} — the operator's decision on a held transfer.
@@ -5444,6 +5463,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/mcp/tools/unregister", post(mcp_unregister_tool))
         // AUTO-START CONFIG + process control (2026-10-18) — operator
         // opt-in per tool, real start/stop against the real supervisor.
+        .route("/jurisdiction/outbound/check", post(post_jurisdiction_outbound_check))
         .route("/mcp/tools/:name/autostart", post(mcp_set_autostart))
         .route("/mcp/tools/:name/start", post(mcp_start_tool))
         .route("/mcp/tools/:name/stop", post(mcp_stop_tool))

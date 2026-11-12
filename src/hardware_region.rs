@@ -168,6 +168,12 @@ fn read_locale_country() -> (Option<String>, Option<String>) {
 /// non-2xx, malformed body, or an explicit `"status":"fail"`) yields None —
 /// never a guess, never a partial/fabricated code.
 async fn detect_ip_country() -> Option<String> {
+    // JURISDICTION (phase 3): this call discloses the host's public IP address to a third-country service over plain HTTP. It is a
+    // switch (default ON like every switch): an instance whose agreements forbid it sets OZONE_REGION_IP_LOOKUP=off and the region then
+    // comes from timezone/locale only (never a guess — the missing signal is simply absent).
+    if !crate::config::switch_on("OZONE_REGION_IP_LOOKUP") {
+        return None;
+    }
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
         .build()

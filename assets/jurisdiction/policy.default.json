@@ -56,5 +56,12 @@
     "recall_notice": true,
     "share_policy_as_offer": true
   },
-  "exempt_pipelines": []
+  "exempt_pipelines": [],
+  "tool_egress": [
+    { "tool_prefix": "web_search", "destination": "https://api.search.brave.com", "note": "web-mcp runs the web_search pipeline: the query goes to the configured search provider" },
+    { "tool_prefix": "geo_", "destination": "https://nominatim.openstreetmap.org + https://overpass-api.de", "note": "geospatial-mcp: place names / coordinates go to OpenStreetMap services" },
+    { "tool_prefix": "gcal_", "destination": "https://www.googleapis.com", "note": "gcal-mcp: calendar events (names, attendees) go to Google" },
+    { "tool_prefix": "zoom_", "destination": "https://api.zoom.us", "note": "zoom-mcp: meeting data goes to Zoom" },
+    { "tool_prefix": "farm_", "destination": "browser-farm", "note": "browser-farm-mcp: commands/URLs go to the operator's browser farm host(s); add a providers row for 'browser-farm' (e.g. local) once the farm is verified" }
+  ]
 }

@@ -98,6 +98,18 @@ pub struct ProviderRule {
     pub note: String,
 }
 
+/// A registered tool whose backing process reaches an EXTERNAL service even though the tool's own endpoint is a local sidecar
+/// (`127.0.0.1:<port>`). The host only sees the sidecar address, so without this row the call would classify `local`. The `destination`
+/// label is matched against `providers` like any endpoint (an unlisted label takes `default_region_unlisted_endpoint`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolEgressRule {
+    /// Prefix of the registered tool name (`geo_`, `gcal_`...).
+    pub tool_prefix: String,
+    pub destination: String,
+    #[serde(default)]
+    pub note: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Requirement {
     pub key: String,
@@ -199,6 +211,10 @@ pub struct JurisdictionPolicy {
     /// Pipeline ids the operator exempts from the outbound content check (e.g. a pipeline known never to leave the host).
     #[serde(default)]
     pub exempt_pipelines: Vec<u64>,
+    /// Sidecar tools that reach an external destination (phase 3). `None` = the shipped rows (so an older saved policy still judges them);
+    /// `Some(vec![])` = the operator explicitly clears the list.
+    #[serde(default)]
+    pub tool_egress: Option<Vec<ToolEgressRule>>,
 }
 
 fn default_detection() -> DetectionPolicy {
@@ -264,6 +280,7 @@ pub fn shipped_defaults() -> JurisdictionPolicy {
             erasure: default_erasure(),
             p2p: default_p2p(),
             exempt_pipelines: Vec::new(),
+            tool_egress: None,
         }
     });
     p.origin = "defaults".to_string();
@@ -820,6 +837,134 @@ pub async fn check_outbound_to_agent(
     check_outbound_inner(0, Some(region), input, executor).await
 }
 
+/// The destination label a registered tool really reaches, when it is not its own sidecar endpoint: the first matching `tool_egress` row
+/// of the instance policy (shipped rows when the saved policy carries none). `None` = the sidecar endpoint IS the destination.
+pub fn tool_egress_destination(tool_name: &str) -> Option<String> {
+    let policy = load_policy();
+    let rows = match policy.tool_egress {
+        Some(r) => r,
+        None => shipped_defaults().tool_egress.unwrap_or_default(),
+    };
+    rows.iter()
+        .find(|r| !r.tool_prefix.is_empty() && tool_name.starts_with(&r.tool_prefix))
+        .map(|r| r.destination.clone())
+}
+
+/// PHASE 3: content that leaves to PEERS. A body a peer fetches (methodology, tool, pipeline, rule set, policy) is scanned with the same
+/// deterministic personal-data shapes as every other outbound hop (the destination region is `p2p_peers`: never in `allow_personal_data_regions`
+/// unless the operator lists it). A body carrying a shape is WITHHELD — not served — and an operator item is opened for that content hash; once the
+/// operator approves the hash the peer's next fetch passes. Nothing is served unjudged; no text = nothing to judge. Returns `Err(reason)` when held.
+pub fn check_p2p_body(item_type: &str, name: &str, body: &str) -> Result<(), String> {
+    let policy = load_policy();
+    if !policy.enabled {
+        return Ok(());
+    }
+    let region = "p2p_peers".to_string();
+    if policy.allow_personal_data_regions.iter().any(|r| r == &region) {
+        return Ok(());
+    }
+    let kinds = if policy.detection.deterministic {
+        detect_personal_data_shapes(body, &policy.detection.kinds)
+    } else {
+        Vec::new()
+    };
+    let content_hash = hash_hex(body.as_bytes())[..32].to_string();
+    if kinds.is_empty() {
+        record_decision("p2p_serve", &content_hash, None, &policy, "", "allowed_no_personal_data", &[], &format!("{item_type} '{name}'"));
+        return Ok(());
+    }
+    if approved(&region, &content_hash) {
+        record_decision("p2p_serve", &content_hash, None, &policy, "", "allowed_operator_approved", &kinds, &format!("{item_type} '{name}'"));
+        return Ok(());
+    }
+    let _ = crate::orchestrator::awaiting::open(
+        &data_dir(),
+        KIND_OUTBOUND_TRANSFER,
+        &content_hash,
+        None,
+        None,
+        &format!("a peer asked for {item_type} '{name}' whose body carries personal-data shapes ({}) — approve this content to serve it", kinds.join(", ")),
+    );
+    record_decision("p2p_serve", &content_hash, None, &policy, "", "held_operator", &kinds, &format!("{item_type} '{name}'"));
+    Err(format!("{AWAITING_PREFIX} body of {item_type} '{name}' carries personal-data shapes ({}); withheld until the operator approves content {content_hash}", kinds.join(", ")))
+}
+
+/// PHASE 3: the SAME outbound gate for content handed to ANY non-model endpoint — a registered HTTP/SSE MCP tool's `endpoint`, a
+/// self-registered remote pipeline's `execute_url`, a web-search provider. The destination is matched against the policy's `providers`
+/// rows (`localhost`/`127.0.0.1` → `local` ships by default); an unlisted endpoint takes `default_region_unlisted_endpoint`. An
+/// adapter-cleared mark (`scoped_passed`) does NOT apply here: it cleared the MODEL destination, and this is a different hop.
+pub async fn check_outbound_to_endpoint(
+    endpoint: &str,
+    input: &serde_json::Value,
+    executor: Option<&dyn crate::orchestrator::PipelineExecutor>,
+) -> OutboundVerdict {
+    check_outbound_to_agent(endpoint, input, executor).await
+}
+
+/// How a BUILT-IN pipeline sends content out of the process (jurisdiction phase 3). The earlier gate classified EVERY pipeline by the
+/// instance's MODEL endpoint, which is wrong both ways: web search / voice / browser navigation leave to a different destination than the
+/// model (could be judged "local" while the query goes to a third-country search API), and local-only pipelines were held merely because
+/// a model endpoint is configured. Shipped pipelines are audited: ids 1..=127 (bootstrap registry). A pipeline that calls a model through
+/// the host (`/pipeline/execute` → pipeline 9) is judged at THAT hop, so it needs no verdict of its own. Any other id (tool-created,
+/// self-registered, imported) is unaudited and takes its own destination label (see below).
+enum Egress {
+    /// Judge by the instance's model endpoint (prompt pipeline, zero-shot simulation).
+    Model,
+    /// Judge by this endpoint/URL; `forced_kind` is recorded as a detected kind (content that is personal by nature, e.g. a voice recording).
+    Endpoint { dest: String, forced_kind: Option<&'static str> },
+    /// No egress of its own (audited local pipeline).
+    None,
+}
+
+fn first_url(v: &serde_json::Value) -> Option<String> {
+    match v {
+        serde_json::Value::String(s) => {
+            let l = s.trim().to_lowercase();
+            (l.starts_with("http://") || l.starts_with("https://")).then(|| s.trim().to_string())
+        }
+        serde_json::Value::Array(a) => a.iter().find_map(first_url),
+        serde_json::Value::Object(m) => m.values().find_map(first_url),
+        _ => None,
+    }
+}
+
+fn pipeline_egress(pipeline_id: u64, input: &serde_json::Value) -> Egress {
+    match pipeline_id {
+        // Prompt (model call), ZeroShotSimulation (direct provider call).
+        9 | 16 => Egress::Model,
+        // WebSearch: the QUERY leaves to the configured search provider.
+        56 => Egress::Endpoint {
+            dest: std::env::var("OZONE_WEB_SEARCH_ENDPOINT")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://api.search.brave.com/res/v1/web/search".to_string()),
+            forced_kind: None,
+        },
+        // Voice: only the `api` transcription backend sends the recording out; whisper_rs / whisper_cpp stay on the machine.
+        10 => {
+            let backend = std::env::var("OZONE_VOICE_BACKEND").unwrap_or_else(|_| "whisper_cpp".to_string());
+            if backend == "api" {
+                Egress::Endpoint {
+                    dest: std::env::var("OZONE_VOICE_API_ENDPOINT").unwrap_or_default(),
+                    forced_kind: Some("voice_recording"),
+                }
+            } else {
+                Egress::None
+            }
+        }
+        // BrowserNavigation: the page request (and any typed text) goes to the URL's host.
+        25 => Egress::Endpoint {
+            dest: first_url(input).unwrap_or_else(|| "unknown-url".to_string()),
+            forced_kind: None,
+        },
+        1..=127 => Egress::None,
+        // Unaudited (tool-created, self-registered, imported): its code may reach ANY destination, so it is never judged by the model endpoint
+        // (a local model would make it look local). It takes the destination label `unaudited-pipeline:<id>` — an unlisted label takes
+        // `default_region_unlisted_endpoint` (never silently local); the operator lists the label in `providers`, or exempts the id, once reviewed.
+        other => Egress::Endpoint { dest: format!("unaudited-pipeline:{other}"), forced_kind: None },
+    }
+}
+
 async fn check_outbound_inner(
     pipeline_id: u64,
     region_override: Option<String>,
@@ -836,7 +981,7 @@ async fn check_outbound_inner(
             await_id: None,
         };
     }
-    if passed() || policy.exempt_pipelines.contains(&pipeline_id) {
+    if (region_override.is_none() && passed()) || policy.exempt_pipelines.contains(&pipeline_id) {
         return OutboundVerdict {
             allow: true,
             region: String::new(),
@@ -845,7 +990,38 @@ async fn check_outbound_inner(
             await_id: None,
         };
     }
-    let region = region_override.unwrap_or_else(|| classify_destination(&policy, input));
+    let mut forced_kind: Option<&'static str> = None;
+    let region = match region_override {
+        Some(r) => r,
+        None => match pipeline_egress(pipeline_id, input) {
+            Egress::Model => classify_destination(&policy, input),
+            Egress::None => {
+                return OutboundVerdict {
+                    allow: true,
+                    region: "local".to_string(),
+                    kinds: Vec::new(),
+                    reason: "audited built-in pipeline with no egress of its own (calls out only through the gated prompt pipeline)".into(),
+                    await_id: None,
+                };
+            }
+            Egress::Endpoint { dest, forced_kind: fk } => {
+                forced_kind = fk;
+                let lower = dest.to_lowercase();
+                policy
+                    .providers
+                    .iter()
+                    .find(|p| !p.endpoint_contains.is_empty() && lower.contains(&p.endpoint_contains.to_lowercase()))
+                    .map(|p| p.region.clone())
+                    .unwrap_or_else(|| {
+                        if policy.default_region_unlisted_endpoint.is_empty() {
+                            "third_country_unverified".to_string()
+                        } else {
+                            policy.default_region_unlisted_endpoint.clone()
+                        }
+                    })
+            }
+        },
+    };
     // Destination allowed for personal data: nothing to scan, nothing to ask.
     if policy
         .allow_personal_data_regions
@@ -862,7 +1038,7 @@ async fn check_outbound_inner(
     }
     let mut text = String::new();
     collect_strings(input, &mut text);
-    if text.trim().is_empty() {
+    if text.trim().is_empty() && forced_kind.is_none() {
         return OutboundVerdict {
             allow: true,
             region,
@@ -925,6 +1101,10 @@ async fn check_outbound_inner(
     } else {
         "none".to_string()
     };
+    if let Some(fk) = forced_kind {
+        // Content that is personal data by its nature (a voice recording is biometric): no detector needed, the kind is recorded.
+        kinds.push(fk.to_string());
+    }
     if kinds.is_empty() && policy.detection.vote {
         let voter_region_ok = !policy.detection.vote_model.is_empty()
             && policy
@@ -1377,6 +1557,35 @@ mod tests {
         assert!(!p.allow_personal_data_regions.contains(&region), "an endpoint no provider rule matches must not be treated as allowed");
         let local = serde_json::json!({ "model_override_config": { "api_endpoint": "http://localhost:8080/v1" } });
         assert_eq!(classify_destination(&p, &local), "local");
+    }
+
+    #[test]
+    fn pipeline_egress_is_per_pipeline_not_the_model_endpoint() {
+        let none = serde_json::Value::Null;
+        // audited local pipelines have no egress of their own; the prompt pipeline is judged by the model endpoint
+        assert!(matches!(pipeline_egress(3, &none), Egress::None));
+        assert!(matches!(pipeline_egress(102, &none), Egress::None));
+        assert!(matches!(pipeline_egress(9, &none), Egress::Model));
+        // web search leaves to the search provider; a browser navigation to its URL's host
+        assert!(matches!(pipeline_egress(56, &none), Egress::Endpoint { .. }));
+        let nav = serde_json::json!({ "action": { "Navigate": { "url": "https://example.org/a" } } });
+        match pipeline_egress(25, &nav) {
+            Egress::Endpoint { dest, .. } => assert_eq!(dest, "https://example.org/a"),
+            _ => panic!("browser navigation must be judged by its URL"),
+        }
+        // an unaudited (tool-created / self-registered) id is never judged "local" by default
+        match pipeline_egress(4242, &none) {
+            Egress::Endpoint { dest, .. } => assert_eq!(dest, "unaudited-pipeline:4242"),
+            _ => panic!("an unaudited pipeline must take its own destination label"),
+        }
+    }
+
+    #[test]
+    fn shipped_tool_egress_rows_cover_the_external_sidecars() {
+        let rows = shipped_defaults().tool_egress.unwrap_or_default();
+        for prefix in ["web_search", "geo_", "gcal_", "zoom_", "farm_"] {
+            assert!(rows.iter().any(|r| r.tool_prefix == prefix), "missing tool_egress row for {prefix}");
+        }
     }
 
     #[test]

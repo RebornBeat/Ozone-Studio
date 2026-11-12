@@ -302,6 +302,45 @@ fn merge_override(base: &ModelConfig, over: &ModelOverrideConfig) -> ModelConfig
 }
 
 /// Execute the prompt pipeline
+/// Ask the host whether this provider request may leave (see the call site). A switch like every switch (default ON): an instance that
+/// runs this binary standalone, with no host, sets OZONE_JURISDICTION_CHECK=off in its own environment. An unreachable host is NOT an allow.
+async fn jurisdiction_clearance(input: &PromptInput, effective: &ModelConfig) -> Result<(), String> {
+    let off = std::env::var("OZONE_JURISDICTION_CHECK")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false" | "no"))
+        .unwrap_or(false);
+    if off {
+        return Ok(());
+    }
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let mut payload = serde_json::to_value(input).unwrap_or(serde_json::Value::Null);
+    if let Some(o) = payload.as_object_mut() {
+        o.insert(
+            "model_override_config".to_string(),
+            serde_json::json!({ "api_endpoint": effective.api_endpoint, "model_type": effective.model_type }),
+        );
+    }
+    let resp = reqwest::Client::new()
+        .post(format!("{host}/jurisdiction/outbound/check"))
+        .json(&serde_json::json!({ "pipeline_id": 9, "input": payload }))
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("jurisdiction check unreachable ({e}) — the provider request was NOT sent (an unjudged call is never let through)"))?;
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("jurisdiction check unreadable ({e}) — the provider request was NOT sent"))?;
+    if v.get("allow").and_then(|a| a.as_bool()) == Some(true) {
+        Ok(())
+    } else {
+        Err(v
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "AWAITING_OPERATOR: jurisdiction check did not clear this call".to_string()))
+    }
+}
+
 pub async fn execute(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
     // A per-call override (real multi-model routing) takes precedence over
     // the process's env-derived base config for this call only — nothing
@@ -322,6 +361,15 @@ pub async fn execute(input: PromptInput, config: &ModelConfig) -> Result<PromptO
 
     // Determine which model to use
     let model_type = effective.model_type.clone();
+
+    // JURISDICTION (phase 3): this binary is where model content actually LEAVES the machine. It also runs when a modality / zero-shot
+    // pipeline spawns it directly (never crossing the host's registry seam), so the clearance is asked of the host HERE, once per provider
+    // request: same gate (agreements, destination region, personal-data shapes, operator approvals). A held or unjudgeable call is NOT sent.
+    if model_type == "api" {
+        if let Err(held) = jurisdiction_clearance(&input, effective).await {
+            return Err(held);
+        }
+    }
 
     let mut result = match model_type.as_str() {
         "api" => execute_api(input, effective).await,

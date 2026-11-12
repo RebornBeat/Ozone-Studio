@@ -168,6 +168,19 @@ impl RemotePipelines {
             .await
             .ok_or_else(|| format!("No remote pipeline registered for id {}", pipeline_id))?;
 
+        // JURISDICTION OUTBOUND GATE (phase 3): a self-registered remote pipeline is a DESTINATION of its own. The adapter's mark cleared the
+        // MODEL endpoint, not this hop, so the remote's `execute_url` is judged against the instance policy (a localhost remote classifies
+        // `local`). A call that cannot be cleared is HELD (Err, paced) — never sent, and the executor does NOT fall back to a spawn that
+        // would bypass the decision (the held reason carries AWAITING_OPERATOR).
+        {
+            let json_in = crate::orchestrator::jurisdiction::policy::input_to_json(&input.data);
+            let verdict = crate::orchestrator::jurisdiction::policy::check_outbound_to_endpoint(&remote.execute_url, &json_in, None).await;
+            if !verdict.allow {
+                crate::orchestrator::jurisdiction::policy::held_backoff(verdict.await_id.as_deref().unwrap_or(&verdict.reason)).await;
+                return Err(verdict.reason);
+            }
+        }
+
         let mut body = serde_json::to_value(input).map_err(|e| e.to_string())?;
 
         // TRACE SPINE: a remote runs in another process we don't spawn, so

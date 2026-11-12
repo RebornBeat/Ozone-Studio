@@ -638,6 +638,29 @@ impl McpRegistry {
 
         let result = match tool.transport {
             McpTransport::Http | McpTransport::Sse => {
+                // JURISDICTION OUTBOUND GATE (phase 3): the tool's endpoint is a DESTINATION. A local sidecar (127.0.0.1/localhost) classifies
+                // `local` and passes; a remote/unlisted endpoint is judged against the instance policy (agreements, personal-data shapes,
+                // operator approvals). A call that cannot be cleared is HELD — never sent — and paced like every held call.
+                let destination = crate::orchestrator::jurisdiction::policy::tool_egress_destination(&call.tool)
+                    .unwrap_or_else(|| tool.endpoint.clone());
+                let verdict = crate::orchestrator::jurisdiction::policy::check_outbound_to_endpoint(
+                    &destination,
+                    &serde_json::json!({ "input": call.input, "context": call.context }),
+                    None,
+                )
+                .await;
+                if !verdict.allow {
+                    crate::orchestrator::jurisdiction::policy::held_backoff(
+                        verdict.await_id.as_deref().unwrap_or(&verdict.reason),
+                    )
+                    .await;
+                    return McpResult {
+                        success: false,
+                        output: None,
+                        error: Some(verdict.reason),
+                        usage: usage_json,
+                    };
+                }
                 let envelope = serde_json::json!({
                     "tool": call.tool,
                     "agent": call.agent,

@@ -861,6 +861,8 @@ export interface JurisdictionPolicy {
   erasure: { enabled: boolean; keep_before_copy: boolean; retention_days: number | null; covers: string[] };
   p2p: { publish_kinds: string[]; recall_notice: boolean; share_policy_as_offer: boolean };
   exempt_pipelines: number[];
+  /** Sidecar tools that reach an external destination (null = shipped rows). */
+  tool_egress?: { tool_prefix: string; destination: string; note?: string }[] | null;
 }
 export interface JurisdictionHold { await_id: string; kind: string; status: string; subject: string; reason: string; created_at_ms: number }
 export interface JurisdictionPolicyResponse {
