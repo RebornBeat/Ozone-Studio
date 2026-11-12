@@ -1191,11 +1191,21 @@ impl OzoneRuntime {
             )));
 
             // SYSTEM CALL GRAPHS (2026-11-11): the walk / loops / routes call graphs become graph containers at boot (idempotent: existing
-            // containers are kept, a changed asset refreshes the body in place). Best-effort, one-shot, never blocks boot.
+            // containers are kept, a changed asset refreshes the body in place). Boot is never blocked, but a failure is NOT dropped (no skip,
+            // operator 2026-11-11): the pass is RETRIED (5 s doubling, held at 60 s) until every graph is ensured and the asset is found.
             {
                 let cg_store = store_adapter.clone();
                 tokio::spawn(async move {
-                    let _ = crate::orchestrator::call_graph::ensure_system_call_graphs(&cg_store).await;
+                    let mut delay = 5u64;
+                    loop {
+                        let report = crate::orchestrator::call_graph::ensure_system_call_graphs(&cg_store).await;
+                        if report.failed.is_empty() && !report.asset_missing {
+                            break;
+                        }
+                        tracing::warn!(failed = ?report.failed, asset_missing = report.asset_missing, retry_in_s = delay, "call graphs: not fully ensured — retrying until it is");
+                        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                        delay = (delay * 2).min(60);
+                    }
                 });
             }
 

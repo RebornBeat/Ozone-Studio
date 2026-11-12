@@ -8,32 +8,32 @@
 //!   * image 102 / audio 103 / video 104 / eeg 108 / dna 107 — the pipeline opens the file BY PATH (`{"FilePath": path}`), streaming it itself.
 //!     Nothing is loaded here, so there is no size ceiling and nothing to chunk in the host.
 //!   * chemistry 106 — takes the molecule as text content (`MolFile` / `PDB` / `XYZ` / `SMILES` / `InChI`): read whole, tagged by extension.
-//!   * 3d 109 / cad 120 / kinematics 121 / control 122 / proteomics 112 / geospatial 117 / thermal 114 / depth 115 / sound 110 — a typed data-source
+//!   * 3d 109 / cad 120 / kinematics 121 / control 122 / proteomics 112 / geospatial 117 / thermal 114 / depth 115 — a typed data-source
 //!     variant that names the file path and the format; the format comes from the extension (and, for depth, the file's own header).
-//!   * every other sensor modality (imu, haptic, radar, sonar, em, hyperspectral, bci, biology, network) — its file sources carry PARAMETERS the file
-//!     does not state (sample rate, band count, species, marker channel, …). A reader cannot supply them without inventing them, so the file is
-//!     `Unreadable` with the exact reason; it is never given made-up parameters. A caller that knows them builds its own `Analyze` action.
-//!   * uidocument 127 — a library crate with no pipeline binary: `Unreadable`.
+//!   * ACCEPTANCE == READABILITY (operator 2026-11-11): only extensions in the one table (`assets/pipelines/shared/modality_ext.rs`) link at all, and the
+//!     table holds ONLY extensions this reader can prepare. A sensor modality whose files do not state their own parameters (imu, haptic, radar, sonar,
+//!     em, hyperspectral, bci, biology, network) has no accepted extension: the link rejects it up front with the reason (`modality_ext::accept`) — a
+//!     reader never invents a parameter, and there is no "unreadable" state in the worker. A malformed file of an accepted type (bad LAS signature,
+//!     non-UTF8 text, PCD without DATA) is rejected at link time too; if one reaches the worker (changed after link) `prepare` returns Err — a real failure
+//!     the worker pauses and retries.
 //!
 //! TWO PIPELINE INPUT/OUTPUT SHAPES exist and are kept explicit (`Shape`):
 //!   Wrapped — `{"action": {"type": …}}`, analysis under the output's `result`, graph id under `result.graph_id` (image audio video chemistry dna eeg math).
 //!   Bare    — the action IS the input (`{"type": …, "data": …}`), analysis under `analysis`, graph id at the top level `graph_id` (every 109–127 pipeline).
 //!   Text/code are Wrapped-in-`action` too but name their fields differently (`analysis_result`, top-level `graph_id`, `link_to_existing`).
 //!
-//! HONESTY: unreadable = a recorded reason, never an invented analysis. Only a parameter the pipeline itself documents a default for (STL unit Meters,
-//! sound channel Mono) is passed, as that default.
+//! HONESTY: never an invented parameter. Only a parameter the pipeline itself documents a default for (STL unit Meters) is passed, as that default.
 
 use serde_json::{json, Value};
 use std::io::Read;
 
 /// What a file turned into for its modality pipeline.
 pub enum Prepared {
-    /// The whole file as text (text / code / math). The caller builds the pipeline action with `text_analyze_input`.
+    /// The whole file as text (text / code / math). The caller builds the pipeline action with `text_analyze_input`. EMPTY for a binary document
+    /// (pdf / docx / …): the text pipeline then extracts the text itself from `file_path` through the document tool.
     Text(String),
     /// A complete executor input (the `Analyze` action) — the pipeline reads the file itself from the path inside it.
     Action(Value),
-    /// The file cannot be given to its pipeline without inventing something; the reason is recorded, no pipeline is called.
-    Unreadable(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -83,6 +83,10 @@ pub fn text_analyze_input(pipeline_id: u64, text: &str, available_modalities: &[
         "available_modalities": available_modalities,
     });
     action[if pipeline_id == 101 { "code" } else { "text" }] = json!(text);
+    if pipeline_id == 100 && text.is_empty() {
+        // a binary document: empty `text` + `file_path` makes the text pipeline extract the real text (document tool); never empty text analysed as the document
+        action["file_path"] = json!(path);
+    }
     if pipeline_id == 101 {
         // the keys are required even as null (CodeModalityAction::Analyze has no serde default); the path lets code detect the language by extension
         action["language"] = Value::Null;
@@ -125,43 +129,51 @@ pub fn graph_id_of(pipeline_id: u64, created: &Value) -> Option<u64> {
 // ── the readers ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /// Prepare `path` for its modality pipeline. `pipeline_id` is the modality's pipeline (0 → already mapped to text by the caller).
-pub async fn prepare(path: &str, pipeline_id: u64) -> Prepared {
+/// Err = a REAL failure (the file cannot be read now, or is malformed, or — impossible for an accepted extension — has no reader): the caller pauses
+/// and retries; nothing is recorded-and-skipped and nothing is invented.
+pub async fn prepare(path: &str, pipeline_id: u64) -> Result<Prepared, String> {
     let ext = ext_of(path);
     match pipeline_id {
-        100 | 101 | 105 => match tokio::fs::read_to_string(path).await {
-            Ok(t) => Prepared::Text(t),
-            // binary documents (pdf, docx, …) reach text by extension; their text needs an extractor, not a UTF-8 read
-            Err(e) => Prepared::Unreadable(format!("not readable as UTF-8 text ({e}); a binary document needs its text extractor, not a plain read")),
-        },
+        100 | 101 | 105 => {
+            if pipeline_id == 100 && matches!(ext.as_str(), "pdf" | "doc" | "docx" | "rtf" | "odt" | "ods" | "odp" | "pptx" | "ppt") {
+                return Ok(Prepared::Text(String::new()));
+            }
+            tokio::fs::read_to_string(path).await.map(Prepared::Text).map_err(|e| format!("{path}: not readable as UTF-8 text: {e}"))
+        }
         106 => chemistry(path, &ext).await,
         _ => path_based(path, &ext, pipeline_id),
     }
 }
 
-fn wrapped(action: Value) -> Prepared {
-    Prepared::Action(json!({ "action": action }))
+fn wrapped(action: Value) -> Result<Prepared, String> {
+    Ok(Prepared::Action(json!({ "action": action })))
 }
 
-fn bare(action: Value) -> Prepared {
-    Prepared::Action(action)
+fn bare(action: Value) -> Result<Prepared, String> {
+    Ok(Prepared::Action(action))
 }
 
-async fn chemistry(path: &str, ext: &str) -> Prepared {
+fn no_reader(path: &str, pipeline_id: u64, ext: &str) -> Result<Prepared, String> {
+    // an accepted extension always has a reader (modality_ext + the consistency test below): reaching this is a table/reader mismatch — a real defect, surfaced
+    Err(format!("{path}: no reader for .{ext} in pipeline {pipeline_id} — the extension table and file_reader disagree"))
+}
+
+async fn chemistry(path: &str, ext: &str) -> Result<Prepared, String> {
     let variant = match ext {
         "mol" | "sdf" => "MolFile",
         "pdb" => "PDB",
         "xyz" => "XYZ",
         "smi" | "smiles" => "SMILES",
         "inchi" => "InChI",
-        _ => return Prepared::Unreadable(format!("chemistry takes MolFile / PDB / XYZ / SMILES / InChI content; there is no input for .{ext} (cif, mol2, cml, cdx, cdxml, rxn, ct, mae, maegz)")),
+        _ => return no_reader(path, 106, ext),
     };
     match tokio::fs::read_to_string(path).await {
         Ok(text) => wrapped(json!({"type": "AnalyzeMolecule", "molecule": { variant: text }, "compute_properties": true, "find_functional_groups": true, "generate_3d": false})),
-        Err(e) => Prepared::Unreadable(format!("not readable as text ({e}); .{ext} is read as {variant} content")),
+        Err(e) => Err(format!("{path}: not readable as text ({e}); .{ext} is read as {variant} content")),
     }
 }
 
-fn path_based(path: &str, ext: &str, pipeline_id: u64) -> Prepared {
+fn path_based(path: &str, ext: &str, pipeline_id: u64) -> Result<Prepared, String> {
     match pipeline_id {
         102 => wrapped(json!({"type": "Analyze", "image_data": {"FilePath": path}})),
         103 => wrapped(json!({"type": "Analyze", "audio_data": {"FilePath": path}})),
@@ -171,19 +183,17 @@ fn path_based(path: &str, ext: &str, pipeline_id: u64) -> Prepared {
             "fasta" | "fa" | "fna" | "ffn" | "faa" | "frn" | "fastq" | "fq" | "gbk" | "gb" | "genbank" => {
                 wrapped(json!({"type": "AnalyzeSequence", "sequence": {"FilePath": path}, "compute_statistics": true}))
             }
-            _ => Prepared::Unreadable(format!("AnalyzeSequence reads sequences (fasta / fastq / genbank); .{ext} is an annotation, variant, alignment or track file with no sequence input")),
+            _ => no_reader(path, pipeline_id, ext),
         },
         109 => scene_3d(path, ext),
-        110 => bare(json!({"type": "Analyze", "data": {"AudioFile": {"file_path": path, "channel": "Mono"}},
-            "detect_vocalizations": true, "identify_species": true, "decompose_units": true, "reconstruct_scene": true, "extract_signatures": true})),
         112 => match ext {
             "mmcif" => bare(proteomics(json!({"MMCIF": {"file_path": path, "entry_id": null}}))),
-            _ => Prepared::Unreadable(format!("proteomics .{ext} needs parameters the file does not state (mass-spec format and experiment type, or map/density metadata)")),
+            _ => no_reader(path, pipeline_id, ext),
         },
         114 => match ext {
             "rjpeg" | "fff" => bare(json!({"type": "Analyze", "data": {"FLIRRadiometric": {"file_path": path, "extract_embedded_metadata": true}},
                 "detect_hotspots": true, "detect_coldspots": true, "compute_gradients": true, "classify_materials": true, "detect_anomalies": true})),
-            _ => Prepared::Unreadable(format!("thermal .{ext} needs parameters the file does not state (frame rate, raw ADC geometry and radiometric coefficients); only radiometric FLIR files are self-describing")),
+            _ => no_reader(path, pipeline_id, ext),
         },
         115 => depth(path, ext),
         117 => geospatial(path, ext),
@@ -192,30 +202,13 @@ fn path_based(path: &str, ext: &str, pipeline_id: u64) -> Prepared {
         122 => match ext {
             "slx" | "mdl" | "simulink" => bare(json!({"type": "Analyze", "data": {"Simulink": {"file_path": path, "subsystem_path": null}},
                 "analyze_stability": true, "analyze_performance": true, "analyze_robustness": true, "identify_system": true})),
-            _ => Prepared::Unreadable(format!("control .{ext} needs the model name or system variable, which the file does not state; only Simulink models (.slx / .mdl) are self-describing")),
+            _ => no_reader(path, pipeline_id, ext),
         },
-        116 | 113 | 124 | 125 | 118 | 126 | 119 | 111 => Prepared::Unreadable(sensor_parameters(pipeline_id, ext)),
-        123 => Prepared::Unreadable(format!("network sources are scan / capture / flow / config dumps (nmap, pcap, netflow, snmp, bgp, cloud, lldp, zeek, firewall); there is no input for a .{ext} graph file")),
-        127 => Prepared::Unreadable("uidocument is a library crate with no pipeline binary; no graph can be created for it".to_string()),
-        _ => Prepared::Unreadable(format!("no reader for pipeline {pipeline_id} (.{ext})")),
+        _ => no_reader(path, pipeline_id, ext),
     }
 }
 
-fn sensor_parameters(pipeline_id: u64, ext: &str) -> String {
-    let (name, needs) = match pipeline_id {
-        116 => ("imu", "column map and units, or the ROS topic and version, or the sample rate"),
-        113 => ("haptic", "sensor model, array geometry, sample rate"),
-        124 => ("radar", "sample rate and carrier frequency, or the SAR format, polarization and orbit"),
-        125 => ("sonar", "format and frequency, beam count and swath"),
-        118 => ("electromagnetic", "sample rate, centre frequency and gain"),
-        126 => ("hyperspectral", "band count, wavelength range and resolution"),
-        119 => ("bci", "marker channel and paradigm, or electrode count and sample rate"),
-        _ => ("biology", "species / organism and the data format"),
-    };
-    format!("{name} .{ext} needs parameters the file does not state ({needs}); a reader would have to invent them, so none is built — a caller that knows them sends its own Analyze action")
-}
-
-fn scene_3d(path: &str, ext: &str) -> Prepared {
+fn scene_3d(path: &str, ext: &str) -> Result<Prepared, String> {
     let src = match ext {
         "gltf" => json!({"GLTF": {"file_path": path, "load_animations": true, "load_materials": true}}),
         "glb" => json!({"GLB": {"file_path": path}}),
@@ -223,13 +216,12 @@ fn scene_3d(path: &str, ext: &str) -> Prepared {
         // an STL carries no unit; Meters is the pipeline's own documented default (`LengthUnit` #[default])
         "stl" => json!({"STL": {"file_path": path, "unit": "Meters"}}),
         "ply" => json!({"PLY": {"file_path": path}}),
-        // glue.rs::analyze_scene reads exactly these five (and says so for the rest): fbx, usd*, blend, dae, world, 3ds, c4d, ma, mb have no reader yet
-        _ => return Prepared::Unreadable(format!("the 3D pipeline reads glTF / GLB / OBJ / STL / PLY; .{ext} has no reader in it yet (it refuses honestly rather than fabricate)")),
+        _ => return no_reader(path, 109, ext),
     };
     bare(json!({"type": "AnalyzeScene", "data": src, "extract_hierarchy": true, "extract_physics": false, "extract_animation": true, "extract_materials": true}))
 }
 
-fn cad(path: &str, ext: &str) -> Prepared {
+fn cad(path: &str, ext: &str) -> Result<Prepared, String> {
     let variant = match ext {
         "step" | "stp" => "STEP",
         "iges" | "igs" => "IGES",
@@ -242,12 +234,12 @@ fn cad(path: &str, ext: &str) -> Prepared {
         "x_t" => "X_T",
         "x_b" => "X_B",
         "sat" => "SAT",
-        _ => return Prepared::Unreadable(format!("the CAD pipeline has no source for .{ext}")),
+        _ => return no_reader(path, 120, ext),
     };
     bare(json!({"type": "AnalyzeFile", "data": { variant: {"file_path": path} }, "extract_features": true, "extract_assembly": true, "extract_tolerances": true}))
 }
 
-fn kinematics(path: &str, ext: &str) -> Prepared {
+fn kinematics(path: &str, ext: &str) -> Result<Prepared, String> {
     let variant = match ext {
         "urdf" => "URDF",
         "mjcf" => "MJCF",
@@ -255,7 +247,7 @@ fn kinematics(path: &str, ext: &str) -> Prepared {
         "bvh" => "BVH",
         "c3d" => "C3D",
         "osim" => "OSIM",
-        _ => return Prepared::Unreadable(format!("kinematics .{ext} (a DH table) is a parameter list, not a chain file; the pipeline takes URDF / MJCF / SDF / BVH / C3D / OSIM")),
+        _ => return no_reader(path, 121, ext),
     };
     bare(json!({"type": "AnalyzeChain", "data": { variant: {"file_path": path} }, "compute_workspace": true, "detect_singularities": true}))
 }
@@ -264,29 +256,26 @@ fn proteomics(data: Value) -> Value {
     json!({"type": "Analyze", "data": data, "extract_structure": true, "extract_interactions": true, "extract_modifications": true, "extract_expression": true, "extract_function": true})
 }
 
-fn geospatial(path: &str, ext: &str) -> Prepared {
+fn geospatial(path: &str, ext: &str) -> Result<Prepared, String> {
     let data = match ext {
         "geojson" => json!({"GeoJSON": {"file_path": path}}),
         "kml" | "kmz" => json!({"KML": {"file_path": path}}),
         "gpx" => json!({"GPX": {"file_path": path}}),
         "shp" => json!({"Shapefile": {"file_path": path, "crs": null}}),
         "osm" | "pbf" => json!({"OSM": {"file_path": path, "extract_features": []}}),
-        "dbf" | "shx" | "prj" => return Prepared::Unreadable(format!(".{ext} is a shapefile sidecar; its .shp is the source and carries it")),
-        _ => return Prepared::Unreadable(format!("geospatial .{ext} needs parameters the file does not state (vertical datum and CRS, band interpretation, or the variable name)")),
+        _ => return no_reader(path, 117, ext),
     };
     bare(json!({"type": "Analyze", "data": data, "extract_features": true, "build_topology": true, "compute_terrain": true, "extract_routes": true}))
 }
 
-/// Depth: the LiDAR / PCD flags are properties of the file, so they are read from its own header, never guessed.
-fn depth(path: &str, ext: &str) -> Prepared {
+/// Depth: the LiDAR / PCD flags are properties of the file, so they are read from its own header, never guessed. (Link time already rejected a bad signature /
+/// missing DATA line; a file that changed since is a real failure here.)
+fn depth(path: &str, ext: &str) -> Result<Prepared, String> {
     let data = match ext {
         "las" | "laz" => {
-            let h = match head(path, 256) {
-                Ok(h) => h,
-                Err(e) => return Prepared::Unreadable(format!("LAS header not readable: {e}")),
-            };
+            let h = head(path, 256).map_err(|e| format!("{path}: LAS header not readable: {e}"))?;
             if h.len() < 105 || &h[0..4] != b"LASF" {
-                return Prepared::Unreadable("not a LAS/LAZ file: the LASF signature is missing".to_string());
+                return Err(format!("{path}: not a LAS/LAZ file: the LASF signature is missing"));
             }
             // point data record format (byte 104; bit 7 / 6 are LAZ compression markers); every format carries intensity and classification
             let fmt = h[104] & 0x3f;
@@ -295,10 +284,7 @@ fn depth(path: &str, ext: &str) -> Prepared {
                 "has_intensity": true, "has_rgb": has_rgb, "has_classification": true, "coordinate_system": "SensorLocal"}})
         }
         "pcd" => {
-            let h = match head(path, 4096) {
-                Ok(h) => h,
-                Err(e) => return Prepared::Unreadable(format!("PCD header not readable: {e}")),
-            };
+            let h = head(path, 4096).map_err(|e| format!("{path}: PCD header not readable: {e}"))?;
             let text = String::from_utf8_lossy(&h).to_string();
             let mut fields = String::new();
             let mut data_kind: Option<String> = None;
@@ -311,11 +297,11 @@ fn depth(path: &str, ext: &str) -> Prepared {
                     break;
                 }
             }
-            let Some(kind) = data_kind else { return Prepared::Unreadable("PCD header has no DATA line".to_string()) };
+            let Some(kind) = data_kind else { return Err(format!("{path}: malformed PCD: the header has no DATA line")) };
             json!({"PCDFile": {"file_path": path, "binary": kind != "ascii",
                 "has_normals": fields.contains("normal_x"), "has_rgb": fields.split_whitespace().any(|f| f == "rgb" || f == "rgba")}})
         }
-        _ => return Prepared::Unreadable(format!("depth .{ext} needs parameters the file does not state (scan count, delimiter and columns, or camera intrinsics); only LAS / LAZ / PCD carry their own header")),
+        _ => return no_reader(path, 115, ext),
     };
     bare(json!({"type": "Analyze", "data": data, "extract_surfaces": true, "extract_objects": true, "extract_normals": true, "compute_topology": true, "compute_occlusion": false}))
 }
@@ -348,14 +334,60 @@ mod tests {
 
     #[test]
     fn path_readers_name_the_file_and_never_invent_parameters() {
-        let Prepared::Action(a) = path_based("/x/a.png", "png", 102) else { panic!("image") };
+        let Ok(Prepared::Action(a)) = path_based("/x/a.png", "png", 102) else { panic!("image") };
         assert_eq!(a["action"]["image_data"]["FilePath"], "/x/a.png");
-        let Prepared::Action(a) = path_based("/x/m.obj", "obj", 109) else { panic!("3d") };
+        let Ok(Prepared::Action(a)) = path_based("/x/m.obj", "obj", 109) else { panic!("3d") };
         assert_eq!(a["type"], "AnalyzeScene");
         assert_eq!(a["data"]["OBJ"]["file_path"], "/x/m.obj");
-        // a sensor file whose parameters are not in the file is recorded, not given made-up ones
-        assert!(matches!(path_based("/x/a.iq", "iq", 118), Prepared::Unreadable(_)));
-        assert!(matches!(path_based("/x/a.3ds", "3ds", 109), Prepared::Unreadable(_)));
-        assert!(matches!(path_based("/x/a.html", "html", 127), Prepared::Unreadable(_)));
+    }
+
+    /// ACCEPTANCE == READABILITY: every extension the one table accepts must have a reader. (A representative file name per extension is prepared; a
+    /// "no reader" Err here means the table and this module disagree.) The table is probed through the same pipeline mapping the walk uses.
+    #[tokio::test]
+    async fn every_accepted_extension_has_a_reader() {
+        use crate::types::modality::modality_ext;
+        let exts = [
+            "txt", "pdf", "csv", "cif", "gff", "graphml", "sbml", "rs", "html", "svg", "png", "mp3", "mp4", "tex", "mol", "pdb", "fasta", "gb", "edf", "obj", "glb", "gltf",
+            "stl", "ply", "step", "stp", "iges", "brep", "occ", "f3d", "fcstd", "sat", "x_t", "x_b", "sldprt", "sldasm", "urdf", "mjcf", "bvh", "c3d", "osim", "slx", "mdl", "simulink",
+            "rjpeg", "fff", "geojson", "kml", "kmz", "gpx", "shp", "osm", "pbf", "mmcif",
+        ];
+        for e in exts {
+            let key = modality_ext::modality_for_extension(e).unwrap_or_else(|| panic!(".{e} must be accepted"));
+            let pid = crate::orchestrator::graphs::pipeline_id_for_modality(key);
+            let pid = if pid == 0 { 100 } else { pid };
+            // text-shaped + chemistry need real files; the path-typed ones do not
+            if matches!(pid, 100 | 101 | 105 | 106) {
+                continue;
+            }
+            let r = path_based(&format!("/x/a.{e}"), e, pid);
+            // depth reads its header from disk: a missing file is the only acceptable Err there
+            if pid == 115 {
+                continue;
+            }
+            assert!(r.is_ok(), ".{e} is accepted (modality {key}) but has no reader: {:?}", r.err());
+        }
+        for rejected in ["zip", "xlsx", "iq", "imu", "xtf", "hdr", "h5", "xdf", "fbx", "dae", "bam", "pts", "dbf"] {
+            assert!(modality_ext::modality_for_extension(rejected).is_none(), ".{rejected} must not be accepted");
+            assert!(modality_ext::rejection_reason(rejected).contains("not accepted"));
+        }
+    }
+
+    #[test]
+    fn malformed_files_are_rejected_at_link_time_with_the_reason() {
+        use crate::types::modality::modality_ext;
+        let dir = std::env::temp_dir().join(format!("oz_fr_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bad_las = dir.join("a.las");
+        std::fs::write(&bad_las, vec![0u8; 200]).unwrap();
+        let e = modality_ext::accept(bad_las.to_str().unwrap()).unwrap_err();
+        assert!(e.contains("LASF"), "{e}");
+        let bad_txt = dir.join("b.txt");
+        std::fs::write(&bad_txt, [0xffu8, 0xfe, 0x00, 0x80]).unwrap();
+        assert!(modality_ext::accept(bad_txt.to_str().unwrap()).unwrap_err().contains("UTF-8"));
+        let ok_txt = dir.join("c.txt");
+        std::fs::write(&ok_txt, "héllo wörld").unwrap();
+        assert_eq!(modality_ext::accept(ok_txt.to_str().unwrap()).unwrap(), "text");
+        assert!(modality_ext::accept(dir.join("d.iq").to_str().unwrap()).unwrap_err().contains("not accepted"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

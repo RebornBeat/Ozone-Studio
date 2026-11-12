@@ -56,9 +56,6 @@ pub struct RunCheckpoint {
     /// AMT branches discovered mid-walk and not yet expanded into steps (`walk_expansion.rs`); older checkpoints default to empty
     #[serde(default)]
     pub walk_expansion: Vec<serde_json::Value>,
-    /// Graph creations that failed during the walk (retry items under the open task); older checkpoints default to empty
-    #[serde(default)]
-    pub graph_failures: Vec<serde_json::Value>,
     pub attached_file_contents: HashMap<String, String>,
     pub tokens_used_so_far: u32,
     pub completed_steps: Vec<CheckpointStep>,
@@ -108,7 +105,6 @@ impl PromptOrchestrator {
             tool_manifest: state.tool_manifest.clone(),
             missing_capabilities: state.missing_capabilities.clone(),
             walk_expansion: state.walk_expansion.clone(),
-            graph_failures: state.graph_failures.clone(),
             attached_file_contents: state.attached_file_contents.clone(),
             tokens_used_so_far: state.tokens_used_so_far,
             completed_steps: state
@@ -305,7 +301,6 @@ impl PromptOrchestrator {
         state.tool_manifest = cp.tool_manifest.clone();
         state.missing_capabilities = cp.missing_capabilities.clone();
         state.walk_expansion = cp.walk_expansion.clone();
-        state.graph_failures = cp.graph_failures.clone();
         state.attached_file_contents = cp.attached_file_contents.clone();
         state.tokens_used_so_far = cp.tokens_used_so_far;
         for st in &cp.completed_steps {

@@ -680,6 +680,16 @@ pub struct FileLinkOutput {
     /// (non-recursive), reported honestly rather than silently dropped.
     #[serde(default)]
     pub skipped_entries: Option<Vec<String>>,
+    /// Files NOT linked because their extension is not accepted (no reader exists) or the file is malformed for its type — each with the exact
+    /// reason (acceptance == readability, operator 2026-11-11). Reported up front to the caller / UI / MCP; never a silent skip.
+    #[serde(default)]
+    pub rejected: Option<Vec<RejectedFile>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RejectedFile {
+    pub path: String,
+    pub reason: String,
 }
 
 // ============================================================================
@@ -1059,6 +1069,20 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     error: Some("File already linked to this project".to_string()),
                     directory_ref_id: None,
                     skipped_entries: None,
+                rejected: None,
+                });
+            }
+
+            // ACCEPTANCE == READABILITY: only an accepted, well-formed file links; anything else is rejected HERE with the exact reason
+            if let Err(reason) = modality_ext::accept(&file_path) {
+                return Ok(FileLinkOutput {
+                    success: false,
+                    file_ref: None,
+                    file_refs: None,
+                    error: Some(reason.clone()),
+                    directory_ref_id: None,
+                    skipped_entries: None,
+                    rejected: Some(vec![RejectedFile { path: file_path, reason }]),
                 });
             }
 
@@ -1113,6 +1137,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: None,
                 directory_ref_id: None,
                 skipped_entries: None,
+                rejected: None,
             })
         }
 
@@ -1124,6 +1149,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
         } => {
             let mut refs = load_file_refs(project_id);
             let mut new_refs = vec![];
+            let mut rejected: Vec<RejectedFile> = vec![];
             // 2026-10-18 (linkparent fix): resolved once for the whole
             // batch — see link_reference_to_graph's doc comment.
             let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
@@ -1131,6 +1157,11 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
             for file_path in file_paths {
                 // Skip if already linked
                 if refs.iter().any(|r| r.path == file_path) {
+                    continue;
+                }
+                // ACCEPTANCE == READABILITY: not accepted / malformed → rejected up front with the reason, never linked
+                if let Err(reason) = modality_ext::accept(&file_path) {
+                    rejected.push(RejectedFile { path: file_path, reason });
                     continue;
                 }
 
@@ -1165,13 +1196,15 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
             save_file_refs(project_id, &refs)?;
 
+            let all_rejected = new_refs.is_empty() && !rejected.is_empty();
             Ok(FileLinkOutput {
-                success: true,
+                success: !all_rejected,
                 file_ref: None,
                 file_refs: Some(new_refs),
-                error: None,
+                error: if all_rejected { Some(format!("none of the {} file(s) were accepted — see `rejected` for each reason", rejected.len())) } else { None },
                 directory_ref_id: None,
                 skipped_entries: None,
+                rejected: if rejected.is_empty() { None } else { Some(rejected) },
             })
         }
 
@@ -1202,6 +1235,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     error: None,
                     directory_ref_id: None,
                     skipped_entries: None,
+                rejected: None,
                 })
             } else {
                 Ok(FileLinkOutput {
@@ -1211,6 +1245,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     error: Some("File reference not found".to_string()),
                     directory_ref_id: None,
                     skipped_entries: None,
+                rejected: None,
                 })
             }
         }
@@ -1253,6 +1288,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                                             error: None,
                                             directory_ref_id: None,
                                             skipped_entries: None,
+                rejected: None,
                                         });
                                     }
                                 }
@@ -1269,6 +1305,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: Some("File reference not found".to_string()),
                 directory_ref_id: None,
                 skipped_entries: None,
+                rejected: None,
             })
         }
 
@@ -1293,6 +1330,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                                             error: None,
                                             directory_ref_id: None,
                                             skipped_entries: None,
+                rejected: None,
                                         });
                                     }
                                 }
@@ -1309,6 +1347,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: Some("File reference not found".to_string()),
                 directory_ref_id: None,
                 skipped_entries: None,
+                rejected: None,
             })
         }
 
@@ -1321,6 +1360,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: None,
                 directory_ref_id: None,
                 skipped_entries: None,
+                rejected: None,
             })
         }
 
@@ -1339,6 +1379,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     error: Some(format!("Not a real, accessible directory: {}", folder_path)),
                     directory_ref_id: None,
                     skipped_entries: None,
+                rejected: None,
                 });
             }
 
@@ -1352,6 +1393,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                         error: Some(format!("Could not read directory {}: {}", folder_path, e)),
                         directory_ref_id: None,
                         skipped_entries: None,
+                rejected: None,
                     });
                 }
             };
@@ -1396,9 +1438,15 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
             let mut refs = load_file_refs(project_id);
             let mut new_refs = vec![];
+            let mut rejected: Vec<RejectedFile> = vec![];
 
             for file_path in child_file_paths {
                 if refs.iter().any(|r| r.path == file_path) {
+                    continue;
+                }
+                // ACCEPTANCE == READABILITY: not accepted / malformed → rejected up front with the reason, never linked
+                if let Err(reason) = modality_ext::accept(&file_path) {
+                    rejected.push(RejectedFile { path: file_path, reason });
                     continue;
                 }
 
@@ -1443,12 +1491,13 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
             save_file_refs(project_id, &refs)?;
 
             Ok(FileLinkOutput {
-                success: true,
+                success: true, // the folder itself linked; every file that was not accepted is listed in `rejected` with its reason
                 file_ref: None,
                 file_refs: Some(new_refs),
                 error: None,
                 directory_ref_id,
                 skipped_entries: if skipped_entries.is_empty() { None } else { Some(skipped_entries) },
+                rejected: if rejected.is_empty() { None } else { Some(rejected) },
             })
         }
     }

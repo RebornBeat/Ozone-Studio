@@ -8,7 +8,7 @@
 //!     `<data_dir>/call_graphs/<key>.json` through `object_store_path`, readable with `GetContainerContent` like every other body) and
 //!     REFRESHES the body in place when the asset changed. Idempotent: the container ids and body hashes live in
 //!     `<data_dir>/call_graphs/containers.json`; a container that still exists with an unchanged body is left alone, a deleted one is
-//!     recreated, a changed body is rewritten without a new container. Best-effort: a failure logs and never blocks boot.
+//!     recreated, a changed body is rewritten without a new container. Boot is never blocked, but a failure is retried by the caller (lib.rs) until every graph is ensured — it is not dropped.
 //!   * [`system_graphs_view`] — what `GET /callgraph/system` returns: the graphs as stored plus each graph's container id.
 //!   * [`live_for_trace`] — what `GET /callgraph/live` returns: the executed calls (`capture/call_spans.jsonl`) and the stage events
 //!     (`walk_metrics.jsonl`) of ONE walk's trace, so the UI can overlay "what actually ran" on the static graph. Read-only, never a model call.
@@ -137,7 +137,7 @@ pub struct EnsureReport {
     pub asset_missing: bool,
 }
 
-/// Create / refresh the graph containers from the asset. Idempotent and best-effort (see the module doc).
+/// Create / refresh the graph containers from the asset. Idempotent; the caller retries until `failed` is empty and the asset was found.
 pub async fn ensure_system_call_graphs(store: &Arc<dyn StoreAccess>) -> EnsureReport {
     let mut report = EnsureReport::default();
     let Some(asset) = load_asset() else {
@@ -206,7 +206,7 @@ pub async fn ensure_system_call_graphs(store: &Arc<dyn StoreAccess>) -> EnsureRe
                 report.created.push(key);
             }
             Err(e) => {
-                tracing::warn!(graph = %key, error = %e, "call graphs: container creation failed (best-effort)");
+                tracing::warn!(graph = %key, error = %e, "call graphs: container creation failed (the caller retries)");
                 report.failed.push(key);
             }
         }

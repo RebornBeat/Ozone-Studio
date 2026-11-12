@@ -4170,6 +4170,40 @@ async fn orchestrate(
         });
     }
 
+    // ACCEPTANCE == READABILITY (operator 2026-11-11): an attached file with a path is accepted only if its extension is in the one table (so a reader
+    // exists) and the file is well-formed for its type — otherwise it is rejected UP FRONT with the exact reason, never skipped later.
+    for f in &req.attached_files {
+        let inline = f.get("is_inline").and_then(|v| v.as_bool()).unwrap_or(false);
+        let Some(path) = f.get("file_path").and_then(|v| v.as_str()) else { continue };
+        if inline {
+            continue;
+        }
+        if let Err(reason) = crate::types::modality::modality_ext::accept(path) {
+            return Json(OrchestrateResponse {
+                success: false,
+                response: None,
+                task_id: None,
+                blueprint_id: None,
+                stages_completed: vec![],
+                needs_clarification: false,
+                clarification_points: vec![],
+                error: Some(format!("attached file rejected: {reason}")),
+                execution_time_ms: start.elapsed().as_millis() as u64,
+                model_used: None,
+                total_tokens_used: None,
+                amt_summary: None,
+                thinking_log: vec![],
+                attempt_trail: vec![],
+                refusals: vec![],
+                awaiting: false,
+                await_id: None,
+                status: None,
+                accepted: false,
+                run_token: None,
+            });
+        }
+    }
+
     // Build the pipeline input that the orchestrator understands
     let mut data = std::collections::HashMap::new();
     data.insert(

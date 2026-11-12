@@ -24,11 +24,11 @@ export interface FileGraphsViewProps {
 const STATUS_TEXT: Record<string, string> = {
   complete: "graph created, entries read",
   graph_created: "graph created, entries pending",
-  failed_analyze: "analysis failed — will resume on the next trigger",
-  failed_create_graph: "graph creation failed — will resume on the next trigger",
-  unreadable: "no reader without inventing parameters the file does not state — no graph (see the note)",
-  not_text_readable: "not readable as text — no graph (see the note)",
-  file_unreadable: "file missing or unreadable",
+  failed_read: "could not be read — retried automatically until it succeeds",
+  failed_analyze: "analysis failed — retried automatically until it succeeds",
+  failed_create_graph: "graph creation failed — retried automatically until it succeeds",
+  not_accepted: "linked before the acceptance rule: this extension has no reader — unlink it (see the note)",
+  file_missing: "file no longer exists — resumes by itself if it reappears",
 };
 
 function when(at: number): string {

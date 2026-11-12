@@ -1,3 +1,5 @@
+> **SUPERSEDED IN PART 2026-11-11 (operator: "there should be NO unreadable files, because only accepted modalities/extensions link at all")** — `Prepared::Unreadable` and the worker statuses `unreadable` / `not_text_readable` / `file_unreadable` are gone. The one extension table (`assets/pipelines/shared/modality_ext.rs`) now holds ONLY extensions a reader exists for; everything else is rejected at LINK time with the reason (`modality_ext::accept`). See docs/evidence/no-skip-sweep/REPORT.md for the per-extension table.
+
 # Modality file readers — 2026-11-11
 
 Operator ruling: readers for ALL modalities with the extensions we have for each; follow how text is handled; review the GitHub for existing 3D/image traversal; no over-engineering. Edit only: NOT compiled, NOT tested (rustfmt / `ts.transpileModule` parse checks only). EU untouched.

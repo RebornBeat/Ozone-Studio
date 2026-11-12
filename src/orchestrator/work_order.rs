@@ -197,22 +197,6 @@ impl PromptOrchestrator {
         for name in gap_names(state) {
             ensure_gap_task(&tm, walk, &name).await;
         }
-        // 4. graph creations that FAILED (no id was minted): one retry task per failure under the walk, with a single `graph` item. It is ticked by the
-        // real event — the file's structural graph appearing in the graph-on-link ledger (`graph_on_link.rs`, which rebuilds file graphs) — and until
-        // then the walk's completion gate holds (a `wo_*` task with an open item blocks; `task/mod.rs::blockers_in`). An operator can cancel it.
-        for f in &state.graph_failures {
-            let (Some(kind), Some(subject)) = (f["kind"].as_str(), f["subject"].as_str()) else { continue };
-            // Only FILE graphs have a real rebuilder + ticker (the graph-on-link worker). A failed graph of the prompt's own modality text has
-            // none yet — it is recorded (`graph_failures`, `graph_creation_failed` event) but cannot gate: an item nothing can tick would park
-            // the walk forever. Listed for review in docs/evidence/walk-finalization/REPORT.md.
-            if kind != "file" {
-                continue;
-            }
-            let key = format!("w{walk}:graph:{subject}");
-            let title = format!("graph for {kind} {subject}: creation failed — {}", f["reason"].as_str().unwrap_or("no reason recorded"));
-            let items = [("graph".to_string(), format!("a real graph exists for {subject} (a failed creation is retried; nothing proceeds on a made-up id)"))];
-            tm.create_work_task(Some(walk), "wo_graph_retry", &key, &title, &items, None, Some(walk)).await;
-        }
         sync_gap_tasks(&tm).await;
     }
 

@@ -37,6 +37,17 @@ try {
   const sym = await a.ozone.call("ozone_link", { kind: "file", path: path.join(dir, "escape.txt"), ...common });
   s.check("H3", "symlink escaping the root is refused (real path is checked)", !sym.ok && /outside the allowed link roots/.test(sym.text), sym.text.slice(0, 140));
 
+  // ACCEPTANCE == READABILITY: an extension with no reader and a malformed file of an accepted type are rejected AT LINK TIME with the exact reason
+  fs.writeFileSync(path.join(dir, "capture.iq"), Buffer.from([1, 2, 3, 4]));
+  fs.writeFileSync(path.join(dir, "bad.txt"), Buffer.from([0xff, 0xfe, 0x00, 0x80]));
+  fs.writeFileSync(path.join(dir, "bad.las"), Buffer.alloc(200));
+  const iq = await a.ozone.call("ozone_link", { kind: "file", path: path.join(dir, "capture.iq"), ...common });
+  s.check("R1", "an extension with no reader (.iq) is rejected at link time with the reason", /not accepted/.test(iq.text), iq.text.slice(0, 200));
+  const badTxt = await a.ozone.call("ozone_link", { kind: "file", path: path.join(dir, "bad.txt"), ...common });
+  s.check("R2", "a non-UTF-8 .txt is rejected at link time (malformed for its type)", /UTF-8/.test(badTxt.text), badTxt.text.slice(0, 200));
+  const badLas = await a.ozone.call("ozone_link", { kind: "file", path: path.join(dir, "bad.las"), ...common });
+  s.check("R3", "a .las without the LASF signature is rejected at link time", /LASF/.test(badLas.text), badLas.text.slice(0, 200));
+
   const before = (await b.ozone.call("ozone_callgraph_files", { project_id })).json;
   const beforeIds = new Set((before?.files ?? []).map((r) => r.file_reference_id));
   const linkedAt = Date.now();
@@ -49,7 +60,7 @@ try {
     const r = (await c.ozone.call("ozone_callgraph_files", { project_id })).json;
     const all = r?.files ?? [];
     const mine = all.filter((x) => !beforeIds.has(x.file_reference_id));
-    return mine.length >= Object.keys(fixtures).length && mine.every((x) => /^(graph_created|complete|unreadable|not_text_readable|failed.*|file_unreadable)$/i.test(String(x.status))) ? mine : null;
+    return mine.length >= Object.keys(fixtures).length && mine.every((x) => /^(graph_created|complete|failed.*|not_accepted|file_missing)$/i.test(String(x.status))) ? mine : null;
   });
   s.check("G0", "graph_on_link produced a ledger row for every linked file with no prompt (as read)", !!rows, rows ? `${rows.length} rows` : "timed out waiting for rows");
   const byPath = (n) => (rows ?? []).find((x) => String(x.path ?? "").endsWith(n));
@@ -57,8 +68,7 @@ try {
     const row = byPath(name);
     if (!row) { s.fail(`G-${mod}`, `ledger row for ${name}`, "absent"); continue; }
     const st = String(row.status);
-    if (/unreadable|not_text_readable/.test(st)) s.skip(`G-${mod}`, `graph for ${name}`, `host says ${st}: ${row.reason ?? row.error ?? "no reason given"}`);
-    else s.check(`G-${mod}`, `graph for ${name}: structural graph recorded by the host (status graph_created|complete, graph_id present, structural_done)`, /^(graph_created|complete)$/.test(st) && row.graph_id != null && row.structural_done === true, JSON.stringify({ status: st, graph: row.graph_id, hash: row.hash, trigger: row.trigger, created_by: row.created_by, task: row.task_id }).slice(0, 220));
+    s.check(`G-${mod}`, `graph for ${name}: structural graph recorded by the host (status graph_created|complete, graph_id present, structural_done)`, /^(graph_created|complete)$/.test(st) && row.graph_id != null && row.structural_done === true, JSON.stringify({ status: st, graph: row.graph_id, hash: row.hash, trigger: row.trigger, created_by: row.created_by, task: row.task_id }).slice(0, 220));
   }
   // both views agree on current state: a second agent sees the same rows
   const again = (await b.ozone.call("ozone_callgraph_files", { project_id })).json;

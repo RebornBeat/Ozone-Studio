@@ -156,7 +156,8 @@ impl PromptOrchestrator {
                     tracing::info!(stage = "4b", "[4b.math] ParseExpression execute start");
                     let r = self.executor.execute(pipeline_id, parse_action).await;
                     tracing::info!(stage = "4b", "[4b.math] ParseExpression execute done");
-                    r.unwrap_or_default()
+                    // NO SKIP (operator 2026-11-11): a failed ParseExpression is a failure — the walk pauses and retries, it never builds a graph from an empty parse
+                    r.map_err(|e| format!("modality '{modality}' ParseExpression failed: {e}"))?
                 };
                 let parse_result = parse_out.get("result").cloned();
                 let confidence = parse_result
@@ -202,7 +203,8 @@ impl PromptOrchestrator {
                 let analysis = {
                     let r = self.executor.execute(pipeline_id, analyze_input).await;
                     tracing::info!(stage = "4b", "[4b.2] modality Analyze execute done");
-                    r.unwrap_or_default()
+                    // NO SKIP: a failed Analyze pauses and retries; it never feeds an empty analysis to CreateGraph
+                    r.map_err(|e| format!("modality '{modality}' Analyze failed: {e}"))?
                 };
 
                 serde_json::json!({
@@ -220,25 +222,18 @@ impl PromptOrchestrator {
                 })
             };
 
+            // NO SKIP, NO MINTED IDS (operator 2026-11-11: "we don't record failures and move on — all failures are to be fixed … or paused and
+            // retried"): a CreateGraph that errors, or returns no real graph id, is a FAILURE. It is returned here, so the walk PAUSES and the resume
+            // retries this stage until the graph exists; nothing proceeds on a made-up id or without the graph.
             let graph_result = self
                 .executor
                 .execute(pipeline_id, graph_input)
                 .await
-                .map(|r| {
-                    tracing::info!(stage = "4b", "[4b.3] CreateGraph execute done (pipeline {})", pipeline_id);
-                    r
-                })
-                .unwrap_or_else(|e| {
-                    tracing::info!(stage = "4b", "[4b.3] CreateGraph execute ERRORED (pipeline {}): {}", pipeline_id, e);
-                    Default::default()
-                });
+                .map_err(|e| format!("modality '{modality}' CreateGraph failed (pipeline {pipeline_id}): {e}"))?;
+            tracing::info!(stage = "4b", "[4b.3] CreateGraph execute done (pipeline {})", pipeline_id);
 
-            // Same top-level-vs-nested graph_id split as mod.rs's STEP 0 fix:
-            // math's CreateGraph result nests graph_id under "result"
-            // (MathResult is #[serde(untagged)]), unlike code/text's
-            // CodeModalityOutput-style shape which puts it at the top level.
-            // NO MINTED IDS (operator 2026-11-11): a creation that returned no real graph id is a FAILURE — recorded (retry item under the
-            // task, gate waits), no `modality_graphs` / `graph_states` entry for it, the walk continues from the request's own chunked text.
+            // top-level-vs-nested graph_id split: math's CreateGraph result nests graph_id under "result" (MathResult is #[serde(untagged)]),
+            // unlike code/text's CodeModalityOutput-style shape which puts it at the top level.
             let found_id = if pipeline_id == 105 {
                 graph_result.get("result").and_then(|r| r.get("graph_id")).and_then(|g| g.as_u64())
             } else {
@@ -246,8 +241,7 @@ impl PromptOrchestrator {
             };
             let Some(graph_id) = found_id else {
                 let reason = graph_result.get("error").and_then(|e| e.as_str()).unwrap_or("the pipeline returned no graph_id").to_string();
-                Self::record_graph_failure(state, "modality", &modality, &reason);
-                continue;
+                return Err(format!("modality '{modality}' CreateGraph returned no graph id ({reason}) — the walk pauses and retries; no id is minted"));
             };
 
             state.modality_graphs.insert(modality.clone(), graph_id);
@@ -759,23 +753,11 @@ impl PromptOrchestrator {
             .await
     }
 
-    /// Record a graph creation that FAILED (never mint an id for it). Idempotent on (kind, subject). `kind` = `file` (subject = the file path) or
-    /// `modality` (subject = the modality name of the prompt's own graphs). The record becomes a retry item under the open task
-    /// (`work_order.rs::materialize_work_order`), so the completion gate holds the walk until the graph exists; it is also an intent event.
-    pub(crate) fn record_graph_failure(state: &mut OrchestrationState, kind: &str, subject: &str, reason: &str) {
-        if state.graph_failures.iter().any(|f| f["kind"].as_str() == Some(kind) && f["subject"].as_str() == Some(subject)) {
-            return;
-        }
-        state.graph_failures.push(serde_json::json!({"kind": kind, "subject": subject, "reason": reason}));
-        super::amt::record_intent_event(state, "graph_creation_failed", serde_json::json!({"kind": kind, "subject": subject, "reason": reason, "continues_from": "the chunked text"}));
-    }
-
     /// The walk's attached-file step: analyse the file with its modality pipeline and create its graph, through the shared reader (`file_reader`).
     ///   * text / code / math — `file_content` (the whole file, or the inline preview) goes through `process_modality`; a CreateGraph that returns no real
-    ///     graph id is an `Err` (2026-11-11: no id is ever minted — the walk records it as a graph failure and continues from the chunked text).
+    ///     graph id is an `Err` (2026-11-11: no id is ever minted, and the walk PAUSES and retries — no skip).
     ///   * every other modality — the pipeline takes the file BY PATH (or the typed source its reader builds), so nothing is read here; a missing graph id is an
-    ///     error (never a minted stand-in), and a file whose pipeline needs parameters the file does not state is `Ok(None)` with the reason logged — no
-    ///     graph, no invented analysis.
+    ///     error (never a minted stand-in). Every accepted extension has a reader (acceptance == readability), so there is no "no graph" case for a file.
     /// Returns the file graph id, or `None` when the file has no graph.
     pub(crate) async fn graph_attached_file(
         &self,
@@ -822,8 +804,7 @@ impl PromptOrchestrator {
                 let graph_result = self
                     .executor
                     .execute(pipeline_id, file_reader::create_graph_input(pipeline_id, &analysis, project_id))
-                    .await
-                    .unwrap_or_default();
+                    .await?;
                 file_reader::graph_id_of(pipeline_id, &graph_result)
                     .map(Some)
                     .ok_or_else(|| format!("CreateGraph returned no graph_id for {} (no id is minted)", file_spec.file_path))
@@ -833,7 +814,7 @@ impl PromptOrchestrator {
                     tracing::warn!(file_path = %file_spec.file_path, "inline content has no file for a binary modality pipeline — no graph");
                     return Ok(None);
                 }
-                match file_reader::prepare(&file_spec.file_path, pipeline_id).await {
+                match file_reader::prepare(&file_spec.file_path, pipeline_id).await? {
                     Prepared::Action(input) => {
                         let analysis = self.executor.execute(pipeline_id, input).await?;
                         let created = self
@@ -844,11 +825,8 @@ impl PromptOrchestrator {
                             .map(Some)
                             .ok_or_else(|| format!("CreateGraph returned no graph_id for {}", file_spec.file_path))
                     }
-                    Prepared::Text(_) => Ok(None),
-                    Prepared::Unreadable(reason) => {
-                        tracing::warn!(file_path = %file_spec.file_path, %reason, "attached file has no reader — no graph (nothing invented)");
-                        Ok(None)
-                    }
+                    // a text-shaped file never reaches this arm (Shape::TextLike | Math above); a Text here is a pipeline/shape mismatch — a real defect, surfaced
+                    Prepared::Text(_) => Err(format!("{}: reader produced text for a non-text pipeline {pipeline_id}", file_spec.file_path)),
                 }
             }
         }

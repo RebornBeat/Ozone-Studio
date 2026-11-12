@@ -1305,9 +1305,6 @@ pub(crate) struct OrchestrationState {
     /// AMT branches a step's alignment review discovered WHILE the task is open, not yet expanded into steps (`walk_expansion.rs`): one JSON
     /// object each `{branch, node_id, step, closed?, methodology_ids?}`. Persisted in the run checkpoint, so a pause never loses a discovered branch.
     pub walk_expansion: Vec<serde_json::Value>,
-    /// Graph creations that FAILED during this walk (`graphs.rs::record_graph_failure`): `{kind: "file"|"modality", subject, reason}`. NO id is minted for them;
-    /// each is a retry item under the open task (`work_order.rs`) that the completion gate waits on until the graph really exists. Checkpointed.
-    pub graph_failures: Vec<serde_json::Value>,
     /// Keyword tracking (operator 2026-11-07: "review all keywords … ensure 100%"): how many keywords the model EXTRACTED, how many
     /// remained USABLE after hygiene, and whether the methodology floor was used — surfaced in the Stage 2/3 summaries and walk_metrics.
     pub keywords_extracted: usize,
@@ -2050,7 +2047,6 @@ impl PromptOrchestrator {
             cross_modal_linked: std::collections::HashSet::new(),
             closure_attempted: std::collections::HashSet::new(),
             walk_expansion: Vec::new(),
-            graph_failures: Vec::new(),
             keywords_extracted: 0,
             floor_used: false,
             replan: false,
@@ -2297,11 +2293,12 @@ impl PromptOrchestrator {
                             content
                         }
                         Err(e) => {
-                            tracing::warn!(
-                                file_path = %file_spec.file_path,
-                                error = %e,
-                                "Could not read attached file from disk — falling back to content_preview"
-                            );
+                            // A BINARY modality (image, audio, 3D, …) is not UTF-8 text by nature: its pipeline opens the file by path, so the
+                            // preview is only a label there. A TEXT-SHAPED file (text / code / math / chemistry) that cannot be read is a real
+                            // failure (NO SKIP, operator 2026-11-11): the walk pauses and retries; it never analyses a 512-byte preview as the file.
+                            if matches!(effective_pipeline, 100 | 101 | 105 | 106) {
+                                return Err(format!("attached file {} could not be read: {e} — the walk pauses and retries", file_spec.file_path));
+                            }
                             file_spec.content_preview.clone().unwrap_or_default()
                         }
                     }
@@ -2312,9 +2309,9 @@ impl PromptOrchestrator {
                 // ParseExpression / `analysis` / `result.graph_id` contract lives in file_reader now). Every other modality is given the typed input its
                 // pipeline takes (the pipeline opens the file by path); a file whose pipeline needs parameters it does not state has no graph (logged),
                 // never an invented analysis.
-                // A FAILED graph creation does not fail the walk and does not mint an id (operator 2026-11-11): it is recorded
-                // (`graph_failures` → a retry item under the open task that the completion gate waits on; the link worker rebuilds the file's
-                // graph) and the walk continues from the file's own chunked text below.
+                // NO SKIP, NO MINTED IDS (operator 2026-11-11): a FAILED graph creation is returned — the walk PAUSES and the resume retries this step
+                // until the graph exists (the graph-on-link worker may build it meanwhile; the shared path lock + ledger make the retry reuse it).
+                // Nothing proceeds on a made-up id and nothing continues without the graph.
                 match self
                     .graph_attached_file(
                         file_spec,
@@ -2331,7 +2328,9 @@ impl PromptOrchestrator {
                             .insert(file_spec.file_path.clone(), graph_id);
                     }
                     Ok(None) => {}
-                    Err(e) => Self::record_graph_failure(state, "file", &file_spec.file_path, &e),
+                    Err(e) => {
+                        return Err(format!("attached file graph creation failed for {}: {e} — the walk pauses and retries", file_spec.file_path));
+                    }
                 }
                 state
                     .attached_file_contents

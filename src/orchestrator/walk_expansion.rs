@@ -69,7 +69,7 @@ impl PromptOrchestrator {
         // 2. the capability closure for the gaps the reviews named (judged once: `closure_attempted`; closed once: the `closed` flag)
         if state.walk_expansion.iter().any(|p| !p["closed"].as_bool().unwrap_or(false)) {
             let before = state.methodologies.len();
-            let (_created, _needed) = self.close_capability_gaps(state).await;
+            let (_created, _needed) = self.close_capability_gaps(state).await?; // NO SKIP: a failed closure returns Err → the walk pauses and the resume retries it
             let drafted: Vec<u64> = state.methodologies.get(before..).map(|s| s.to_vec()).unwrap_or_default();
             for p in state.walk_expansion.iter_mut() {
                 if !p["closed"].as_bool().unwrap_or(false) {

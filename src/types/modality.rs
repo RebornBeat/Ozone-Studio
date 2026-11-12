@@ -225,10 +225,8 @@ impl ModalityType {
     ///
     /// 2026-11-01: the ONE shared table (assets/pipelines/shared/modality_ext.rs)
     /// is consulted first — the same file file_link includes, so the host and
-    /// file_link can no longer disagree. Metadata-only buckets (data / config /
-    /// archive / document) have no modality pipeline and answer Unknown here.
-    /// The per-modality `file_extensions()` lists below are only a fallback for
-    /// extensions the shared table does not mention.
+    /// file_link can no longer disagree. An extension the table does not accept
+    /// answers Unknown (acceptance == readability; `modality_ext::accept` gives the reason).
     pub fn from_extension(ext: &str) -> Self {
         let ext_lower = ext.to_lowercase();
         let ext_str = ext_lower.trim_start_matches('.');
@@ -241,13 +239,8 @@ impl ModalityType {
             };
         }
 
-        // Fallback: extensions the shared table does not know.
-        for modality in Self::all() {
-            if modality.file_extensions().contains(&ext_str) {
-                return *modality;
-            }
-        }
-
+        // NOT in the shared table = NOT ACCEPTED (acceptance == readability, operator 2026-11-11): the per-modality `file_extensions()` lists are
+        // no longer a detection fallback — they would re-admit extensions the table rejected because no reader exists for them.
         ModalityType::Unknown
     }
 
@@ -257,11 +250,7 @@ impl ModalityType {
         match modality_ext::resolve_modality(path) {
             Some(key) if modality_ext::is_metadata_only_bucket(key) => ModalityType::Unknown,
             Some(key) => Self::from_path_name(key),
-            None => std::path::Path::new(path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(Self::from_extension)
-                .unwrap_or(ModalityType::Unknown),
+            None => ModalityType::Unknown, // not in the one table = not accepted (see modality_ext::accept)
         }
     }
 

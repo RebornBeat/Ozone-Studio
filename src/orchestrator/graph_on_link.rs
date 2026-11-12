@@ -373,42 +373,29 @@ pub fn spawn(store: Arc<dyn StoreAccess>, executor: Arc<dyn PipelineExecutor>, t
         });
     }
 
-    // 2b. RETRY of walk-failed file graphs: a walk whose graph creation for a file failed opened a `wo_graph_retry` item (key `w<walk>:graph:<path>`)
-    // that its completion gate waits on. Nothing else would re-trigger the worker for that file, so while such items are open the file is re-queued
-    // every minute (the same queue, the same idempotent job — it ticks the item when the graph exists). Never gives up, never drops.
-    {
-        let store = store.clone();
-        let tx = tx.clone();
-        let tasks = tasks.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-                let open: Vec<String> = {
-                    let tm = tasks.read().await;
-                    tm.open_work_keys("wo_graph_retry").await.into_iter().filter_map(|k| k.split_once(":graph:").map(|(_, p)| p.to_string())).collect()
-                };
-                if open.is_empty() {
-                    continue;
-                }
-                for (container_id, _path) in crate::file_beacon::discover_file_references(&*store).await {
-                    if let Some(job) = job_for(&*store, container_id, "retry-failed-walk-graph").await {
-                        if open.iter().any(|p| *p == job.path) {
-                            let _ = tx.send(job);
-                        }
-                    }
-                }
-            }
-        });
-    }
-
     // 3. the worker: one job at a time, never dropping, waiting while host memory is below the floor
+    let retry_tx = tx.clone();
     tokio::spawn(crate::pipeline::gate::with_priority(
         crate::pipeline::gate::CallPriority::Loop,
         crate::keyword_program::with_origin(crate::keyword_program::Origin::actor("graph-on-link"), async move {
+            let mut attempts: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
             while let Some(job) = rx.recv().await {
                 wait_for_memory().await;
                 if let Err(e) = process_job(&*store, &*executor, &tasks, &job).await {
-                    tracing::warn!(container_id = job.container_id, path = %job.path, reason = job.reason, error = %e, "graph-on-link: job did not finish (recorded; the next trigger resumes it)");
+                    // NO SKIP (operator 2026-11-11): a job that did not finish is NOT left for "the next trigger". It is re-queued after a growing delay
+                    // (5 s doubling, held at 60 s) and retried until it succeeds; the failure stays visible in the ledger row (`failed_*`) meanwhile.
+                    // Re-queued from a side task so one failing file never blocks the files behind it.
+                    let n = attempts.entry(job.container_id).or_insert(0u32);
+                    *n = n.saturating_add(1);
+                    let delay = Duration::from_secs((5u64.saturating_mul(1u64 << (*n - 1).min(4))).min(60));
+                    tracing::warn!(container_id = job.container_id, path = %job.path, reason = job.reason, attempt = *n, retry_in_s = delay.as_secs(), error = %e, "graph-on-link: job did not finish — it is retried until it does");
+                    let tx = retry_tx.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(delay).await;
+                        let _ = tx.send(job);
+                    });
+                } else {
+                    attempts.remove(&job.container_id);
                 }
             }
         }),
@@ -480,40 +467,54 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
     let hash = match hashed {
         Ok(h) => h,
         Err(e) => {
-            // a linked file that is gone / unreadable: recorded, not retried on its own and not an error of this actor
-            let prev = load_ledger().get(&job.container_id.to_string()).cloned().unwrap_or(Value::Null);
-            if prev["status"].as_str() != Some("file_unreadable") {
-                put_row(job.container_id, ledger_row(job, "", "", 0, "file_unreadable", json!({"error": e})));
+            // A linked file that no longer EXISTS is the one thing a retry loop cannot change (an external deletion). It is visible as
+            // `file_missing` (shown in /callgraph/files) and resumes by itself: the file beacon's created/updated event re-triggers the job when it
+            // reappears. Any other read failure (permissions, I/O) is a real failure → Err → retried until it succeeds.
+            if !std::path::Path::new(&job.path).exists() {
+                let prev = load_ledger().get(&job.container_id.to_string()).cloned().unwrap_or(Value::Null);
+                if prev["status"].as_str() != Some("file_missing") {
+                    put_row(job.container_id, ledger_row(job, "", "", 0, "file_missing", json!({"error": e})));
+                }
+                return Ok(());
             }
-            return Ok(());
+            put_row(job.container_id, ledger_row(job, "", "", 0, "failed_read", json!({"error": e.clone()})));
+            return Err(format!("{}: could not be hashed: {e}", job.path));
         }
     };
     // the path's lock: if the walk is building this file's graph right now we wait for it (and then find it in the ledger); the walk waits for us the same way
     let claim = claim(store, &job.path, &hash, Some(job.container_id)).await;
     let prev = claim.prev().clone();
     let same_content = prev["hash"].as_str() == Some(hash.as_str());
-    if same_content && matches!(prev["status"].as_str(), Some("complete") | Some("unreadable") | Some("not_text_readable")) {
-        if prev["status"].as_str() == Some("complete") {
-            // the graph exists: a walk's retry item for this file (opened when its own creation failed) is satisfied
-            let tm = tasks.read().await;
-            tm.complete_work_items_by_key_suffix("wo_graph_retry", &format!(":graph:{}", job.path), "graph", &format!("ModalityGraph container {} exists (graph-on-link ledger)", prev["graph_id"].as_u64().unwrap_or(0)), "graph-on-link").await;
-        }
-        return Ok(()); // this content was already processed: the graph exists (or the file has no reader without invented parameters, recorded)
+    if same_content && prev["status"].as_str() == Some("complete") {
+        return Ok(()); // this content was already processed: the graph exists
     }
 
-    // 2. classify: the one shared extension table → the modality pipeline (unknown → text, exactly as the walk treats it)
-    let modality = crate::types::modality::ModalityType::from_path(&job.path).path_name().to_string();
-    let named_pipeline = super::graphs::pipeline_id_for_modality(&modality);
-    let pipeline_id = if named_pipeline == 0 { 100 } else { named_pipeline };
-
-    // 3. read through the ONE shared reader (file_reader.rs): text-shaped modalities as the WHOLE text (never cut), the rest as the typed input their
-    //    pipeline takes (it opens the file by path itself). A file with no reader that avoids inventing parameters is recorded with the reason, not fed
-    //    to a pipeline that cannot take it and not given made-up values.
-    let prepared = file_reader::prepare(&job.path, pipeline_id).await;
-    if let Prepared::Unreadable(reason) = &prepared {
-        put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "unreadable", json!({"error": reason})));
+    // 2. classify: the one shared extension table → the modality pipeline. ACCEPTANCE == READABILITY: an extension the table does not accept never links (FileLink
+    //    rejects it at link time with the reason). A FileReference that predates that rule and has such an extension is shown as `not_accepted` with the exact
+    //    reason and waits for the operator to unlink it — it is not guessed at, not read as text, not retried.
+    let modality_type = crate::types::modality::ModalityType::from_path(&job.path);
+    if modality_type == crate::types::modality::ModalityType::Unknown {
+        let ext = std::path::Path::new(&job.path).extension().and_then(|e| e.to_str()).unwrap_or("");
+        if prev["status"].as_str() != Some("not_accepted") {
+            put_row(job.container_id, ledger_row(job, &hash, "", 0, "not_accepted", json!({"error": crate::types::modality::modality_ext::rejection_reason(ext)})));
+        }
         return Ok(());
     }
+    let modality = modality_type.path_name().to_string();
+    let pipeline_id = super::graphs::pipeline_id_for_modality(&modality);
+    if pipeline_id == 0 {
+        return Err(format!("{}: modality {modality} has no pipeline — the extension table and the pipeline map disagree", job.path));
+    }
+
+    // 3. read through the ONE shared reader (file_reader.rs): text-shaped modalities as the WHOLE text (never cut), the rest as the typed input their pipeline
+    //    takes (it opens the file by path itself). A read failure is a real failure: recorded on the ledger row and returned, so the worker retries it.
+    let prepared = match file_reader::prepare(&job.path, pipeline_id).await {
+        Ok(p) => p,
+        Err(e) => {
+            put_row(job.container_id, ledger_row(job, &hash, &modality, pipeline_id, "failed_read", json!({"error": e.clone()})));
+            return Err(e);
+        }
+    };
 
     // 4. the work-order task for this (file, content): a changed file is a NEW task, `rerun_of` the previous one (completed is final)
     let key = format!("file:{}:{}", job.container_id, &hash[..16.min(hash.len())]);
@@ -550,7 +551,6 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
         let analyze_in = match prepared {
             Prepared::Text(text) => file_reader::text_analyze_input(pipeline_id, &text, &[modality.clone()], &job.path),
             Prepared::Action(a) => a,
-            Prepared::Unreadable(_) => return Ok(()), // handled above
         };
         let analysis = match executor.execute(pipeline_id, analyze_in).await {
             Ok(a) => a,
@@ -582,8 +582,6 @@ async fn process_job(store: &dyn StoreAccess, executor: &dyn PipelineExecutor, t
         tm.complete_item(task_id, "graph", &format!("ModalityGraph container {} {by}", graph_id.unwrap_or(0)), "graph-on-link").await;
     }
     let gid = graph_id.unwrap_or(0);
-    // a walk whose own graph creation for this file failed opened a retry item (`wo_graph_retry`, key `w<walk>:graph:<path>`): the graph exists now
-    tm.complete_work_items_by_key_suffix("wo_graph_retry", &format!(":graph:{}", job.path), "graph", &format!("ModalityGraph container {gid} exists (graph-on-link)"), "graph-on-link").await;
 
     // 6. entries: read the graph back and digest it by the modality's rule (explicit entry points for code, else the roots)
     let digest = read_digest(store, gid).await;

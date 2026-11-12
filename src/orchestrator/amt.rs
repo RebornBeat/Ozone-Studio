@@ -4273,7 +4273,6 @@ mod tests {
             cross_modal_linked: std::collections::HashSet::new(),
             closure_attempted: std::collections::HashSet::new(),
             walk_expansion: Vec::new(),
-            graph_failures: Vec::new(),
             keywords_extracted: 0,
             floor_used: false,
             replan: false,

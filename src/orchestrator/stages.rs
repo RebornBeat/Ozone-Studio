@@ -29,6 +29,11 @@ impl PromptOrchestrator {
         let mut gap_inputs: Vec<GapInput> = Vec::new();
         let mut all_missing: Vec<String> = reported_missing.to_vec();
 
+        // 0. indices are assigned by position BEFORE anything remaps by them (a repeated model index must not collapse the remap below)
+        if let Some(detail) = Self::normalize_step_indices(&mut state.blueprint_steps) {
+            tracing::info!(detail = %detail, "reconcile: step indices assigned by position");
+        }
+
         // 1. validate model-proposed provider steps
         for step in state.blueprint_steps.iter_mut() {
             if !step.is_provider_step() {
@@ -304,7 +309,7 @@ impl PromptOrchestrator {
         {
             let mut last_needed = usize::MAX;
             loop {
-                let (created, needed) = self.close_capability_gaps(state).await;
+                let (created, needed) = self.close_capability_gaps(state).await?;
                 if created == 0 || needed >= last_needed {
                     break;
                 }
@@ -342,7 +347,7 @@ impl PromptOrchestrator {
             let rank = |f: &str| match f.trim().to_lowercase().as_str() { "high" => 2i32, "medium" => 1, _ => 0 };
             let mut prev = state.simulation_result.as_ref().map(|r| rank(&r.overall_feasibility)).unwrap_or(2);
             while prev == 0 {
-                let (created, needed) = self.close_capability_gaps(state).await;
+                let (created, needed) = self.close_capability_gaps(state).await?;
                 // the re-plan itself is the action when no new capability could be created: it re-designs the plan with the
                 // simulation's risks now in the request context; only ONE such blind re-design is allowed (marker), later rounds need a
                 // capability created.
@@ -1071,7 +1076,7 @@ impl PromptOrchestrator {
     ///    around tools the request never needed (the live walk invented a "representative_user_validation_panel" for a 2-sentence answer).
     /// 2. For every gap still judged NECESSARY: draft a methodology that achieves it on the spot (`draft_methodology_for_capability`).
     /// 3. And create the missing TOOL (`create_tool_for_capability`, E30) — automatic; the finding is published (see `tool_creation.rs`).
-    pub(crate) async fn close_capability_gaps(&self, state: &mut OrchestrationState) -> (usize, usize) {
+    pub(crate) async fn close_capability_gaps(&self, state: &mut OrchestrationState) -> Result<(usize, usize), String> {
         let pending: Vec<String> = state
             .missing_capabilities
             .iter()
@@ -1086,7 +1091,7 @@ impl PromptOrchestrator {
             pending.into_iter().filter(|n| seen.insert(n.to_lowercase())).collect()
         };
         if pending.is_empty() {
-            return (0, 0);
+            return Ok((0, 0));
         }
         let request = state.request.prompt.clone();
         let plan = state
@@ -1120,31 +1125,46 @@ impl PromptOrchestrator {
         let mut created = 0usize;
         let needed_count = needed.len();
         for name in needed {
+            // NO SKIP (operator 2026-11-11): a capability judged NECESSARY is closed or the walk PAUSES and retries — "could not be drafted this walk" is not
+            // an outcome. On a failure the name is taken back out of `closure_attempted` and the error is returned, so the resume runs the closure for it again.
+            let already_drafted = super::tool_binding::capability_gaps()
+                .iter()
+                .any(|g| g["name"].as_str().map(|n| n.eq_ignore_ascii_case(&name)).unwrap_or(false) && g["status"].as_str() == Some("methodology_drafted"));
             let mut drafted_id: Option<u64> = None;
-            match self.draft_methodology_for_capability(state, &name).await {
-                Some(id) => {
-                    drafted_id = Some(id);
-                    state.methodologies.push(id);
-                    created += 1;
-                    state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
-                    super::tool_binding::set_gap_status(&name, "methodology_drafted", &format!("methodology {id} created on the spot"), "capability-closure");
-                    tracing::info!(capability = %name, methodology_id = id, "capability closure: methodology created on the spot");
-                }
-                None => {
-                    super::tool_binding::set_gap_status(&name, "wanted", "judged necessary; a methodology could not be drafted this walk", "capability-closure");
-                    tracing::warn!(capability = %name, "capability closure: judged necessary but no methodology could be drafted");
+            if !already_drafted {
+                match self.draft_methodology_for_capability(state, &name).await {
+                    Ok(id) => {
+                        drafted_id = Some(id);
+                        state.methodologies.push(id);
+                        created += 1;
+                        super::tool_binding::set_gap_status(&name, "methodology_drafted", &format!("methodology {id} created on the spot"), "capability-closure");
+                        tracing::info!(capability = %name, methodology_id = id, "capability closure: methodology created on the spot");
+                    }
+                    Err(e) => {
+                        super::tool_binding::set_gap_status(&name, "wanted", &format!("judged necessary; its methodology could not be drafted — the walk pauses and retries ({e})"), "capability-closure");
+                        state.closure_attempted.remove(&name.to_lowercase());
+                        return Err(e);
+                    }
                 }
             }
             // TOOL CREATION ON THE IDENTIFIED NEED (operator 2026-11-10, E30): the methodology says HOW; the missing tool is created too, and the
             // created tool is published as a FINDING. A created tool counts as something created (the plan is rebuilt with it registered).
-            if self.create_tool_for_capability(state, &name, drafted_id).await.is_some() {
-                state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
-                if drafted_id.is_none() {
-                    created += 1; // a methodology that was created already counted
+            match self.create_tool_for_capability(state, &name, drafted_id).await {
+                Ok(Some(_)) => {
+                    if drafted_id.is_none() {
+                        created += 1; // a methodology that was created already counted
+                    }
+                }
+                Ok(None) => {} // by design: tool creation switched off by the operator, or a tool of that name already exists
+                Err(e) => {
+                    state.closure_attempted.remove(&name.to_lowercase());
+                    return Err(e);
                 }
             }
+            // the gap leaves the walk's missing list only when BOTH its methodology and its tool step are done
+            state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
         }
-        (created, needed_count)
+        Ok((created, needed_count))
     }
 
     /// TOOL CREATION ON AN IDENTIFIED NEED (E30, call site `capability_tool_draft`; module doc `tool_creation.rs` states exactly what a created
@@ -1153,10 +1173,10 @@ impl PromptOrchestrator {
     /// written into the tool's own folder, registered (stdio, never auto-started), recorded on the gap with its provenance, and handed to the
     /// marketplace bridge as a FINDING. Any failure = nothing is created (the gap stays recorded and the next walk retries); an artifact that
     /// was written but could not be registered is removed again. Returns the created tool's name.
-    async fn create_tool_for_capability(&self, state: &mut OrchestrationState, capability: &str, methodology_id: Option<u64>) -> Option<String> {
+    async fn create_tool_for_capability(&self, state: &mut OrchestrationState, capability: &str, methodology_id: Option<u64>) -> Result<Option<String>, String> {
         use super::tool_creation as tc;
         if !tc::enabled() {
-            return None;
+            return Ok(None); // the operator's kill switch is off: by design, not a failure
         }
         let data_dir = tc::data_dir();
         let registered: Vec<(String, String)> = crate::mcp::registry_entries()
@@ -1166,10 +1186,13 @@ impl PromptOrchestrator {
             .map(|t| (t.name.clone(), format!("- {} {}", t.name, t.capabilities.join("; "))))
             .collect();
         let registered_names: Vec<String> = registered.iter().map(|r| r.0.clone()).collect();
-        let name = tc::sanitize_name(capability)?;
+        let Some(name) = tc::sanitize_name(capability) else {
+            tracing::info!(capability, "tool creation: the capability has no usable tool name — none created");
+            return Ok(None);
+        };
         if let Some(why) = tc::collision(&name, &registered_names, &data_dir) {
-            tracing::info!(capability, reason = %why, "tool creation: skipped");
-            return None;
+            tracing::info!(capability, reason = %why, "tool creation: a tool of that name already exists — nothing to create");
+            return Ok(None);
         }
         let request = state.request.prompt.clone();
         let methodology = match methodology_id {
@@ -1187,14 +1210,18 @@ impl PromptOrchestrator {
             "prompt": prompt, "max_tokens": state.model_context_limit / 4, "temperature": 0.2,
             "system_prompt": "Specify real, honest, general tools only. Return only valid JSON."
         });
-        let result = self.metered_execute_resilient(state, input, "capability_tool_draft").await.ok();
-        let spec = result
-            .as_ref()
-            .map(|r| self.extract_output_text(r))
-            .and_then(|text| serde_json::from_str::<serde_json::Value>(Self::extract_json_object_shared(&text).trim()).ok())
-            .map(|parsed| tc::parse_spec(&parsed, capability));
-        let created = match spec {
-            Some(Ok(spec)) => {
+        // NO SKIP (operator 2026-11-11): every failure below is returned (the walk pauses and the resume retries the closure for this capability); nothing is
+        // logged-and-forgotten. Only the operator's switch and an existing tool of the same name are "by design" no-ops (Ok(None) above).
+        let result = self
+            .metered_execute_resilient(state, input, "capability_tool_draft")
+            .await
+            .map_err(|e| format!("tool draft call for '{capability}' failed: {e}"))?;
+        let text = self.extract_output_text(&result);
+        let parsed = serde_json::from_str::<serde_json::Value>(Self::extract_json_object_shared(&text).trim())
+            .map_err(|e| format!("tool draft for '{capability}' was not valid JSON: {e}"))?;
+        let spec = tc::parse_spec(&parsed, capability).map_err(|e| format!("tool draft for '{capability}' was not a real tool specification: {e}"))?;
+        let created: Option<String> = {
+            {
                 let origin = serde_json::json!({
                     "tool": spec.name, "gap": capability, "request": request, "methodology_id": methodology_id, "task_id": state.task_id,
                     "created_by": "capability-closure", "created_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
@@ -1243,33 +1270,23 @@ impl PromptOrchestrator {
                         }
                         None => {
                             tc::remove_artifact(&data_dir, &spec.name); // the registry is not installed: do not leave an unregistered artifact behind
-                            tracing::warn!(capability, "tool creation: the MCP registry is not installed — nothing created");
-                            None
+                            return Err(format!("tool creation for '{capability}': the MCP registry is not installed — the artifact was removed; the walk pauses and retries"));
                         }
                     },
                     Err(e) => {
-                        tracing::warn!(capability, error = %e, "tool creation: artifact could not be written — nothing created");
-                        None
+                        return Err(format!("tool creation for '{capability}': the artifact could not be written: {e}"));
                     }
                 }
             }
-            Some(Err(e)) => {
-                tracing::warn!(capability, error = %e, "tool creation: the draft was not a real tool specification — nothing created");
-                None
-            }
-            None => {
-                tracing::warn!(capability, "tool creation: no usable draft this walk");
-                None
-            }
         };
         crate::keyword_program::record_judgment("capability_tool_draft", methodology_id, capability, &request, "was a real tool created for this capability?", created.is_some(), 1);
-        created
+        Ok(created)
     }
 
     /// Draft ONE real methodology that achieves `capability` for this request using the registered providers/tools and ordinary model
     /// reasoning (placeholders rejected), and persist it through pipeline 12 `Create` (decision rules carry their `requires` providers, so a
     /// provider that truly does not exist is still recorded as wanted). Returns the new methodology id.
-    async fn draft_methodology_for_capability(&self, state: &mut OrchestrationState, capability: &str) -> Option<u64> {
+    async fn draft_methodology_for_capability(&self, state: &mut OrchestrationState, capability: &str) -> Result<u64, String> {
         let tool_lines = state
             .applicable_tools
             .iter()
@@ -1290,16 +1307,21 @@ impl PromptOrchestrator {
             "prompt": prompt, "max_tokens": 800, "temperature": 0.3,
             "system_prompt": "Draft real, practical methodologies only. Return only valid JSON."
         });
-        let result = self.metered_execute_resilient(state, input, "capability_closure_draft").await.ok()?;
+        // NO SKIP (operator 2026-11-11): every failure is returned; the closure pauses the walk and the resume retries the draft
+        let result = self
+            .metered_execute_resilient(state, input, "capability_closure_draft")
+            .await
+            .map_err(|e| format!("methodology draft call for '{capability}' failed: {e}"))?;
         let text = self.extract_output_text(&result);
-        let parsed: serde_json::Value = serde_json::from_str(Self::extract_json_object_shared(&text).trim()).ok()?;
+        let parsed: serde_json::Value = serde_json::from_str(Self::extract_json_object_shared(&text).trim())
+            .map_err(|e| format!("methodology draft for '{capability}' was not valid JSON: {e}"))?;
         let real = |v: &serde_json::Value, fields: &[&str]| {
             fields.iter().any(|f| v.get(f).and_then(|x| x.as_str()).map(|s| !s.trim().is_empty() && s.trim() != "..." && s.trim() != "…").unwrap_or(false))
         };
         let has_rules = parsed.get("decision_rules").and_then(|d| d.as_array()).map(|a| a.iter().any(|e| real(e, &["condition", "outcome"]))).unwrap_or(false);
         let has_heuristics = parsed.get("heuristics").and_then(|h| h.as_array()).map(|a| a.iter().any(|e| real(e, &["condition", "action"]))).unwrap_or(false);
         if !has_rules && !has_heuristics {
-            return None; // a placeholder shell is not a methodology
+            return Err(format!("methodology draft for '{capability}' was a placeholder shell, not a methodology")); // retried, never accepted
         }
         let mut keywords: Vec<String> = parsed.get("keywords").and_then(|k| serde_json::from_value(k.clone()).ok()).unwrap_or_default();
         keywords.extend(capability.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 2).map(|w| w.to_lowercase()));
@@ -1316,43 +1338,71 @@ impl PromptOrchestrator {
             "keywords": keywords,
             "topics": parsed.get("topics").cloned().unwrap_or(serde_json::json!([])),
         });
-        self.executor.execute(12, create).await.ok()?.get("methodology_id").and_then(|m| m.as_u64())
+        self.executor
+            .execute(12, create)
+            .await
+            .map_err(|e| format!("methodology_create failed for '{capability}': {e}"))?
+            .get("methodology_id")
+            .and_then(|m| m.as_u64())
+            .ok_or_else(|| format!("methodology_create returned no methodology_id for '{capability}'"))
     }
 
-    /// DUPLICATE STEP INDICES in a plan (operator 2026-11-11): the step loop keys completion by `step_index`, so a second step with an index
-    /// already used would never run. Returns every index that more than one step carries (sorted, each once); empty = the plan is valid.
-    pub(crate) fn duplicate_step_indices(steps: &[BlueprintStep]) -> Vec<u32> {
-        let mut seen: HashSet<u32> = HashSet::new();
-        let mut dups: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        for s in steps {
-            if !seen.insert(s.step_index) {
-                dups.insert(s.step_index);
-            }
+    /// STEP INDEX ASSIGNMENT — the single source (operator 2026-11-11: "why would a step index ever repeat … not a fail or retry … just
+    /// change the step index … we don't record failures and move on"). `step_index` is assigned by POSITION, once, deterministically, at the
+    /// moment steps are populated; order is preserved. `depends_on` is remapped from the old index space: an index carried by exactly one
+    /// step maps to that step; an index carried by several (a drafting model repeated it) maps to the carriers positioned BEFORE the
+    /// dependent step (never itself, never forward — no cycles); an index no step carries is dangling and is dropped (nothing can satisfy it).
+    /// Nothing fails, nothing replans, nothing pauses, no step is dropped. Returns a description of what changed (None = already canonical).
+    pub(crate) fn normalize_step_indices(steps: &mut [BlueprintStep]) -> Option<serde_json::Value> {
+        let old: Vec<u32> = steps.iter().map(|s| s.step_index).collect();
+        let mut carriers: std::collections::HashMap<u32, Vec<usize>> = Default::default();
+        for (pos, idx) in old.iter().enumerate() {
+            carriers.entry(*idx).or_default().push(pos);
         }
-        dups.into_iter().collect()
+        let repeated: std::collections::BTreeSet<u32> = carriers.iter().filter(|(_, v)| v.len() > 1).map(|(k, _)| *k).collect();
+        let mut dangling: Vec<serde_json::Value> = Vec::new();
+        let mut changed_deps = false;
+        for pos in 0..steps.len() {
+            let mut mapped: Vec<u32> = Vec::new();
+            for d in steps[pos].depends_on.clone() {
+                match carriers.get(&d) {
+                    Some(v) if v.len() == 1 => {
+                        if v[0] != pos {
+                            mapped.push(v[0] as u32);
+                        }
+                    }
+                    Some(v) => mapped.extend(v.iter().filter(|q| **q < pos).map(|q| *q as u32)),
+                    None => dangling.push(serde_json::json!({"step": pos, "depends_on": d})),
+                }
+            }
+            mapped.sort_unstable();
+            mapped.dedup();
+            if mapped != steps[pos].depends_on {
+                changed_deps = true;
+            }
+            steps[pos].depends_on = mapped;
+        }
+        let mut renumbered = false;
+        for (pos, st) in steps.iter_mut().enumerate() {
+            if st.step_index != pos as u32 {
+                renumbered = true;
+            }
+            st.step_index = pos as u32;
+        }
+        if !renumbered && !changed_deps && dangling.is_empty() {
+            return None;
+        }
+        Some(serde_json::json!({"repeated_indices": repeated, "renumbered": renumbered, "dangling_dependencies_dropped": dangling}))
     }
 
-    /// Stage 3 + PLAN VALIDATION. A plan whose steps do not each have a unique `step_index` is INVALID: it is recorded
-    /// (`plan_invalid_duplicate_step_index`), REPLANNED from scratch (no stored-blueprint reuse — the reused plan is the one that failed), and
-    /// if the fresh plan is invalid too the walk fails here (the failure doctrine pauses it; resuming replans). Indices are never silently
-    /// renumbered and no step is ever silently skipped.
+    /// Stage 3 + step index assignment. The plan comes from `stage_3_blueprint_assignment` (stored blueprint, drafted, or salvaged); every
+    /// path then gets its indices assigned HERE by position, so a repeated/missing/offset index from a model or a stored blueprint can never
+    /// reach the step loop. No replan, no failure.
     async fn stage_3_validated(&self, state: &mut OrchestrationState) -> Result<(), String> {
         self.stage_3_blueprint_assignment(state).await?;
-        let dups = Self::duplicate_step_indices(&state.blueprint_steps);
-        if dups.is_empty() {
-            return Ok(());
-        }
-        super::amt::record_intent_event(state, "plan_invalid_duplicate_step_index", serde_json::json!({"indices": dups, "action": "replan"}));
-        tracing::warn!(?dups, "stage 3: plan has duplicate step_index values — invalid; re-planning from scratch");
-        let was_replan = state.replan;
-        state.replan = true;
-        let replanned = self.stage_3_blueprint_assignment(state).await;
-        state.replan = was_replan;
-        replanned?;
-        let dups = Self::duplicate_step_indices(&state.blueprint_steps);
-        if !dups.is_empty() {
-            super::amt::record_intent_event(state, "plan_invalid_duplicate_step_index", serde_json::json!({"indices": dups, "action": "fail"}));
-            return Err(format!("plan invalid: step_index values {:?} are used by more than one step even after a re-plan", dups));
+        if let Some(detail) = Self::normalize_step_indices(&mut state.blueprint_steps) {
+            tracing::info!(detail = %detail, "stage 3: step indices assigned by position");
+            super::amt::record_intent_event(state, "step_index_assigned", detail);
         }
         Ok(())
     }
@@ -1780,11 +1830,46 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 match serde_json::from_value::<BlueprintStep>(step_json.clone()) {
                     Ok(step) => steps.push(step),
                     Err(e) => {
-                        tracing::warn!(
-                            index = i,
-                            error = %e,
-                            "Blueprint assignment: one step failed to deserialize — skipping it, keeping the rest (was previously an all-or-nothing drop)"
-                        );
+                        // NO SKIP (operator 2026-11-11): a step that does not deserialize strictly is rebuilt leniently from the fields it
+                        // does carry — its text is kept, never dropped; the next stages (rule gate, reconciliation) judge it like any step.
+                        tracing::warn!(index = i, error = %e, "Blueprint assignment: step did not deserialize strictly — rebuilt leniently from its own fields (not skipped)");
+                        let text = |k: &str| step_json.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let description = {
+                            let d = text("description");
+                            if d.is_empty() { step_json.to_string() } else { d }
+                        };
+                        let action = {
+                            let a = text("action");
+                            if a.is_empty() { "execute_prompt".to_string() } else { a }
+                        };
+                        let pipeline_id = step_json.get("pipeline_id").and_then(|v| v.as_u64()).unwrap_or(9);
+                        let depends_on: Vec<u32> = step_json
+                            .get("depends_on")
+                            .and_then(|v| v.as_array())
+                            .map(|a| a.iter().filter_map(|x| x.as_u64().map(|n| n as u32)).collect())
+                            .unwrap_or_default();
+                        steps.push(BlueprintStep {
+                            step_index: step_json.get("step_index").and_then(|v| v.as_u64()).unwrap_or(i as u64) as u32,
+                            action,
+                            description,
+                            pipeline_id,
+                            context_requirements: vec!["full_context".to_string()],
+                            loop_config: None,
+                            sub_steps: Vec::new(),
+                            depends_on,
+                            wait_for_graph_update: false,
+                            max_retries: 1,
+                            timeout_ms: None,
+                            model_override: None,
+                            source_chunk_indices: Vec::new(),
+                            methodology_ids: Vec::new(),
+                            rule_refs: Vec::new(),
+                            step_type: "pipeline".to_string(),
+                            provider: None,
+                            tool: None,
+                            args: serde_json::Value::Null,
+                            optional: false,
+                        });
                     }
                 }
             }

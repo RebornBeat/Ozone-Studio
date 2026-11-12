@@ -23,3 +23,20 @@ Quotes are the operator's words; "you decide" items were delegated and decided b
 | Completed is final; rerun = new instance | operator ruling (earlier) |
 | Text graph failure: no minted ids; record failure, continue from chunked text, retry child item gates completion | delegated, decided |
 | Gap checklists and queued re-expansion candidates do not gate; failed child parks visibly with operator retry/cancel | delegated, decided |
+
+## Addendum 2026-11-11 (no-skip sweep)
+| Decision | Source / basis |
+|---|---|
+| step_index never fails/replans/pauses: assigned by position once at population; normalize deterministically | "why would a step index ever repeat … not a fail or retry … just change step index" |
+| THERE IS NO SKIP: failures are fixed, or the task pauses and retries (gates await, never fail open, never silently drop) | "we don't record failures and move on all failures are to be fixed we don't skip anything thats a doctrine" |
+| Acceptance == readability: only extensions with a reader link; rejected at link time with the exact reason; no "unreadable" state | coordinator relay of operator correction: "there should be NO unreadable files, because only accepted modalities/extensions link at all" |
+| Malformed file of an accepted type = link-time validation failure; if it reaches the worker it is a real failure → pause + retry | same |
+| Sensor modalities without self-describing files: not accepted (follow-up: pipelines accept UNSPECIFIED parameters) | decided in the sweep; reversible |
+
+## Addendum 2026-11-11 (later)
+| Decision | Basis |
+|---|---|
+| Delete the 7 redundant meta-loop drafts (40222, 40226, 40262, 40264, 40268, 40395, 40126) ONLY once canonical bodies 40396 and 40125 are live (rules applied) and the same citation/coverage checks as the 40252/40394 pair pass; before-copies + restore first | operator: "yes only once canonical bodies are live" |
+| Step index assigned centrally by position at population; duplicates normalized, never replanned or failed | operator: "work should be done to prevent this error not a fail or retry" |
+| No skip: every failure is fixed or the task pauses and retries; nothing recorded-and-moved-on | operator doctrine restated |
+| No "unreadable" files: acceptance == readability; unreadable extensions rejected at link time with reason; corrupted files fail validation at link time | operator: "there shouldn't be any to link it has to be an accepted modality" |
