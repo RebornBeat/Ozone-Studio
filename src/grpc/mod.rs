@@ -717,6 +717,8 @@ async fn session_gate(
         // runs erasure — operator actions that must not be open on a strict host. EXCEPT the read-only outbound CHECK below, which the
         // prompt pipeline (a spawned child with no session) calls before every provider request.
         "/jurisdiction/",
+        // The native history store: /history/restore overwrites a file or container with an older version — an operator action.
+        "/history/",
     ];
     const PROTECTED_EXEMPT: &[&str] = &["/jurisdiction/outbound/check"];
     // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
