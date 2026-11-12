@@ -289,7 +289,7 @@ pub fn emit(
 /// DURABLE PER-STAGE WALK METRICS (operator 2026-11-07: track progression toward a full walk, per stage, with findings): every stage event is
 /// also appended — one JSON line, ONE write — to `<data_dir>/walk_metrics.jsonl` with its `trace_id`, so a walk's stages can be attributed
 /// even when several walks run at once (the host log carries no walk id and interleaves). `tools/walk-scorecard/scorecard.mjs` reads this
-/// file to compute each walk's completion % and the per-stage health table. Best-effort: never affects the walk.
+/// file to compute each walk's completion % and the per-stage health table. Durable (src/durable_write.rs): a failed append is retried until it succeeds; it never blocks the walk.
 /// The most recent stage event this process emitted: (stage, name, success, summary, ts_ms) — read by the `liveness` frame so the
 /// UI shows the CURRENT stage and its latest summary beside the model activity (one unified live feed).
 static LAST_STAGE: std::sync::Mutex<Option<(u8, String, bool, String, u64)>> = std::sync::Mutex::new(None);
@@ -307,7 +307,6 @@ fn append_walk_metric(
     summary: &str,
     duration_ms: u64,
 ) {
-    use std::io::Write;
     let ts_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -317,9 +316,6 @@ fn append_walk_metric(
         "stage": stage, "stage_name": stage_name, "success": success, "duration_ms": duration_ms, "summary": summary,
     });
     let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-    let mut line = row.to_string();
-    line.push('\n');
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{dir}/walk_metrics.jsonl")) {
-        let _ = f.write_all(line.as_bytes());
-    }
+    // Durable: one synchronous attempt as before; a failure is retried in order until it succeeds (never dropped).
+    crate::durable_write::append_json(format!("{dir}/walk_metrics.jsonl"), &row);
 }

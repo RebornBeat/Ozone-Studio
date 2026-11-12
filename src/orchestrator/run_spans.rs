@@ -21,8 +21,9 @@
 //!   namespacing, applied at the write chokepoint) are interpreted by
 //!   nothing in the host; they exist so the graph can be searched by trace id.
 //!
-//! Everything here is best-effort by contract: a failure logs and returns
-//! `None`; it never panics and never fails the pass that called it.
+//! No skip (operator 2026-11-11): a failed container create is RETRIED until it succeeds (`durable_write::retry_until_ok` — the span
+//! recording pauses, visibly, and resumes); only a container that cannot be SERIALIZED (a code defect no retry fixes) returns `None`
+//! with a loud error. It never panics and never fails the pass that called it.
 
 use crate::orchestrator::StoreAccess;
 use crate::trace::TraceCtx;
@@ -97,15 +98,11 @@ fn load_persisted() -> HashMap<String, RunState> {
 
 fn persist(map: &HashMap<String, RunState>) {
     let path = state_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(json) = serde_json::to_string_pretty(map) {
-        // temp + rename: a crash mid-write must not leave a truncated map.
-        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-        if std::fs::write(&tmp, json).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+    match serde_json::to_string_pretty(map) {
+        // Durable replace (src/durable_write.rs): temp + rename so a crash mid-write cannot leave a truncated map, and a failed
+        // write is retried until it succeeds (a newer map supersedes an older queued one).
+        Ok(json) => crate::durable_write::replace(path, json.into_bytes()),
+        Err(e) => tracing::error!(error = %e, "run spans: state map not serialized"),
     }
 }
 
@@ -124,11 +121,9 @@ fn now_secs() -> u64 {
 /// data-dir-relative path (the codebase's content-pointer convention).
 fn write_body(rel: &str, body: &serde_json::Value) -> Option<String> {
     let abs = std::path::PathBuf::from(data_dir()).join(rel);
-    if let Some(dir) = abs.parent() {
-        std::fs::create_dir_all(dir).ok()?;
-    }
     let json = serde_json::to_string_pretty(body).ok()?;
-    std::fs::write(&abs, json).ok()?;
+    // Durable (creates the directory; retried until written): the content pointer is returned at once and resolves when the file lands.
+    crate::durable_write::replace(abs, json.into_bytes());
     Some(rel.to_string())
 }
 
@@ -211,19 +206,12 @@ async fn create_run_root(store: &Arc<dyn StoreAccess>, loop_name: &str, now: u64
         now,
     );
     let json = serde_json::to_value(&container).ok()?;
-    match store
-        .create_container(CONSCIOUSNESS_METACOGNITION_ROOT_ID, json)
-        .await
-    {
-        Ok(id) => {
-            tracing::info!(loop_name, run_root_id = id, "run spans: created Run root for loop");
-            Some(id)
-        }
-        Err(e) => {
-            tracing::warn!(loop_name, error = %e, "run spans: Run root creation failed (best-effort)");
-            None
-        }
-    }
+    let id = crate::durable_write::retry_until_ok("run spans: create Run root", || {
+        store.create_container(CONSCIOUSNESS_METACOGNITION_ROOT_ID, json.clone())
+    })
+    .await;
+    tracing::info!(loop_name, run_root_id = id, "run spans: created Run root for loop");
+    Some(id)
 }
 
 /// Record one loop PASS as a span container under that loop's long-lived Run
@@ -298,27 +286,20 @@ pub async fn record_pass_span(
     let json = match serde_json::to_value(&container) {
         Ok(j) => j,
         Err(e) => {
-            tracing::warn!(loop_name, error = %e, "run spans: span serialize failed (best-effort)");
+            tracing::error!(loop_name, error = %e, "run spans: span serialize failed");
             return None;
         }
     };
-    match store.create_container(root_id, json).await {
-        Ok(span_id) => {
-            if let Ok(mut m) = runs().lock() {
-                m.insert(
-                    loop_name.to_string(),
-                    RunState { root_id, last_span_id: Some(span_id) },
-                );
-                persist(&m);
-            }
-            tracing::debug!(loop_name, span_id, trace_id = %ctx.trace_id, "run spans: pass span recorded");
-            Some(span_id)
-        }
-        Err(e) => {
-            tracing::warn!(loop_name, error = %e, "run spans: span creation failed (best-effort)");
-            None
-        }
+    let span_id = crate::durable_write::retry_until_ok("run spans: create pass span", || store.create_container(root_id, json.clone())).await;
+    if let Ok(mut m) = runs().lock() {
+        m.insert(
+            loop_name.to_string(),
+            RunState { root_id, last_span_id: Some(span_id) },
+        );
+        persist(&m);
     }
+    tracing::debug!(loop_name, span_id, trace_id = %ctx.trace_id, "run spans: pass span recorded");
+    Some(span_id)
 }
 
 // ── context-budget helpers shared by the loops ─────────────────────────────

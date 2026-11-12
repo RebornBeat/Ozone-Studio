@@ -236,20 +236,17 @@ pub fn sanitize_marketplace_message(data: &[u8]) -> Result<serde_json::Value, St
     }
 }
 
-/// Append one VALIDATED inbound marketplace message to `peer_marketplace_inbox.jsonl` (bookkeeping; nothing is applied). Best-effort.
+/// Append one VALIDATED inbound marketplace message to `peer_marketplace_inbox.jsonl` (bookkeeping; nothing is applied). Durable: a failed append is retried in order until it succeeds
+/// (src/durable_write.rs) — an accepted announcement is never lost to a transient disk error.
 fn append_marketplace_inbox(path: &std::path::Path, from: &PeerId, clean: &serde_json::Value) {
-    use std::io::Write;
     let line = serde_json::json!({"received_at": now(), "from_peer": from.to_string(), "envelope": clean}).to_string();
-    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}")) {
-        tracing::warn!("P2P: failed to append the marketplace inbox at {:?}: {}", path, e);
-    }
+    crate::durable_write::append(path, line);
 }
 
 /// Record a REFUSED inbound marketplace message (who, why — never the content) in `peer_marketplace_rejected.jsonl`, so refusals are visible.
 fn append_marketplace_rejected(path: &std::path::Path, from: &PeerId, reason: &str) {
-    use std::io::Write;
     let line = serde_json::json!({"at": now(), "from_peer": from.to_string(), "reason": reason}).to_string();
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open(path).and_then(|mut f| writeln!(f, "{line}"));
+    crate::durable_write::append(path, line);
 }
 
 /// One item handed to [`NetworkManager::on_items_announced`]: the manifest bytes (see [`announce_envelope`]) and where the body lives locally
@@ -445,11 +442,10 @@ fn load_paired_peers(path: &std::path::Path) -> HashMap<PeerId, u64> {
 
 /// Append one received sync envelope from a PAIRED peer to
 /// `peer_sync_candidates.jsonl` (guide §7.3 first version: bookkeeping only —
-/// no container is created, no model is called). Best-effort: any failure is
-/// logged and swallowed so the swarm event loop can never be taken down by
-/// disk trouble.
+/// no container is created, no model is called). Durable: a failed append is
+/// retried in order until it succeeds (src/durable_write.rs) off the swarm
+/// event loop, so disk trouble can neither take the loop down nor lose the row.
 fn append_peer_sync_candidate(path: &std::path::Path, from: &PeerId, data: &[u8]) {
-    use std::io::Write;
     let envelope = serde_json::from_slice::<serde_json::Value>(data)
         .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(data).to_string()));
     let line = serde_json::json!({
@@ -458,30 +454,17 @@ fn append_peer_sync_candidate(path: &std::path::Path, from: &PeerId, data: &[u8]
         "envelope": envelope,
     })
     .to_string();
-    let result = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .and_then(|mut f| writeln!(f, "{}", line));
-    if let Err(e) = result {
-        tracing::warn!("P2P: failed to append peer_sync_candidates.jsonl at {:?}: {}", path, e);
-    }
+    crate::durable_write::append(path, line);
 }
 
-/// Persist the paired-peers store. Best-effort: a write failure is logged,
-/// not propagated as an error up through `approve_peer`/`revoke_peer` — the
-/// in-memory state (the actual source of truth for the running process)
-/// still updates either way, so a transient disk issue degrades to "this
-/// approval won't survive a restart" rather than failing the operator's
-/// action outright.
+/// Persist the paired-peers store (the operator-approved allow-list). Durable (src/durable_write.rs): one synchronous attempt; a
+/// failure is retried until it succeeds, so an approval or revocation always reaches disk. The in-memory state (the source of truth
+/// for the running process) updates immediately, and the operator's action is not failed by a transient disk error. Whole-file
+/// replace: the newest allow-list supersedes an older queued one.
 fn save_paired_peers(path: &std::path::Path, peers: &HashMap<PeerId, u64>) {
     let entries: HashMap<String, u64> = peers.iter().map(|(pid, ts)| (pid.to_string(), *ts)).collect();
     match serde_json::to_string_pretty(&entries) {
-        Ok(json) => {
-            if let Err(e) = std::fs::write(path, json) {
-                tracing::error!("P2P: failed to persist paired_peers.json at {:?}: {}", path, e);
-            }
-        }
+        Ok(json) => crate::durable_write::replace(path, json.into_bytes()),
         Err(e) => tracing::error!("P2P: failed to serialize paired_peers: {}", e),
     }
 }
@@ -546,8 +529,8 @@ impl NetworkManager {
         // fake "12D3KooW<clock nanoseconds>" identity (doctrine audit H1, 2026-11-04).
         {
             let p2p_dir = data_dir.join("p2p");
-            let _ = std::fs::create_dir_all(&p2p_dir);
-            let _ = std::fs::write(p2p_dir.join("peer_id"), local_peer_id.to_string());
+            // Durable (creates the directory itself; retried until written): the p2p sync pipeline reads this file.
+            crate::durable_write::replace(p2p_dir.join("peer_id"), local_peer_id.to_string().into_bytes());
         }
 
         log::info!("Local peer ID: {}", local_peer_id);
@@ -984,7 +967,7 @@ impl NetworkManager {
         let imported: serde_json::Value =
             std::fs::read_to_string(self.data_dir_of().join("peer_imported_items.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
         let idx_path = self.data_dir_of().join("marketplace_published_bodies.json");
-        let mut idx: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(&idx_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let mut idx: serde_json::Map<String, serde_json::Value> = crate::durable_write::read_to_string(&idx_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         let mut idx_changed = false;
         for it in items {
             if matches!(it.item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
@@ -1013,7 +996,7 @@ impl NetworkManager {
             to_publish.push((it.item_type, m));
         }
         if idx_changed {
-            let _ = std::fs::write(&idx_path, serde_json::to_string_pretty(&idx).unwrap_or_default());
+            crate::durable_write::replace(&idx_path, serde_json::to_string_pretty(&idx).unwrap_or_default().into_bytes());
         }
         if to_publish.is_empty() {
             return Ok(());
@@ -1036,14 +1019,13 @@ impl NetworkManager {
     pub async fn publish_batch_to_marketplace(&self, items: &[(SyncItemType, serde_json::Value)]) -> OzoneResult<usize> {
         let path = self.data_dir_of().join("marketplace_published.json");
         let mut listing: serde_json::Map<String, serde_json::Value> =
-            std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            crate::durable_write::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         for (item_type, manifest) in items {
             listing.insert(format!("{}|{}", item_type.as_str(), manifest["name"].as_str().unwrap_or("")), manifest.clone());
         }
         let version = body_hash(serde_json::to_string(&listing).unwrap_or_default().as_bytes());
-        if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&listing).unwrap_or_default()) {
-            tracing::warn!("P2P: could not write the marketplace listing: {}", e);
-        }
+        // Durable replace: the listing write is retried until it succeeds (and read back through durable_write above).
+        crate::durable_write::replace(&path, serde_json::to_string_pretty(&listing).unwrap_or_default().into_bytes());
         let one_type = items.first().map(|(t, _)| t.as_str()).filter(|t0| items.iter().all(|(t, _)| t.as_str() == *t0));
         let notify = serde_json::to_vec(&serde_json::json!({
             "kind": "marketplace_notify",
@@ -1341,7 +1323,7 @@ pub fn spawn_peer_sync_review(
         tick.tick().await; // consume the immediate tick: first pass after 2 min
         loop {
             tick.tick().await;
-            let offset: u64 = std::fs::read_to_string(&offset_path)
+            let offset: u64 = crate::durable_write::read_to_string(&offset_path)
                 .ok()
                 .and_then(|s| s.trim().parse().ok())
                 .unwrap_or(0);
@@ -1393,7 +1375,7 @@ pub fn spawn_peer_sync_review(
                 }
                 surfaced += 1;
             }
-            let _ = std::fs::write(&offset_path, (offset + processed).to_string());
+            crate::durable_write::replace(&offset_path, (offset + processed).to_string().into_bytes());
             if surfaced > 0 {
                 tracing::info!(surfaced, "peer sync review: surfaced paired-peer findings as containers (bookkeeping, no model calls)");
             }
@@ -1497,7 +1479,7 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
         tick.tick().await;
         loop {
             tick.tick().await;
-            let offset: usize = std::fs::read_to_string(&offset_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            let offset: usize = crate::durable_write::read_to_string(&offset_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
             let Ok(content) = std::fs::read_to_string(&log) else { continue };
             if content.len() <= offset || !content.is_char_boundary(offset) {
                 continue;
@@ -1508,7 +1490,7 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                 continue;
             }
             let mut versions: serde_json::Map<String, serde_json::Value> =
-                std::fs::read_to_string(&versions_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+                crate::durable_write::read_to_string(&versions_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             for line in fresh[..upto].lines() {
                 let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else { continue };
                 let env = &row["envelope"];
@@ -1578,8 +1560,8 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                     _ => {}
                 }
             }
-            let _ = std::fs::write(&versions_path, serde_json::to_string_pretty(&versions).unwrap_or_default());
-            let _ = std::fs::write(&offset_path, (offset + upto).to_string());
+            crate::durable_write::replace(&versions_path, serde_json::to_string_pretty(&versions).unwrap_or_default().into_bytes());
+            crate::durable_write::replace(&offset_path, (offset + upto).to_string().into_bytes());
         }
     });
 }

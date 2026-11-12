@@ -537,6 +537,12 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     })
 }
 
+/// GET /durable_writes — the durable bookkeeping queue's REAL counters (src/durable_write.rs): rows pending, retries, snapshots superseded, and
+/// every path currently stalled with its last error. Empty `stalled_paths` = nothing is waiting on a disk.
+async fn durable_writes_status() -> Json<serde_json::Value> {
+    Json(crate::durable_write::stats())
+}
+
 async fn request_challenge(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ChallengeRequest>,
@@ -658,7 +664,10 @@ fn init_internal_token(data_dir: &str) {
                     .open(&path)
                 {
                     Ok(mut f) => {
-                        let _ = f.write_all(token.as_bytes());
+                        // A token that was not written leaves other processes unable to authenticate: loud, never silent.
+                        if let Err(e) = f.write_all(token.as_bytes()) {
+                            tracing::error!(path = %path.display(), error = %e, "internal token file was NOT fully written");
+                        }
                     }
                     Err(e) => tracing::warn!(path = %path.display(), error = %e, "could not write internal token file"),
                 }
@@ -1052,9 +1061,9 @@ async fn marketplace_offer_decide(State(state): State<Arc<AppState>>, Json(body)
     if decision == "download" {
         // a fresh approval clears a previous outcome (e.g. "failed") so the download loop retries it
         let done_path = std::path::Path::new(&data_dir).join("peer_import_done.json");
-        if let Some(mut done) = std::fs::read_to_string(&done_path).ok().and_then(|t| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok()) {
+        if let Some(mut done) = crate::durable_write::read_to_string(&done_path).ok().and_then(|t| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&t).ok()) {
             if done.remove(&key).is_some() {
-                let _ = std::fs::write(&done_path, serde_json::to_string_pretty(&done).unwrap_or_default());
+                crate::durable_write::replace(&done_path, serde_json::to_string_pretty(&done).unwrap_or_default().into_bytes());
             }
         }
     }
@@ -5161,6 +5170,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
     // MCP accepts 20MB, the call surface must match.
     let app = Router::new().layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024))
         .route("/health", get(health))
+        .route("/durable_writes", get(durable_writes_status))
         .route("/auth/challenge", post(request_challenge))
         .route("/auth/authenticate", post(authenticate))
         .route("/pipeline/execute", post(execute_pipeline))
@@ -5834,11 +5844,8 @@ async fn start_pairing(
         let runtime = state.runtime.read().await;
         let dir = std::path::PathBuf::from(&runtime.config.general.data_dir)
             .join("pairing_pending");
-        let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::write(
-            dir.join(format!("{}.code", pairing_id)),
-            format!("{}\n", code),
-        );
+        // Durable replace (creates the directory; retried until written).
+        crate::durable_write::replace(dir.join(format!("{}.code", pairing_id)), format!("{}\n", code).into_bytes());
     }
 
     {
@@ -6527,10 +6534,7 @@ async fn mcp_call(
             "workspace_id": call_ws,
             "project_id": call_proj,
         });
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            use std::io::Write;
-            let _ = writeln!(f, "{}", row);
-        }
+        crate::durable_write::append_json(path, &row); // durable: retried in order until written
     }
 
     // ORDER-LAYER REVIEW (guide §3, Phase 1 — operator-approved): every

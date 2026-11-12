@@ -865,8 +865,9 @@ impl PromptOrchestrator {
     /// Cross-walk payoff: the NEXT walk's seed→hop can traverse these edges
     /// into zero-keyword-reach content.
     ///
-    /// Best-effort by design: any failure logs loudly and delivery proceeds —
-    /// linking must never break a response.
+    /// No skip (operator 2026-11-11): a failed partner search, container load or edge write is RETRIED until it succeeds
+    /// (`durable_write::retry_until_ok` — the pass pauses, visibly, and resumes); nothing is skipped. The edge writes are idempotent
+    /// (an existing target is not re-added).
     pub(crate) async fn link_walk_content(&self, state: &mut OrchestrationState) {
         let mut ids: Vec<u64> = state.modality_graphs.values().copied().collect();
         if let Some(bp) = state.blueprint_id {
@@ -905,8 +906,9 @@ impl PromptOrchestrator {
                 .collect() // ALL prompt terms (audit #17)
         };
         if !prompt_terms.is_empty() {
-            match self.store.search_ranked(&prompt_terms, None).await { // ranked + token-aware (2026-11-08)
-                Ok(hits) => {
+            { // ranked + token-aware (2026-11-08); retried until it succeeds (no skip)
+                let hits = crate::durable_write::retry_until_ok("walk-content partner search (13.link)", || self.store.search_ranked(&prompt_terms, None)).await;
+                {
                     let before = ids.len();
                     for id in hits.into_iter() { // every hit (audit #17)
                         if !ids.contains(&id) {
@@ -920,9 +922,6 @@ impl PromptOrchestrator {
                             "prior-content containers joined the link pass (cross-walk pairing)"
                         );
                     }
-                }
-                Err(e) => {
-                    tracing::warn!(stage = "13.link", error = %e, "prior-content partner search failed loudly (same-walk pairing continues)");
                 }
             }
         }
@@ -945,8 +944,9 @@ impl PromptOrchestrator {
         let mut loaded: Vec<(u64, std::collections::HashSet<String>, serde_json::Value, Vec<u64>)> =
             Vec::with_capacity(ids.len());
         for id in &ids {
-            match self.store.get_container(*id).await {
-                Ok(Some(container)) => {
+            let fetched = crate::durable_write::retry_until_ok("walk-content container load (13.link)", || self.store.get_container(*id)).await;
+            match fetched {
+                Some(container) => {
                     let terms: std::collections::HashSet<String> = container
                         .pointer("/local_state/context/keywords")
                         .and_then(|k| k.as_array())
@@ -969,10 +969,7 @@ impl PromptOrchestrator {
                         .unwrap_or_default();
                     loaded.push((*id, terms, container, existing));
                 }
-                Ok(None) => {}
-                Err(e) => {
-                    tracing::warn!(stage = "13.link", id, error = %e, "walk-content link pass: container load failed (skipped loudly)");
-                }
+                None => {}
             }
         }
 
@@ -1021,17 +1018,13 @@ impl PromptOrchestrator {
                             "discovered_via": "Traversal",
                             "shared_terms": shared,
                         }));
-                        if let Err(e) = self
-                            .store
-                            .update_container(src, serde_json::json!({ "context": ctx }))
-                            .await
-                        {
-                            tracing::warn!(stage = "13.link", source = src, target = dst, error = %e, "walk-content edge write failed loudly");
-                        } else {
-                            wired += 1;
-                            wrote_this_pair = true;
-                            entry.3.push(dst);
-                        }
+                        crate::durable_write::retry_until_ok("walk-content edge write (13.link)", || {
+                            self.store.update_container(src, serde_json::json!({ "context": ctx.clone() }))
+                        })
+                        .await;
+                        wired += 1;
+                        wrote_this_pair = true;
+                        entry.3.push(dst);
                     }
                 }
                 if wrote_this_pair {

@@ -540,11 +540,13 @@ impl PromptOrchestrator {
 
     /// Graft verified branches from a fork AMT into the project's main AMT
     /// content file. Only grafts branches that don't already exist in main
-    /// (content-match dedup). Best-effort — failures logged, never propagated.
+    /// (content-match dedup). Durable: a failed read of the main AMT is retried until it succeeds and the
+    /// write goes through `durable_write::replace` (retried until written). A main AMT file that parses
+    /// as nothing is a data defect no retry can fix: it is an ERROR (not a debug line) and left for the operator.
     async fn merge_back_to_main(&self, project_id: u64, amt: &AMTNode) {
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let amt_dir = format!("{}/amt", data_dir);
-        let _ = std::fs::create_dir_all(&amt_dir);
+        // (the directory is created by durable_write::replace when the graft is written)
 
         // Find this PROJECT's main AMT file — the earliest created
         // amt_p{project_id}_* file. Project-scoped by design: the previous
@@ -583,14 +585,14 @@ impl PromptOrchestrator {
             return;
         };
 
-        let Ok(main_raw) = std::fs::read_to_string(&main_path) else {
-            tracing::warn!(project_id, path = %main_path, "merge-back: failed to read main AMT");
-            return;
-        };
+        let main_raw = crate::durable_write::retry_until_ok("AMT merge-back: read main AMT", || async {
+            crate::durable_write::read_to_string(&main_path)
+        })
+        .await;
         let mut main_tree: AMTNode = match serde_json::from_str(&main_raw) {
             Ok(t) => t,
             Err(e) => {
-                tracing::warn!(project_id, error = %e, "merge-back: failed to parse main AMT");
+                tracing::error!(project_id, path = %main_path, error = %e, "merge-back: the main AMT file does not parse — nothing was grafted; it needs the operator (a retry cannot fix corrupt data)");
                 return;
             }
         };
@@ -615,7 +617,7 @@ impl PromptOrchestrator {
 
         if grafted > 0 {
             let updated = serde_json::to_string_pretty(&main_tree).unwrap_or_default();
-            let _ = std::fs::write(&main_path, updated);
+            crate::durable_write::replace(&main_path, updated.into_bytes());
             tracing::info!(project_id, grafted, "Merge-back: grafted verified branches into main AMT");
         }
     }
@@ -2677,9 +2679,8 @@ Return ONLY valid JSON with a single one-word answer:
     /// recurring pattern rather than a one-off, draft and persist a new
     /// methodology for. Append-only JSON array, capped and deduplicated by
     /// near-identical keyword sets so a single busy request pattern doesn't
-    /// flood the log. Best-effort: any I/O failure here is silently
-    /// swallowed — this is an observability signal, not something that may
-    /// ever affect the orchestration response itself.
+    /// flood the log. Durable (src/durable_write.rs): a failed write is retried
+    /// until it succeeds (never silently swallowed) and never affects the orchestration response itself.
     pub(crate) fn record_methodology_gap(keywords: &[String], topics: &[String]) {
         Self::record_methodology_gap_ex(keywords, topics, "new", None, "", "");
     }
@@ -2699,7 +2700,7 @@ Return ONLY valid JSON with a single one-word answer:
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let path = format!("{}/methodology_gaps.json", data_dir);
 
-        let mut gaps: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+        let mut gaps: Vec<serde_json::Value> = crate::durable_write::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
@@ -2742,12 +2743,15 @@ Return ONLY valid JSON with a single one-word answer:
             "request": request,
         }));
 
-        if let Ok(json) = serde_json::to_string_pretty(&gaps) {
-            if std::fs::write(&path, json).is_ok() {
+        match serde_json::to_string_pretty(&gaps) {
+            Ok(json) => {
+                // Durable replace; readers in this process (here and in meta_loop) see a snapshot still being retried.
+                crate::durable_write::replace(&path, json.into_bytes());
                 // META RIPPLE (2026-11-04): a NEW methodology gap is the meta-loop's real trigger —
                 // tell the ripple instead of waiting for a timer.
                 crate::orchestrator::ripple_class::emit_methodology_gap();
             }
+            Err(e) => tracing::error!(error = %e, "methodology gaps not serialized"),
         }
     }
 
@@ -2762,7 +2766,7 @@ Return ONLY valid JSON with a single one-word answer:
         }
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let path = format!("{}/methodology_reviews.json", data_dir);
-        let mut reviews: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+        let mut reviews: Vec<serde_json::Value> = crate::durable_write::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
@@ -2783,7 +2787,8 @@ Return ONLY valid JSON with a single one-word answer:
             "attempts": 0,
         }));
         if let Ok(json) = serde_json::to_string_pretty(&reviews) {
-            if std::fs::write(&path, json).is_ok() {
+            {
+                crate::durable_write::replace(&path, json.into_bytes());
                 crate::orchestrator::ripple_class::emit_methodology_gap();
             }
         }
@@ -3365,10 +3370,12 @@ Return ONLY valid JSON with a single one-word answer:
         state.last_enrich_keywords = search_keywords.clone();
 
         if !search_keywords.is_empty() {
-            let found_methods = self.store
-                .search_by_keywords(&search_keywords, Some("Methodology"))
-                .await
-                .unwrap_or_default();
+            // A failed search is RETRIED (no skip): `unwrap_or_default()` here used to turn a store error into "zero methodologies matched",
+            // which also raised a bogus methodology gap below.
+            let found_methods = crate::durable_write::retry_until_ok("methodology keyword search (enrich)", || {
+                self.store.search_by_keywords(&search_keywords, Some("Methodology"))
+            })
+            .await;
 
             // Gap signal for the real methodology meta-loop (see
             // src/orchestrator/meta_loop.rs): a real request with a
@@ -3377,9 +3384,9 @@ Return ONLY valid JSON with a single one-word answer:
             // methodology at all is exactly the case the user asked to have
             // searched for and eventually filled. Only record on a true
             // zero-match, not "found some but few" — a sparse-but-nonzero
-            // match is still a real match, not a gap. Best-effort: a
-            // logging failure here must never affect the orchestration
-            // response itself.
+            // match is still a real match, not a gap. The gap record is
+            // durable (a failed write is retried) and never affects the
+            // orchestration response itself.
             if found_methods.is_empty() && search_keywords.len() >= 3 {
                 Self::record_methodology_gap(&search_keywords, &layer_input.topics);
             }

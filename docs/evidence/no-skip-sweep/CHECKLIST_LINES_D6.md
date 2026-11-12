@@ -1,0 +1,4 @@
+- L141: DONE (parse-only) — D.6 sweep: shared `src/durable_write.rs` (sync-first, ordered retry-until-success, newest-snapshot read-through, `GET /durable_writes`, shutdown flush) and ~45 write sites converted; REPORT_D6_COMPLETE.md.
+- L142: DONE (parse-only) — failed store calls that were "logged and skipped" now `retry_until_ok`: stage-13 link pass, keyword rollup (counts no longer lost), enrich methodology search (no bogus gap), run spans, chat persistence (background), jurisdiction population (region retried), pre-write rollback snapshot (mutation pauses).
+- L143: PENDING-OPERATOR — fixed numbers/behaviours found: file_beacon snapshot eviction (10), zsei/storage local-write queue 10_000, decision_review `confidence` field, host.log rotation at 256 MiB.
+- L144: UNVERIFIED — all of the above never compiled/run; first `cargo check` items listed in REPORT_D6_COMPLETE.md.

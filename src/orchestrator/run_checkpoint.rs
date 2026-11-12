@@ -81,9 +81,9 @@ impl PromptOrchestrator {
         runs_dir(&self.data_dir).join(format!("{task_id}.json"))
     }
 
-    /// Persist the run's resumable state. Best-effort but LOUD: a failed write is
-    /// logged as an error (a run that cannot be checkpointed can still finish, but it
-    /// cannot be resumed after a failure).
+    /// Persist the run's resumable state. Durable (src/durable_write.rs): one synchronous attempt; a failed write is retried until it
+    /// succeeds (visible as a `durable_write_stalled` event) — a run's checkpoint is never lost to a transient I/O error. Reads in this
+    /// process (`load_checkpoint`) see a snapshot whose write is still being retried.
     pub(crate) fn write_checkpoint(&self, state: &OrchestrationState, paused: Option<(u32, &str)>) {
         let Some(task_id) = state.task_id else { return };
         let cp = RunCheckpoint {
@@ -122,24 +122,16 @@ impl PromptOrchestrator {
             saved_at_ms: now_ms(),
         };
         let path = self.checkpoint_path(task_id);
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         match serde_json::to_vec_pretty(&cp) {
-            Ok(bytes) => {
-                // write-then-rename so a crash never leaves a half-written checkpoint
-                let tmp = path.with_extension("json.tmp");
-                if let Err(e) = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(&tmp, &path)) {
-                    tracing::error!(task_id, path = %path.display(), error = %e, "run checkpoint write FAILED — this run cannot be resumed after a failure");
-                }
-            }
+            // write-then-rename (inside durable_write::replace) so a crash never leaves a half-written checkpoint
+            Ok(bytes) => crate::durable_write::replace(path, bytes),
             Err(e) => tracing::error!(task_id, error = %e, "run checkpoint serialize FAILED"),
         }
     }
 
     pub(crate) fn load_checkpoint(&self, task_id: u64) -> Result<RunCheckpoint, String> {
         let path = self.checkpoint_path(task_id);
-        let raw = std::fs::read_to_string(&path)
+        let raw = crate::durable_write::read_to_string(&path)
             .map_err(|e| format!("no run checkpoint for task {task_id} ({}): {e}", path.display()))?;
         serde_json::from_str(&raw).map_err(|e| format!("run checkpoint for task {task_id} is unreadable: {e}"))
     }

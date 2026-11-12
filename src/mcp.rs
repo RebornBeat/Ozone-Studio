@@ -295,7 +295,8 @@ impl McpRegistry {
             let tools = self.tools.read().await;
             let list: Vec<&McpTool> = tools.values().collect();
             if let Ok(json) = serde_json::to_string_pretty(&list) {
-                let _ = std::fs::write(path, json);
+                // Durable replace: the registered-tools file is retried until it is written.
+                crate::durable_write::replace(path, json.into_bytes());
             }
         }
     }

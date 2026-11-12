@@ -180,11 +180,9 @@ fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, Option<f32>
 }
 
 fn save_chunk_judgment(data_dir: &str, key: &str, j: &(String, Option<f32>, String)) {
-    use std::io::Write;
     let row = serde_json::json!({"key": key, "decision": j.0, "confidence": j.1, "reasoning": j.2});
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(chunk_cache_path(data_dir)) {
-        let _ = writeln!(f, "{}", row);
-    }
+    // Durable (src/durable_write.rs): retried in order until written.
+    crate::durable_write::append_json(chunk_cache_path(data_dir), &row);
 }
 
 /// Drop cached chunk judgments for a review (operator/meta asked for a full
@@ -634,11 +632,9 @@ Return ONLY valid JSON:
         reasoning: &str,
         raw_response: &str,
     ) {
-        use std::io::Write;
         let dir = format!("{}/model_calls", self.data_dir);
-        let _ = std::fs::create_dir_all(&dir);
         let path = format!("{}/decision_review.jsonl", dir);
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        {
             let cut = |s: &str| s.chars().take(500).collect::<String>();
             let mut record = serde_json::json!({
                 "ts": chrono::Utc::now().to_rfc3339(),
@@ -654,7 +650,8 @@ Return ONLY valid JSON:
                 "final": final_row,
             });
             crate::trace::stamp(&mut record);
-            let _ = writeln!(f, "{}", record);
+            // Durable: one synchronous attempt, then retried in order until it succeeds (judgment log — never lost, never rotated).
+            crate::durable_write::append_json(path, &record);
         }
     }
 }

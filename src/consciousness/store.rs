@@ -275,7 +275,7 @@ impl ConsciousnessStore {
         let path = Path::new(&self.storage_path);
         let _ = std::fs::create_dir_all(path);
         if let Ok(content) = serde_json::to_string_pretty(&self.perception_window) {
-            let _ = std::fs::write(path.join("perception_window.json"), content);
+            crate::durable_write::replace(path.join("perception_window.json"), content.into_bytes());
         }
     }
 
@@ -290,7 +290,7 @@ impl ConsciousnessStore {
             next_id: self.next_experience_id,
         };
         if let Ok(content) = serde_json::to_string_pretty(&exp_data) {
-            let _ = std::fs::write(path.join("experiences.json"), content);
+            crate::durable_write::replace(path.join("experiences.json"), content.into_bytes());
         }
 
         let mem_data = CoreMemoryStoreData {
@@ -298,26 +298,26 @@ impl ConsciousnessStore {
             next_id: self.next_memory_id,
         };
         if let Ok(content) = serde_json::to_string_pretty(&mem_data) {
-            let _ = std::fs::write(path.join("core_memories.json"), content);
+            crate::durable_write::replace(path.join("core_memories.json"), content.into_bytes());
         }
 
         if let Ok(content) = serde_json::to_string_pretty(&self.current_emotional_state) {
-            let _ = std::fs::write(path.join("emotional_state.json"), content);
+            crate::durable_write::replace(path.join("emotional_state.json"), content.into_bytes());
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.emotional_baseline) {
-            let _ = std::fs::write(path.join("emotional_baseline.json"), content);
+            crate::durable_write::replace(path.join("emotional_baseline.json"), content.into_bytes());
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.reflections) {
-            let _ = std::fs::write(path.join("reflections.json"), content);
+            crate::durable_write::replace(path.join("reflections.json"), content.into_bytes());
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.gate_decisions) {
-            let _ = std::fs::write(path.join("gate_decisions.json"), content);
+            crate::durable_write::replace(path.join("gate_decisions.json"), content.into_bytes());
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.perception_window) {
-            let _ = std::fs::write(path.join("perception_window.json"), content);
+            crate::durable_write::replace(path.join("perception_window.json"), content.into_bytes());
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.config) {
-            let _ = std::fs::write(path.join("config.json"), content);
+            crate::durable_write::replace(path.join("config.json"), content.into_bytes());
         }
     }
 

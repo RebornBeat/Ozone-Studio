@@ -409,8 +409,9 @@ impl PromptOrchestrator {
         tracing::info!(stage = 13, "[13.0] delivery context: blueprint steps executed = {}, gate decision = {:?}", state.blueprint_steps.len(), state.gate_result.as_ref().map(|g| &g.decision));
         // EDGE SUPPLY (2026-10-13): wire RelatedTo edges between the
         // containers this walk created BEFORE delivering — the next walk's
-        // seed→hop traverses them. Best-effort internally (failures logged
-        // loudly); never fails delivery.
+        // seed→hop traverses them. No skip: a failed store call inside the
+        // pass is retried until it succeeds (the walk pauses here, visibly,
+        // and resumes) — it is never skipped.
         self.link_walk_content(state).await;
         self.stage_11_response_delivery(state).await?;
 

@@ -31,11 +31,12 @@ fn now_secs() -> u64 {
 }
 
 fn read_map(path: &Path) -> Map<String, Value> {
-    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    crate::durable_write::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
+/// Durable replace (src/durable_write.rs): the offer/download state is retried until written, and `read_map` sees a snapshot still being retried.
 fn write_map(path: &Path, m: &Map<String, Value>) {
-    let _ = std::fs::write(path, serde_json::to_string_pretty(m).unwrap_or_default());
+    crate::durable_write::replace(path, serde_json::to_string_pretty(m).unwrap_or_default().into_bytes());
 }
 
 /// `from|item_type|name|hash` → (from, item_type, name, hash). The name may itself contain `|`, so the first two and the last segment are taken
@@ -412,7 +413,7 @@ async fn import_pass(network: &Arc<tokio::sync::RwLock<NetworkManager>>, store: 
 
     // 3. what the inbox brought back for requests WE made
     let offset_path = dir.join("peer_import.offset");
-    let offset: usize = std::fs::read_to_string(&offset_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    let offset: usize = crate::durable_write::read_to_string(&offset_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
     let mut advanced = offset;
     if let Ok(content) = std::fs::read_to_string(dir.join("peer_marketplace_inbox.jsonl")) {
         if content.len() > offset && content.is_char_boundary(offset) {
@@ -482,7 +483,7 @@ async fn import_pass(network: &Arc<tokio::sync::RwLock<NetworkManager>>, store: 
     write_map(&pending_path, &pending);
     write_map(&parts_path, &parts);
     if advanced != offset {
-        let _ = std::fs::write(&offset_path, advanced.to_string());
+        crate::durable_write::replace(&offset_path, advanced.to_string().into_bytes());
     }
     Ok(())
 }

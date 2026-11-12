@@ -12,7 +12,7 @@
 //! Per-node graph events are NOT mirrored here (they are voluminous and already served by the graph endpoints).
 
 use serde_json::{json, Value};
-use std::io::{BufRead, Write};
+use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -53,13 +53,9 @@ fn seq_counter() -> &'static AtomicU64 {
 
 fn append_line(file: &str, row: &Value) -> std::io::Result<()> {
     let _g = write_lock().lock().unwrap_or_else(|e| e.into_inner());
-    let dir = data_dir();
-    std::fs::create_dir_all(&dir)?;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(file))?;
-    writeln!(f, "{}", row)
+    // Durable (src/durable_write.rs): one synchronous attempt, then retried in order until written — a feed row is never lost.
+    crate::durable_write::append_json(data_dir().join(file), row);
+    Ok(())
 }
 
 /// Append one feed row; returns its `seq`. A failed write is logged, never swallowed silently and never fatal.

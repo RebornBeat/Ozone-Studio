@@ -68,7 +68,7 @@ pub fn append(container_id: u64, project_id: Option<u64>, route: &str, detail: O
 
 /// Path-injected core (tests and the loop pass explicit paths).
 pub fn append_at(path: &str, container_id: u64, project_id: Option<u64>, route: &str, detail: Option<&str>) -> bool {
-    let mut candidates: Vec<serde_json::Value> = std::fs::read_to_string(path)
+    let mut candidates: Vec<serde_json::Value> = crate::durable_write::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
@@ -141,13 +141,9 @@ pub fn append_at(path: &str, container_id: u64, project_id: Option<u64>, route: 
                 i += 1;
             }
         }
-        if !archived.is_empty() {
-            use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{path}.archive.jsonl")) {
-                for row in &archived {
-                    let _ = writeln!(f, "{row}");
-                }
-            }
+        for row in &archived {
+            // Durable append (src/durable_write.rs): an archived row is never lost to a transient I/O error.
+            crate::durable_write::append(format!("{path}.archive.jsonl"), row.to_string());
         }
         if need > 0 {
             tracing::warn!(
@@ -158,8 +154,11 @@ pub fn append_at(path: &str, container_id: u64, project_id: Option<u64>, route: 
         }
     }
 
-    if let Ok(json_str) = serde_json::to_string_pretty(&candidates) {
-        let _ = std::fs::write(path, json_str);
+    // Durable replace: a failed write is retried until it succeeds, and reads below see a snapshot still being retried — a queued
+    // re-expansion candidate is never silently lost.
+    match serde_json::to_string_pretty(&candidates) {
+        Ok(json_str) => crate::durable_write::replace(path, json_str.into_bytes()),
+        Err(e) => tracing::error!(error = %e, "AMT candidate log not serialized"),
     }
     true
 }
@@ -170,7 +169,7 @@ pub fn unhandled() -> Vec<serde_json::Value> {
 }
 
 pub fn unhandled_at(path: &str) -> Vec<serde_json::Value> {
-    let candidates: Vec<serde_json::Value> = std::fs::read_to_string(path)
+    let candidates: Vec<serde_json::Value> = crate::durable_write::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
@@ -187,8 +186,9 @@ pub fn save_all(candidates: &[serde_json::Value]) {
 }
 
 pub fn save_all_at(path: &str, candidates: &[serde_json::Value]) {
-    if let Ok(json_str) = serde_json::to_string_pretty(candidates) {
-        let _ = std::fs::write(path, json_str);
+    match serde_json::to_string_pretty(candidates) {
+        Ok(json_str) => crate::durable_write::replace(path, json_str.into_bytes()),
+        Err(e) => tracing::error!(error = %e, "AMT candidate log not serialized"),
     }
 }
 
@@ -199,7 +199,7 @@ pub fn load_all() -> Vec<serde_json::Value> {
 }
 
 pub fn load_all_at(path: &str) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(path)
+    crate::durable_write::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()

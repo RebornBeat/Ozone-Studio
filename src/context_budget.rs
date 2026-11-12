@@ -28,7 +28,6 @@
 //! (that seam lives at the capability summary), per-model windows on every
 //! call site.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 
 // Per-model window registry lives at crate::model_windows (declared in lib.rs).
 // Re-exported here so existing `crate::context_budget::model_windows` paths
@@ -238,42 +237,28 @@ impl ContextRecord {
     }
 }
 
-static SINK_DISABLED: AtomicBool = AtomicBool::new(false);
-
 /// Append one ContextRecord to `zsei_data/capture/context_records.jsonl`
 /// (relative to the host's working directory, consistent with the
-/// model_calls/ capture precedent). BEST-EFFORT by contract: a capture
-/// failure warns once and disables the sink — it must never block, panic,
-/// or fail a model call. This is capture, not behavior.
+/// model_calls/ capture precedent). DURABLE (src/durable_write.rs): one
+/// synchronous attempt as before; a failure is retried in order until it
+/// succeeds — the sink is never disabled and no record is dropped. This is
+/// capture, not behavior: it never blocks or fails a model call.
 pub fn record_call(mut record: ContextRecord) {
-    if SINK_DISABLED.load(Ordering::Relaxed) {
-        return;
-    }
     if record.trace_id.is_none() {
         if let Some(t) = crate::trace::current_trace() {
             record.trace_id = Some(t.trace_id);
             record.span_id = Some(t.span_id);
         }
     }
-    use std::io::Write;
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let path = std::path::Path::new(&data_dir).join("capture/context_records.jsonl");
-    let write = || -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+    match serde_json::to_string(&record) {
+        Ok(line) => crate::durable_write::append(path, line),
+        Err(e) => {
+            // A record that cannot be serialized is a code defect, not an I/O failure: loud, and nothing is written half-formed.
+            tracing::error!(error = %e, "context record not serialized");
+            return;
         }
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
-        let line = serde_json::to_string(&record)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        f.write_all(line.as_bytes())?;
-        f.write_all(b"\n")
-    };
-    if let Err(e) = write() {
-        SINK_DISABLED.store(true, Ordering::Relaxed);
-        eprintln!(
-            "context_records capture failed once, sink disabled (model calls unaffected): {e}"
-        );
-        return;
     }
     // TRIM MARKERS (docs/CONTEXT_OBJECT_MODEL.md: every cut is visible on the
     // graph, never silent): each trim in this record ripples as a graph

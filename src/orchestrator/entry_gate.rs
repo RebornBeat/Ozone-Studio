@@ -28,28 +28,14 @@
 //! behavior change to the dispatch itself.
 
 use std::future::Future;
-use std::io::Write;
 use std::time::Instant;
 
 /// Append one row to `<OZONE_ZSEI_DATA_DIR|zsei_data>/capture/call_spans.jsonl`
-/// — the same sink `instrumented.rs` writes, same best-effort discipline: a
-/// capture failure is logged and swallowed, never propagated into the call.
+/// — the same sink `instrumented.rs` writes, same durable discipline: one synchronous attempt, then retried in order until it
+/// succeeds (src/durable_write.rs); a capture failure is never propagated into the call and never drops the row.
 pub(crate) fn append_entry_row(row: &serde_json::Value) {
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-    let dir = format!("{data_dir}/capture");
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::warn!("entry gate: cannot create {dir}: {e}");
-        return;
-    }
-    let path = format!("{dir}/call_spans.jsonl");
-    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(mut f) => {
-            if let Err(e) = writeln!(f, "{row}") {
-                tracing::warn!("entry gate: span row write failed: {e}");
-            }
-        }
-        Err(e) => tracing::warn!("entry gate: cannot open {path}: {e}"),
-    }
+    crate::durable_write::append(format!("{data_dir}/capture/call_spans.jsonl"), row.to_string());
 }
 
 fn now_millis() -> u128 {

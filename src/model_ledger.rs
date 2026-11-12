@@ -11,7 +11,6 @@
 //! because it spends free-model quota.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
@@ -308,8 +307,11 @@ fn reclassify_historical_http_errors() -> usize {
         return 0;
     }
     let tmp = path.with_extension("jsonl.reclassify-tmp");
-    if std::fs::write(&tmp, out).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
+    // Rewrites the ledger from a snapshot, so it must not be queued behind concurrent appends (a queued rewrite would erase rows
+    // appended since). A failure is loud and the decode is idempotent: the next start finds the same unknown rows and retries.
+    if let Err(e) = std::fs::write(&tmp, out).and_then(|_| std::fs::rename(&tmp, &path)) {
+        tracing::error!(path = %path.display(), error = %e, "model ledger reclassification not written; it is retried at the next start");
+        return 0;
     }
     tracing::info!(
         reclassified = changed,
@@ -392,38 +394,23 @@ fn load_file() -> Table {
 
 fn append_line(line: &LedgerLine) {
     let path = ledger_path();
-    if let Some(dir) = path.parent() {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            tracing::warn!(path = %path.display(), error = %e, "model ledger directory not created; row not persisted");
-            return;
-        }
-    }
     let text = match serde_json::to_string(line) {
         Ok(t) => t,
         Err(e) => {
-            tracing::warn!(error = %e, "model ledger row not serialized");
+            // A row that cannot be serialized is a code defect, not an I/O failure: loud, never half-written.
+            tracing::error!(error = %e, "model ledger row not serialized");
             return;
         }
     };
-    let written = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .and_then(|mut f| {
-            // ONE write call so concurrent processes (O_APPEND) cannot
-            // interleave the row body and its newline.
-            let mut buf = text.clone();
-            buf.push('\n');
-            f.write_all(buf.as_bytes())
-        });
-    if let Err(e) = written {
-        tracing::warn!(path = %path.display(), error = %e, "model ledger row not persisted");
-    }
+    // DURABLE (src/durable_write.rs): ONE write call per row (concurrent processes append with O_APPEND and must not interleave a
+    // row body and its newline); a failed attempt is retried in order until it succeeds — the ledger is the source of truth and
+    // a call's row is never lost to a transient I/O error.
+    crate::durable_write::append(path, text);
 }
 
 /// Record one call's outcome. The in-memory table is updated first; the row
-/// is then appended to disk. A failed append is logged and the in-memory
-/// record is kept. Returns the attributed cause (`None` for a success).
+/// is then appended to disk. A failed append is retried until it succeeds
+/// (durable_write) and the in-memory record is kept. Returns the attributed cause (`None` for a success).
 pub fn record(model: &str, outcome: Outcome, latency_ms: u64, call_site: &str) -> Option<Cause> {
     record_with_cap(model, outcome, latency_ms, call_site, None)
 }
@@ -473,7 +460,7 @@ pub fn init() {
 /// DERIVED STATS SNAPSHOT (`model_calls/model_stats.json`): per-model attempts / outcomes / median latency, rewritten (temp file + rename)
 /// after every recorded row and once when the table first loads. It exists so other processes — every prompt-binary call, nested
 /// modality pipelines — read ~10 KB instead of parsing the 29 MB ledger (89.7% of which is prompt bodies) on EVERY call. The ledger
-/// stays the source of truth; this file is derived and can always be rebuilt from it. Best-effort: a write failure never affects a call.
+/// stays the source of truth; this file is derived and can always be rebuilt from it. Durable (durable_write::replace): a failed write is retried until it succeeds and never affects a call.
 /// Epoch ms of the last model-call liveness stamp written by the prompt binary (`model_calls/model_activity.stamp` mtime: written when
 /// a call starts, streams output, or ends). 0 when no stamp exists. The host watchdogs use it so a pipeline that is steadily making
 /// model calls is never killed merely for exceeding a wall-clock budget ("timeouts are not a limiter while it is doing work").
@@ -560,11 +547,10 @@ fn write_stats_snapshot() {
         serde_json::json!({ "updated_ms": now_ms(), "models": models })
     };
     let path = ledger_path().with_file_name("model_stats.json");
-    let tmp = path.with_extension(format!("json.tmp{}", std::process::id()));
-    if let Ok(text) = serde_json::to_string(&snapshot) {
-        if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+    match serde_json::to_string(&snapshot) {
+        // Whole-file derived snapshot: durable replace (a newer snapshot supersedes an older queued one).
+        Ok(text) => crate::durable_write::replace(path, text.into_bytes()),
+        Err(e) => tracing::error!(error = %e, "model stats snapshot not serialized"),
     }
 }
 

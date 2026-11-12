@@ -143,10 +143,9 @@ pub(crate) async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> 
 /// rule that does not apply means the methodology is too broad / unrefined and should be refined (e.g. split into focused ones). The rule gate
 /// (`stages::judge_rule_applicability`) therefore reports every rule it judges "clearly NOT applicable" here: one durable, append-only line per
 /// (request, methodology) with the evidence — never a `new`/`modify` gap (the meta loop would draft a new methodology from those), and nothing
-/// is changed or removed. The refinement meta loop reads `methodology_refinement_candidates.jsonl`. Best-effort: an I/O failure never affects a
-/// walk.
+/// is changed or removed. The refinement meta loop reads `methodology_refinement_candidates.jsonl`. Durable (src/durable_write.rs): a failed
+/// append is retried in order until it succeeds and never affects a walk.
 pub(crate) fn record_refinement_candidate(methodology_id: u64, name: &str, rules: &[(String, String)], not_applicable: &std::collections::BTreeSet<String>, request_terms: &[String]) {
-    use std::io::Write;
     if not_applicable.is_empty() {
         return;
     }
@@ -164,16 +163,15 @@ pub(crate) fn record_refinement_candidate(methodology_id: u64, name: &str, rules
         "reason": "rule gate: rules clearly NOT applicable to a request this methodology was gathered for — a sound methodology has no optional rules; refine or split it",
     })
     .to_string();
-    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| writeln!(f, "{line}")) {
-        tracing::warn!(error = %e, "could not record a methodology refinement candidate");
-    }
+    crate::durable_write::append(path, line);
 }
 
 /// REFINEMENT REPORT (E26, operator 2026-11-10: a sound methodology has no optional rules). Deterministic and read-only toward methodologies:
 /// aggregates `methodology_refinement_candidates.jsonl` into `methodology_refinement_report.json` — per methodology, how many walks flagged
 /// it, which rules were judged clearly-not-applicable (with counts), which applicable rules no step cited (with counts). No threshold decides
 /// anything and no methodology is split / changed here: the report is the evidence a refinement (split / rewrite) works from, and the UI /
-/// operator can read it. Rewritten whole each pass (the jsonl is the durable record), so it is always consistent with the log. Best-effort.
+/// operator can read it. Rewritten whole each pass (the jsonl is the durable record), so it is always consistent with the log. Durable replace
+/// (src/durable_write.rs): a failed write is retried until it succeeds.
 pub(crate) fn summarize_refinement_candidates() {
     use std::collections::BTreeMap;
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
@@ -205,9 +203,7 @@ pub(crate) fn summarize_refinement_candidates() {
         "actions": std::fs::read_to_string(format!("{}/methodology_refinement_actions.jsonl", data_dir)).map(|t| t.lines().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).collect::<Vec<_>>()).unwrap_or_default(),
         "note": "evidence only — no methodology is changed by this report; a sound methodology has no optional rules",
     });
-    if let Err(e) = std::fs::write(format!("{}/methodology_refinement_report.json", data_dir), serde_json::to_string_pretty(&report).unwrap_or_default()) {
-        tracing::warn!(error = %e, "could not write the methodology refinement report");
-    }
+    crate::durable_write::replace(format!("{}/methodology_refinement_report.json", data_dir), serde_json::to_string_pretty(&report).unwrap_or_default().into_bytes());
 }
 
 /// REFINEMENT ACTION (operator 2026-11-10). Evidence = `methodology_refinement_candidates.jsonl` (the rule gate's "clearly NOT applicable" records with
@@ -527,18 +523,15 @@ async fn draft_focused_methodology(
     }))
 }
 
-/// Append one line to a data-dir jsonl (best-effort; an I/O failure never affects a pass).
+/// Append one line to a data-dir jsonl. Durable (src/durable_write.rs): a failed append is retried in order until it succeeds; it never
+/// affects a pass.
 fn append_jsonl(data_dir: &str, file: &str, line: &serde_json::Value) {
-    use std::io::Write;
-    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{}/{}", data_dir, file)).and_then(|mut f| writeln!(f, "{}", line)) {
-        tracing::warn!(error = %e, file, "could not append a refinement record");
-    }
+    crate::durable_write::append_json(format!("{}/{}", data_dir, file), line);
 }
 
 /// COVERAGE RECORD: rules the gate judged applicable that no blueprint step cites (`stages::audit_rule_refs`). Append-only, one line per walk,
-/// into the same refinement file (`reason` distinguishes it); nothing is changed. Best-effort.
+/// into the same refinement file (`reason` distinguishes it); nothing is changed. Durable (src/durable_write.rs).
 pub(crate) fn record_uncovered_rules(rule_refs: &[String], request_terms: &[String]) {
-    use std::io::Write;
     if rule_refs.is_empty() {
         return;
     }
@@ -552,9 +545,7 @@ pub(crate) fn record_uncovered_rules(rule_refs: &[String], request_terms: &[Stri
         "reason": "blueprint gate: rules judged applicable that no step cites — the plan missed them or the rule is not actionable as a step",
     })
     .to_string();
-    if let Err(e) = std::fs::OpenOptions::new().create(true).append(true).open(&path).and_then(|mut f| writeln!(f, "{line}")) {
-        tracing::warn!(error = %e, "could not record uncovered rules");
-    }
+    crate::durable_write::append(path, line);
 }
 
 /// METHODOLOGY QUALITY AUDIT (E18, 2026-11-07). Deterministic, no model call: a methodology with fewer than 3 usable keywords (after
@@ -575,7 +566,7 @@ async fn audit_methodology_quality_once(store: &Arc<dyn StoreAccess>, stats: &mu
             kids
         }
     };
-    let existing: Vec<serde_json::Value> = std::fs::read_to_string(gaps_log_path())
+    let existing: Vec<serde_json::Value> = crate::durable_write::read_to_string(gaps_log_path())
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
@@ -633,7 +624,7 @@ async fn review_methodology_requests_once(
 ) -> Result<(), String> {
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let path = format!("{}/methodology_reviews.json", data_dir);
-    let mut reviews: Vec<serde_json::Value> = match std::fs::read_to_string(&path) {
+    let mut reviews: Vec<serde_json::Value> = match crate::durable_write::read_to_string(&path) {
         Ok(s) => serde_json::from_str(&s).map_err(|e| format!("parse {}: {}", path, e))?,
         Err(_) => return Ok(()),
     };
@@ -807,7 +798,8 @@ async fn review_methodology_requests_once(
     }
     if changed {
         let json = serde_json::to_string_pretty(&reviews).map_err(|e| e.to_string())?;
-        std::fs::write(&path, json).map_err(|e| format!("write {}: {}", path, e))?;
+        // Durable replace (retried until written; same path as amt.rs's recorders, so queue order is shared).
+        crate::durable_write::replace(&path, json.into_bytes());
     }
     Ok(())
 }
@@ -927,7 +919,7 @@ async fn review_methodology_gaps_once(
 ) -> Result<(), String> {
     let path = gaps_log_path();
 
-    let mut gaps: Vec<serde_json::Value> = match std::fs::read_to_string(&path) {
+    let mut gaps: Vec<serde_json::Value> = match crate::durable_write::read_to_string(&path) {
         Ok(s) => serde_json::from_str(&s).map_err(|e| format!("parse {}: {}", path, e))?,
         Err(_) => return Ok(()), // nothing recorded yet — not an error
     };
@@ -1305,7 +1297,7 @@ async fn review_methodology_gaps_once(
 
     if any_change {
         let json = serde_json::to_string_pretty(&gaps).map_err(|e| e.to_string())?;
-        std::fs::write(&path, json).map_err(|e| format!("write {}: {}", path, e))?;
+        crate::durable_write::replace(&path, json.into_bytes());
     }
 
     Ok(())

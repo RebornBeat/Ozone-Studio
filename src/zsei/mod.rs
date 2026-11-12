@@ -91,33 +91,31 @@ impl ZSEI {
     }
 
     /// Snapshot a container's CURRENT content into the integrity monitor's
-    /// rollback layer before a mutation overwrites it. Best-effort: a failed
-    /// snapshot must never block the update itself.
+    /// rollback layer before a mutation overwrites it. No skip (operator
+    /// 2026-11-11): a failed load or snapshot is RETRIED until it succeeds
+    /// (`durable_write::retry_until_ok`), so the mutation PAUSES at this point
+    /// — visibly — instead of overwriting content that has no rollback copy.
     async fn pre_write_snapshot(&self, container_id: ContainerID) {
         let Some(integrity) = self.integrity.as_ref() else {
             return;
         };
-        let old = match self.storage.read().await.load(container_id) {
-            Ok(Some(c)) => c,
-            _ => return,
+        let old = crate::durable_write::retry_until_ok("pre-write snapshot: load container", || async {
+            self.storage.read().await.load(container_id)
+        })
+        .await;
+        let Some(old) = old else {
+            return; // the container does not exist yet: nothing to snapshot
         };
         match serde_json::to_vec(&old) {
             Ok(bytes) => {
-                if let Err(e) = integrity
-                    .read()
-                    .await
-                    .create_snapshot(container_id, &bytes)
-                    .await
-                {
-                    tracing::warn!(
-                        container_id,
-                        error = %e,
-                        "pre-write integrity snapshot failed (non-fatal)"
-                    );
-                }
+                crate::durable_write::retry_until_ok("pre-write snapshot: create", || async {
+                    integrity.read().await.create_snapshot(container_id, &bytes).await
+                })
+                .await;
             }
             Err(e) => {
-                tracing::warn!(container_id, error = %e, "pre-write snapshot serialize failed (non-fatal)");
+                // A container that cannot be serialized is a code defect no retry fixes: loud, and the mutation is not blocked on it.
+                tracing::error!(container_id, error = %e, "pre-write snapshot serialize failed");
             }
         }
     }

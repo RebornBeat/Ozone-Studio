@@ -73,6 +73,9 @@ pub mod agent_requests;
 /// Walk feed + participants: what the agents taking part in a walk read about it.
 pub mod walk_feed;
 
+// Durable bookkeeping writes: one synchronous attempt, retried in order until they succeed (no skip) — see src/durable_write.rs.
+pub mod durable_write;
+
 /// Host-side link-path guard (hardening H4).
 pub mod link_guard;
 
@@ -168,7 +171,9 @@ pub fn sync_jurisdiction_file(
         if (force || no_manifest_entry) && !unmodified_since_last_sync {
             let mut bak = dst.as_os_str().to_owned();
             bak.push(".bak");
-            let _ = std::fs::write(std::path::PathBuf::from(bak), &dst_bytes);
+            // The backup MUST exist before the operator's copy is overwritten: a failure propagates (nothing is overwritten) and the
+            // sync retries at the next run — it used to be ignored and the overwrite went ahead without a backup.
+            std::fs::write(std::path::PathBuf::from(bak), &dst_bytes)?;
         }
         std::fs::write(dst, &src_bytes)?;
         if force {
@@ -617,7 +622,8 @@ impl OzoneRuntime {
                     }
                 }
                 if let Ok(raw) = serde_json::to_string_pretty(&manifest) {
-                    let _ = std::fs::write(&manifest_path, raw);
+                    // Durable replace (retried until written).
+                    crate::durable_write::replace(&manifest_path, raw.into_bytes());
                 }
                 tracing::info!(?counts, force, "Jurisdiction content sync (assets -> data dir)");
                 if counts.get("kept-newer-available").copied().unwrap_or(0) > 0 {
@@ -1154,7 +1160,7 @@ impl OzoneRuntime {
             // CALL-INDEX COVERAGE (2026-11-02 audit): the background loops
             // (amt re-expansion, meta, I-Loop, assistant) used the bare registry
             // adapter, so their model calls left no capture/call_spans.jsonl row.
-            // Same decorator the walk uses; shape-only, best-effort.
+            // Same decorator the walk uses; shape-only, rows durable (durable_write).
             let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
                 Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(Arc::new(
                     crate::orchestrator::RegistryExecutorAdapter {
@@ -1292,17 +1298,14 @@ impl OzoneRuntime {
                             // S13 capture row (parity with /mcp/call)
                             {
                                 let dir = std::path::PathBuf::from(&data_dir).join("model_calls");
-                                let _ = std::fs::create_dir_all(&dir);
                                 let row = serde_json::json!({
                                     "ts": chrono::Utc::now().to_rfc3339(),
                                     "tool": tool, "agent": agent, "success": success, "error": error.clone().unwrap_or_default(),
                                     "transport": "call_global",
                                     "called_from": { "provider": from.provider, "site": from.site, "task_id": from.task_id, "step_index": from.step_index, "rule_refs": from.rule_refs },
                                 });
-                                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("tool_calls.jsonl")) {
-                                    use std::io::Write;
-                                    let _ = writeln!(f, "{}", row);
-                                }
+                                // Durable (creates the directory; retried in order until written).
+                                crate::durable_write::append_json(dir.join("tool_calls.jsonl"), &row);
                             }
                             if let (true, Some(out)) = (success, output.as_ref()) {
                                 let ws = ctx.as_ref().and_then(|c| c.get("workspace_id")).and_then(|v| v.as_u64());
@@ -1639,6 +1642,12 @@ impl OzoneRuntime {
             _ = shutdown => {
                 tracing::info!("Shutdown signal received: draining ZSEI local-state writes");
                 zsei::drain_local_writes(std::time::Duration::from_secs(60))?;
+                // Drain the durable bookkeeping queue too (src/durable_write.rs): rows whose write is still being retried are written
+                // now if the disk allows; what is still pending is named, never silently lost.
+                let left = durable_write::flush_for(std::time::Duration::from_secs(30));
+                if left > 0 {
+                    tracing::error!(pending = left, "shutdown: durable writes still pending (the disk refused them) — they are lost with this process");
+                }
             }
         }
 

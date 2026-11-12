@@ -22,7 +22,7 @@ use crate::types::zsei::ContainerUpdate;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{BufRead, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -395,15 +395,11 @@ fn origin_json() -> Value {
 
 static LOG_LOCK: Mutex<()> = Mutex::new(());
 
+/// Hit / judgment / event logs (never rotated, truncated or limited). DURABLE (src/durable_write.rs): one synchronous attempt as before;
+/// a failed append is retried in order until it succeeds — the row is never lost and never skipped.
 fn append_line(file: &str, v: &Value) {
     let _guard = LOG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let dir = data_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(file)) {
-        let mut line = v.to_string();
-        line.push('\n');
-        let _ = f.write_all(line.as_bytes());
-    }
+    crate::durable_write::append_json(data_dir().join(file), v);
 }
 
 // ============================================================================================================
@@ -614,7 +610,7 @@ pub async fn rollup_once(store: &Arc<dyn StoreAccess>) -> RollupStats {
     let _rollup_guard = ROLLUP_LOCK.lock().await;
     let mut stats = RollupStats::default();
     let path = data_dir().join("keyword_hits.jsonl");
-    let mut offset: u64 = std::fs::read_to_string(offset_path()).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
+    let mut offset: u64 = crate::durable_write::read_to_string(offset_path()).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
     let Ok(mut f) = std::fs::File::open(&path) else { return stats };
     let len = f.metadata().map(|m| m.len()).unwrap_or(0);
     let mut slice = SLICE_BYTES;
@@ -641,8 +637,9 @@ pub async fn rollup_once(store: &Arc<dyn StoreAccess>) -> RollupStats {
         let text = String::from_utf8_lossy(&buf[..consumed]).to_string();
         rollup_text(store, &text, &mut stats).await;
         offset += consumed as u64;
-        // advance past what was consumed even if a container failed (a failed container loses these counts rather than double-counting them)
-        let _ = std::fs::write(offset_path(), offset.to_string());
+        // advance past what was consumed: every container update above was RETRIED until it succeeded, so nothing in this slice is lost
+        // and nothing is double-counted. Durable replace (read back through durable_write at the top of the next call).
+        crate::durable_write::replace(offset_path(), offset.to_string().into_bytes());
     }
     stats
 }
@@ -690,13 +687,10 @@ async fn rollup_text(store: &Arc<dyn StoreAccess>, text: &str, stats: &mut Rollu
     merge_edge_use(&edge_use);
     for (id, entries) in per {
         let evs: Vec<(String, Vec<String>, u64, u64)> = entries.into_iter().map(|((kind, _), (terms, n, ts))| (kind, terms, n, ts)).collect();
-        match apply_rollup(store, id, &evs).await {
-            Ok(true) => stats.containers_updated += 1,
-            Ok(false) => {}
-            Err(e) => {
-                stats.failures += 1;
-                tracing::debug!(container = id, error = %e, "keyword rollup: container not updated");
-            }
+        // No skip: a failed container update is retried until it succeeds (the rollup pauses here, visibly) — it used to count a
+        // failure and move the offset past the slice, losing those counts.
+        if crate::durable_write::retry_until_ok("keyword rollup: apply to container", || apply_rollup(store, id, &evs)).await {
+            stats.containers_updated += 1;
         }
     }
 }
@@ -1060,8 +1054,7 @@ fn train_state_path() -> PathBuf {
 /// "log grew" gate and no minimum group count (zero usable groups simply tries again next cycle). Registers new models as graph citizens.
 pub async fn train_continuously(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn StoreAccess>) -> Result<Value, String> {
     let stats = build_dataset(store).await?;
-    let _ = std::fs::create_dir_all(models_dir());
-    let _ = std::fs::write(train_state_path(), json!({"groups": stats.groups, "heldout": stats.heldout, "candidates": stats.candidates}).to_string());
+    crate::durable_write::replace(train_state_path(), json!({"groups": stats.groups, "heldout": stats.heldout, "candidates": stats.candidates}).to_string().into_bytes());
     if stats.groups == 0 {
         return Ok(json!({"trained": false, "reason": "no labelled group yet (a search or keeper judgment with both a relevant and an irrelevant candidate) — the next cycle tries again"}));
     }
@@ -1076,7 +1069,8 @@ pub async fn train_continuously(executor: &Arc<dyn PipelineExecutor>, store: &Ar
 }
 
 /// Give every registry model that has no container yet a graph-citizen container (so models are visible, traversable and rippled like
-/// everything else) and write the container id back into the registry. Best effort.
+/// everything else) and write the container id back into the registry. No skip: a failed create or registry save is retried until
+/// it succeeds (`durable_write::retry_until_ok`).
 pub async fn register_model_containers(store: &Arc<dyn StoreAccess>) {
     let dir = models_dir();
     let mut reg = km::ModelRegistry::load(&dir);
@@ -1123,15 +1117,19 @@ pub async fn register_model_containers(store: &Arc<dyn StoreAccess>) {
         };
         let container = match serde_json::to_value(&container) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                // A container that cannot be serialized is a code defect, not an I/O failure: loud, never silent.
+                tracing::error!(model = %m.id, error = %e, "keyword model container not serialized");
+                continue;
+            }
         };
-        if let Ok(id) = store.create_container(PIPELINE_ROOT_ID, container).await {
-            m.container_id = Some(id);
-            changed = true;
-        }
+        let id = crate::durable_write::retry_until_ok("keyword model container create", || store.create_container(PIPELINE_ROOT_ID, container.clone())).await;
+        m.container_id = Some(id);
+        changed = true;
     }
     if changed {
-        let _ = reg.save(&dir);
+        let reg_ref = &reg;
+        crate::durable_write::retry_until_ok("keyword model registry save", || async { reg_ref.save(&dir) }).await;
     }
 }
 

@@ -24,9 +24,9 @@
 //!   prompt graphs this run built, so the conversation is part of the living
 //!   graph rather than a side file.
 //!
-//! Best-effort in the sense that a storage failure never fails the user's
-//! answer — but every failure is logged loudly and the turn's content file is
-//! written FIRST, so the full text survives even if graph creation fails.
+//! No skip (operator 2026-11-11): a storage failure never DELAYS or fails the user's answer — the turn's content file is written
+//! FIRST (durable: retried until it lands), and every store step after it (session container, turn container, links, response graph)
+//! runs in the background and is RETRIED until it succeeds (`durable_write::retry_until_ok`); nothing is logged-and-skipped.
 
 use super::*;
 use crate::types::container::ContainerType;
@@ -176,71 +176,50 @@ async fn link_related(store: &Arc<dyn StoreAccess>, from: u64, to: u64) -> Resul
         .await
 }
 
-impl PromptOrchestrator {
-    /// Find or create the `ChatSession` container for this scope.
-    async fn chat_session_for(&self, scope: &ChatScope) -> Result<u64, String> {
-        let kw = scope.session_keyword();
-        if let Ok(ids) = self
-            .store
-            .search_by_keywords(&[kw.clone()], Some("ChatSession"))
-            .await
-        {
-            if let Some(id) = ids.first() {
-                return Ok(*id);
-            }
-        }
-        let mut keywords = vec!["kind:chat".to_string(), "kind:chat_session".to_string(), kw.clone()];
-        keywords.extend(scope.scope_keywords());
-        let name = match (scope.project_id, scope.workspace_id) {
-            (Some(p), _) => format!("Chat — project {p}"),
-            (None, Some(w)) => format!("Chat — workspace {w}"),
-            _ => "Chat — global".to_string(),
-        };
-        let path = format!("/chat/{}", scope.dir_name());
-        let parent = scope.parent_id();
-        let make = |parent: u64| {
-            build_chat_container(
-                ContainerType::ChatSession,
-                &name,
-                path.clone(),
-                keywords.clone(),
-                None,
-                parent,
-            )
-        };
-        match self.store.create_container(parent, make(parent)?).await {
-            Ok(id) => Ok(id),
-            // The scoped parent may not exist as a container (stale id): the
-            // scope keywords keep it findable; fall back to the root.
-            Err(e) if parent != 0 => {
-                tracing::warn!(parent, error = %e, "chat session: scoped parent unavailable — creating under root, scope kept in keywords");
-                self.store.create_container(0, make(0)?).await
-            }
-            Err(e) => Err(e),
-        }
+/// Find or create the `ChatSession` container for this scope. A failed search is an ERROR (never "no session found" — that would create a
+/// duplicate session container); the caller retries.
+async fn chat_session_for_store(store: &Arc<dyn StoreAccess>, scope: &ChatScope) -> Result<u64, String> {
+    let kw = scope.session_keyword();
+    let ids = store.search_by_keywords(&[kw.clone()], Some("ChatSession")).await?;
+    if let Some(id) = ids.first() {
+        return Ok(*id);
     }
+    let mut keywords = vec!["kind:chat".to_string(), "kind:chat_session".to_string(), kw.clone()];
+    keywords.extend(scope.scope_keywords());
+    let name = match (scope.project_id, scope.workspace_id) {
+        (Some(p), _) => format!("Chat — project {p}"),
+        (None, Some(w)) => format!("Chat — workspace {w}"),
+        _ => "Chat — global".to_string(),
+    };
+    let path = format!("/chat/{}", scope.dir_name());
+    let parent = scope.parent_id();
+    let make = |parent: u64| {
+        build_chat_container(ContainerType::ChatSession, &name, path.clone(), keywords.clone(), None, parent)
+    };
+    match store.create_container(parent, make(parent)?).await {
+        Ok(id) => Ok(id),
+        // The scoped parent may not exist as a container (stale id): the
+        // scope keywords keep it findable; fall back to the root.
+        Err(e) if parent != 0 => {
+            tracing::warn!(parent, error = %e, "chat session: scoped parent unavailable — creating under root, scope kept in keywords");
+            store.create_container(0, make(0)?).await
+        }
+        Err(e) => Err(e),
+    }
+}
 
+impl PromptOrchestrator {
     /// Persist one finished `/orchestrate` turn. Writes the FULL prompt and
-    /// FULL response to the turn's content file FIRST, then creates the
-    /// `ChatTurn` container, then (background) graphs the response text and
-    /// links the turn into the graph. Returns the turn container id.
-    pub(crate) async fn persist_chat_turn(
-        &self,
-        state: &OrchestrationState,
-        response: &OrchestrationResponse,
-    ) -> Option<u64> {
+    /// FULL response to the turn's content file FIRST (durable: retried until it
+    /// lands), then — in the background, each step retried until it succeeds —
+    /// creates the `ChatTurn` container, links it to the prompt graphs this run
+    /// built, graphs the response text and links the turn to that graph. The
+    /// answer is never delayed by any of it.
+    pub(crate) async fn persist_chat_turn(&self, state: &OrchestrationState, response: &OrchestrationResponse) {
         let scope = ChatScope {
             project_id: state.request.project_id,
             workspace_id: state.request.workspace_id,
         };
-        let session_id = match self.chat_session_for(&scope).await {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::warn!(error = %e, "chat persist: no session container — turn kept only in the content file");
-                0
-            }
-        };
-
         let ts = chrono::Utc::now();
         let turn_key = format!(
             "{}-{}",
@@ -276,23 +255,14 @@ impl PromptOrchestrator {
         // Same base the readers of `object_store_path` use (OZONE_ZSEI_DATA_DIR, else the configured data dir).
         let base_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| self.data_dir.clone());
         let full_path = format!("{}/{}", base_dir, rel_path);
-        if let Some(parent) = std::path::Path::new(&full_path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         match serde_json::to_vec_pretty(&record) {
-            Ok(bytes) => {
-                if let Err(e) = std::fs::write(&full_path, bytes) {
-                    tracing::error!(path = %full_path, error = %e, "chat persist: content file write FAILED — full turn text not stored");
-                    return None;
-                }
-            }
+            // Durable replace: creates the directory, writes temp + rename, and retries until the full turn text is on disk.
+            Ok(bytes) => crate::durable_write::replace(full_path.clone(), bytes),
             Err(e) => {
+                // A turn that cannot be serialized is a code defect no retry fixes: loud, never silent.
                 tracing::error!(error = %e, "chat persist: serialize failed");
-                return None;
+                return;
             }
-        }
-        if session_id == 0 && scope.parent_id() != 0 {
-            // No session container could be created; the content file stands.
         }
 
         let mut keywords = vec!["kind:chat".to_string(), "kind:chat_turn".to_string(), scope.session_keyword()];
@@ -304,51 +274,46 @@ impl PromptOrchestrator {
             "Turn {}",
             response.task_id.map(|t| t.to_string()).unwrap_or_else(|| turn_key.clone())
         );
-        let container = match build_chat_container(
-            ContainerType::ChatTurn,
-            &name,
-            format!("/chat/{}/{}", scope.dir_name(), turn_key),
-            keywords,
-            Some(rel_path.clone()),
-            session_id,
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!(error = %e, "chat persist: build turn container failed");
-                return None;
-            }
-        };
-        let turn_id = match self.store.create_container(session_id, container).await {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::error!(error = %e, content_file = %rel_path, "chat persist: turn container create failed (content file kept)");
-                return None;
-            }
-        };
+        let turn_path = format!("/chat/{}/{}", scope.dir_name(), turn_key);
+        let prompt_graph_ids: Vec<u64> = state.modality_graphs.values().cloned().collect();
+        let response_text = response.response.clone().filter(|t| !t.trim().is_empty());
+        let executor = self.executor.clone();
+        let store = self.store.clone();
+        let project_id = scope.project_id.unwrap_or(0);
+        tokio::spawn(crate::orchestrator::traced(async move {
+            use crate::durable_write::retry_until_ok;
+            let session_id = retry_until_ok("chat persist: session container", || chat_session_for_store(&store, &scope)).await;
+            let container = match build_chat_container(
+                ContainerType::ChatTurn,
+                &name,
+                turn_path,
+                keywords,
+                Some(rel_path.clone()),
+                session_id,
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    // A container that cannot be built is a code defect, not an I/O failure: loud, never silent.
+                    tracing::error!(error = %e, content_file = %rel_path, "chat persist: build turn container failed");
+                    return;
+                }
+            };
+            let turn_id = retry_until_ok("chat persist: turn container create", || store.create_container(session_id, container.clone())).await;
 
-        // Link the turn to the prompt graphs this run built (they already
-        // exist) — synchronous, cheap.
-        for gid in state.modality_graphs.values() {
-            if let Err(e) = link_related(&self.store, turn_id, *gid).await {
-                tracing::warn!(turn_id, graph_id = *gid, error = %e, "chat persist: prompt-graph link failed");
+            // Link the turn to the prompt graphs this run built (they already exist).
+            for gid in &prompt_graph_ids {
+                retry_until_ok("chat persist: prompt-graph link", || link_related(&store, turn_id, *gid)).await;
             }
-        }
 
-        // Graph the FULL response text through the text modality (background:
-        // entity/topic extraction can be slow, and must not delay the answer).
-        if let Some(text) = response.response.clone().filter(|t| !t.trim().is_empty()) {
-            let executor = self.executor.clone();
-            let store = self.store.clone();
-            let project_id = scope.project_id.unwrap_or(0);
-            let content_path = full_path.clone();
-            tokio::spawn(crate::orchestrator::traced(async move {
-                let analysis = executor
-                    .execute(
+            // Graph the FULL response text through the text modality (background: entity/topic extraction can be slow).
+            if let Some(text) = response_text {
+                let analysis = retry_until_ok("chat persist: response analysis", || {
+                    executor.execute(
                         100,
                         serde_json::json!({
                             "action": {
                                 "type": "Analyze",
-                                "text": text,
+                                "text": text.clone(),
                                 "depth": "Standard",
                                 "extract_entities": true,
                                 "extract_topics": true,
@@ -356,52 +321,41 @@ impl PromptOrchestrator {
                             }
                         }),
                     )
-                    .await;
-                let analysis = match analysis {
-                    Ok(a) => a,
-                    Err(e) => {
-                        tracing::warn!(turn_id, error = %e, "chat persist: response analysis failed — text remains stored in the turn's content file");
-                        return;
-                    }
-                };
-                let created = executor
-                    .execute(
-                        100,
-                        serde_json::json!({
-                            "action": {
-                                "type": "CreateGraph",
-                                "analysis_result": analysis.get("analysis").cloned().unwrap_or_default(),
-                                "project_id": project_id,
-                                "link_to_existing": false
-                            }
-                        }),
-                    )
-                    .await;
-                let graph_id = created
-                    .ok()
-                    .and_then(|g| g.get("graph_id").and_then(|x| x.as_u64()));
-                match graph_id {
-                    Some(gid) => {
-                        if let Err(e) = link_related(&store, turn_id, gid).await {
-                            tracing::warn!(turn_id, graph_id = gid, error = %e, "chat persist: response-graph link failed");
+                })
+                .await;
+                let analysis_result = analysis.get("analysis").cloned().unwrap_or_default();
+                let gid = retry_until_ok("chat persist: response graph", || async {
+                    let g = executor
+                        .execute(
+                            100,
+                            serde_json::json!({
+                                "action": {
+                                    "type": "CreateGraph",
+                                    "analysis_result": analysis_result.clone(),
+                                    "project_id": project_id,
+                                    "link_to_existing": false
+                                }
+                            }),
+                        )
+                        .await?;
+                    g.get("graph_id").and_then(|x| x.as_u64()).ok_or_else(|| "CreateGraph returned no graph_id".to_string())
+                })
+                .await;
+                retry_until_ok("chat persist: response-graph link", || link_related(&store, turn_id, gid)).await;
+                // Record the graph id in the turn's content file (in place, like the AMT expansion does) so the file alone is complete.
+                // Read through durable_write so a snapshot still being retried is the base, and write back durably.
+                match crate::durable_write::read_to_string(&full_path) {
+                    Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                        Ok(mut v) => {
+                            v["response_graph_id"] = serde_json::json!(gid);
+                            crate::durable_write::replace(full_path.clone(), serde_json::to_vec_pretty(&v).unwrap_or_default());
                         }
-                        // Record the graph id in the turn's content file (in place,
-                        // like the AMT expansion does) so the file alone is complete.
-                        if let Ok(raw) = std::fs::read_to_string(&content_path) {
-                            if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                                v["response_graph_id"] = serde_json::json!(gid);
-                                let _ = std::fs::write(
-                                    &content_path,
-                                    serde_json::to_vec_pretty(&v).unwrap_or_default(),
-                                );
-                            }
-                        }
-                    }
-                    None => tracing::warn!(turn_id, "chat persist: response CreateGraph returned no graph_id"),
+                        Err(e) => tracing::error!(turn_id, error = %e, "chat persist: the turn's content file does not parse; response_graph_id not recorded in it"),
+                    },
+                    Err(e) => tracing::error!(turn_id, error = %e, "chat persist: the turn's content file could not be read back; response_graph_id not recorded in it"),
                 }
-            }));
-        }
-        Some(turn_id)
+            }
+        }));
     }
 }
 

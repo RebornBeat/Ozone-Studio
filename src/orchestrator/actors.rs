@@ -1255,16 +1255,8 @@ pub fn spawn_sensor_tick(
                     "took_ms": tick_started.elapsed().as_millis() as u64,
                     "summary": posture_summary.clone(),
                 });
-                let dir = std::path::PathBuf::from(&data_dir).join("model_calls");
-                let _ = std::fs::create_dir_all(&dir);
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(dir.join("sensor_ticks.jsonl"))
-                {
-                    use std::io::Write;
-                    let _ = writeln!(f, "{}", row);
-                }
+                // Durable (src/durable_write.rs): retried in order until written.
+                crate::durable_write::append_json(std::path::PathBuf::from(&data_dir).join("model_calls").join("sensor_ticks.jsonl"), &row);
             }
         }
     });

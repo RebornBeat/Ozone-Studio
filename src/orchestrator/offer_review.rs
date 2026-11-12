@@ -25,7 +25,8 @@ fn now_secs() -> u64 {
 }
 
 fn read_map(path: &Path) -> Map<String, Value> {
-    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    // (read through durable_write: a snapshot whose write is still being retried is the base)
+    crate::durable_write::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
 /// Lower-cased alphanumeric tokens of length >= 2 (language-neutral shape rule, no word list).
@@ -179,7 +180,8 @@ async fn review_pass(executor: &Arc<dyn PipelineExecutor>, store: &Arc<dyn Store
         crate::keyword_program::record_judgment("offer_review", None, &o.name, &o.from, "is this marketplace offer useful to add to this instance?", rec == "download", strength);
         reviews.insert(o.key.clone(), json!({"recommendation": rec, "reason": reason, "rounds": verdicts, "strength": strength, "matches_wanted": matches_wanted, "by": "zero-shot", "at": now_secs()}));
     }
-    let _ = std::fs::write(&reviews_path, serde_json::to_string_pretty(&reviews).unwrap_or_default());
+    // Durable replace (retried until written).
+    crate::durable_write::replace(&reviews_path, serde_json::to_string_pretty(&reviews).unwrap_or_default().into_bytes());
 }
 
 /// The review loop (spawned only when `marketplace_accept_offers` is on — or the deprecated alias `auto_broadcast_sync`). Polls every 2 minutes; a model failure leaves an

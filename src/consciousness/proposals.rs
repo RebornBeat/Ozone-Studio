@@ -297,15 +297,12 @@ fn proposal_review_id(d: &ProposalDraft) -> String {
 }
 
 fn append_s10_row(dir: &str, record: serde_json::Value) -> bool {
-    let _ = std::fs::create_dir_all(dir);
     let path = format!("{}/decision_review.jsonl", dir);
-    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(mut f) => {
-            use std::io::Write;
-            match serde_json::to_string(&record) {
-                Ok(line) => f.write_all(format!("{}\n", line).as_bytes()).is_ok(),
-                Err(_) => false,
-            }
+    match serde_json::to_string(&record) {
+        // Durable (src/durable_write.rs): one synchronous attempt, then retried in order until written.
+        Ok(line) => {
+            crate::durable_write::append(path, line);
+            true
         }
         Err(_) => false,
     }

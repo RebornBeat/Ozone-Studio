@@ -232,7 +232,7 @@ fn now_secs() -> u64 {
 
 /// All recorded capability gaps (the Marketplace "wanted" list).
 pub fn capability_gaps() -> Vec<Value> {
-    std::fs::read_to_string(gaps_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    crate::durable_write::read_to_string(gaps_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 /// Durably record required-but-unavailable capabilities. For every NEW one (first sighting) this also
@@ -284,11 +284,8 @@ pub fn record_capability_gaps(gaps: &[GapInput]) -> usize {
     }
     // no row cap (no-cap doctrine, 2026-11-06): a missing capability is a durable "wanted" record — never evicted by age.
     if let Ok(json) = serde_json::to_string_pretty(&rows) {
-        let path = gaps_path();
-        if let Some(dir) = std::path::Path::new(&path).parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let _ = std::fs::write(path, json);
+        // Durable replace (creates the directory; retried until written; reads above see a snapshot still being retried).
+        crate::durable_write::replace(gaps_path(), json.into_bytes());
     }
     if new_count > 0 {
         tracing::warn!(new = new_count, "missing capabilities recorded — wanted in the Marketplace, methodology gap queued for the meta-loop");
@@ -320,7 +317,7 @@ pub fn set_gap_status(name: &str, status: &str, reason: &str, by: &str) {
     }
     if changed {
         if let Ok(json) = serde_json::to_string_pretty(&rows) {
-            let _ = std::fs::write(gaps_path(), json);
+            crate::durable_write::replace(gaps_path(), json.into_bytes());
         }
     }
 }
@@ -354,7 +351,7 @@ pub fn mark_gap_tool_created(name: &str, origin: Value, by: &str) -> bool {
     }
     if changed {
         if let Ok(json) = serde_json::to_string_pretty(&rows) {
-            let _ = std::fs::write(gaps_path(), json);
+            crate::durable_write::replace(gaps_path(), json.into_bytes());
         }
     }
     changed
@@ -386,7 +383,7 @@ pub fn note_gap_event(name: &str, event: &str, reason: &str, by: &str) {
     }
     if changed {
         if let Ok(json) = serde_json::to_string_pretty(&rows) {
-            let _ = std::fs::write(gaps_path(), json);
+            crate::durable_write::replace(gaps_path(), json.into_bytes());
         }
     }
 }
@@ -416,7 +413,7 @@ pub fn link_gap_task(name: &str, task_id: u64) {
     }
     if changed {
         if let Ok(json) = serde_json::to_string_pretty(&rows) {
-            let _ = std::fs::write(gaps_path(), json);
+            crate::durable_write::replace(gaps_path(), json.into_bytes());
         }
     }
 }
@@ -447,7 +444,7 @@ pub fn close_satisfied_gaps(registry: &[RegistryRow]) {
     }
     if changed {
         if let Ok(json) = serde_json::to_string_pretty(&rows) {
-            let _ = std::fs::write(gaps_path(), json);
+            crate::durable_write::replace(gaps_path(), json.into_bytes());
         }
     }
 }
@@ -461,7 +458,7 @@ fn health_path() -> String {
 }
 
 fn read_health() -> serde_json::Map<String, Value> {
-    std::fs::read_to_string(health_path())
+    crate::durable_write::read_to_string(health_path())
         .ok()
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .and_then(|v| v.as_object().cloned())
@@ -480,7 +477,7 @@ pub fn record_tool_outcome(provider: &str, tool: &str, ok: bool, error: Option<&
         }
     }
     if let Ok(json) = serde_json::to_string_pretty(&Value::Object(h)) {
-        let _ = std::fs::write(health_path(), json);
+        crate::durable_write::replace(health_path(), json.into_bytes());
     }
 }
 
@@ -525,7 +522,7 @@ pub fn record_binding_proposal(methodology_ids: &[u64], provider: &str, step_tex
     if methodology_ids.is_empty() || tool.is_empty() {
         return;
     }
-    let mut rows: Vec<Value> = std::fs::read_to_string(proposals_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    let mut rows: Vec<Value> = crate::durable_write::read_to_string(proposals_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
     for &m in methodology_ids {
         if let Some(r) = rows.iter_mut().find(|r| r["methodology_id"].as_u64() == Some(m) && r["tool"].as_str() == Some(tool)) {
             r["successes"] = json!(r["successes"].as_u64().unwrap_or(0) + 1);
@@ -540,12 +537,12 @@ pub fn record_binding_proposal(methodology_ids: &[u64], provider: &str, step_tex
     }
     // no row cap (no-cap doctrine, 2026-11-06): binding proposals are durable records.
     if let Ok(json) = serde_json::to_string_pretty(&rows) {
-        let _ = std::fs::write(proposals_path(), json);
+        crate::durable_write::replace(proposals_path(), json.into_bytes());
     }
 }
 
 pub fn binding_proposals() -> Vec<Value> {
-    std::fs::read_to_string(proposals_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    crate::durable_write::read_to_string(proposals_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 #[cfg(test)]

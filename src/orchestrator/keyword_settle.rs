@@ -704,7 +704,7 @@ pub async fn scrub_legacy_hotness_once(store: &Arc<dyn StoreAccess>, stats: &mut
         }
     }
     if failed == 0 {
-        let _ = std::fs::write(&marker, format!("{n} containers reset"));
+        crate::durable_write::replace(&marker, format!("{n} containers reset").into_bytes()); // durable: retried until written
     }
     if n > 0 {
         stats.candidates_consumed += n as u64;

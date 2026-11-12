@@ -59,12 +59,8 @@ fn json_len(v: &Value) -> usize {
 fn append_span_row(row: &Value) {
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let path = std::path::Path::new(&data_dir).join("capture/call_spans.jsonl");
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = writeln!(f, "{}", row);
-    }
+    // Durable (src/durable_write.rs): one synchronous attempt, then retried in order until it succeeds.
+    crate::durable_write::append(path, row.to_string());
 }
 
 #[async_trait::async_trait]

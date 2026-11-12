@@ -90,9 +90,9 @@ fn looks_official(url: &str) -> bool {
 /// spawned as a background task (see `jurisdiction.rs`'s
 /// `stage_jurisdiction_gate`) so a first-seen region never adds web-search
 /// latency to the live request that triggered it. Every failure path here
-/// is silent-but-logged (`tracing::warn!`) rather than propagated — this is
-/// best-effort background population, not something a live request should
-/// ever depend on succeeding.
+/// is logged and never propagated into the live request — but it is NOT skipped (operator 2026-11-11): a region whose search failed is
+/// un-marked as attempted so the next request for it retries the whole population, and the file / container writes are retried until
+/// they succeed.
 pub async fn populate_jurisdiction_content_for_region(
     executor: Arc<dyn PipelineExecutor>,
     store: Arc<dyn StoreAccess>,
@@ -110,6 +110,8 @@ pub async fn populate_jurisdiction_content_for_region(
     tracing::info!(region = %region, "Jurisdiction: no national/local content loaded yet — attempting real search-backed population");
 
     let mut rules: Vec<JurisdictionRule> = Vec::new();
+    // A search that FAILED (error or provider unavailable) is not an empty result: the region is retried at its next request.
+    let mut search_failed = false;
 
     for (trigger, topic_query, label) in JURISDICTION_SEARCH_TOPICS {
         let query = format!("{} law {}", region, topic_query);
@@ -120,7 +122,8 @@ pub async fn populate_jurisdiction_content_for_region(
         let result = match executor.execute(56, search_input).await {
             Ok(v) => v,
             Err(e) => {
-                tracing::warn!(region = %region, topic = %label, error = %e, "Jurisdiction content search call failed");
+                tracing::warn!(region = %region, topic = %label, error = %e, "Jurisdiction content search call failed — the region is retried at its next request");
+                search_failed = true;
                 continue;
             }
         };
@@ -128,7 +131,8 @@ pub async fn populate_jurisdiction_content_for_region(
         let success = result.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
         if !success {
             let err = result.get("error").and_then(|e| e.as_str()).unwrap_or("unknown");
-            tracing::info!(region = %region, topic = %label, error = %err, "Jurisdiction content search unavailable for this topic — leaving unpopulated (honest gap, not fabricated)");
+            tracing::info!(region = %region, topic = %label, error = %err, "Jurisdiction content search unavailable for this topic — nothing is fabricated; the region is retried at its next request");
+            search_failed = true;
             continue;
         }
 
@@ -162,6 +166,13 @@ pub async fn populate_jurisdiction_content_for_region(
         });
     }
 
+    if search_failed {
+        // Not done: a failed search is not "found nothing". Un-mark so the next request for this region re-runs the population from the
+        // start (nothing partial is written, so nothing is duplicated).
+        attempted_regions().lock().await.remove(&region_key);
+        tracing::info!(region = %region, "Jurisdiction: population incomplete because a search failed — it will be retried at the next request for this region");
+        return;
+    }
     if rules.is_empty() {
         tracing::info!(region = %region, "Jurisdiction: search-backed population found nothing usable for this region — remains unpopulated (national/local layer stays empty, Global scope still applies)");
         return;
@@ -180,14 +191,11 @@ pub async fn populate_jurisdiction_content_for_region(
             region
         ),
         rules,
+        policy: None,
     };
 
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let dir = format!("{}/jurisdiction", data_dir);
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::warn!(region = %region, error = %e, "Failed to create jurisdiction content directory");
-        return;
-    }
     let object_store_path = format!("jurisdiction/{}.json", region_key);
     let full_path = format!("{}/{}.json", dir, region_key);
     let json = match serde_json::to_string_pretty(&content) {
@@ -197,10 +205,8 @@ pub async fn populate_jurisdiction_content_for_region(
             return;
         }
     };
-    if let Err(e) = std::fs::write(&full_path, &json) {
-        tracing::warn!(region = %region, path = %full_path, error = %e, "Failed to write jurisdiction content file");
-        return;
-    }
+    // Durable (creates the directory; retried until written).
+    crate::durable_write::replace(full_path.clone(), json.into_bytes());
 
     // Real ZSEI container referencing the file, same shape as the manual
     // Global-scope setup command (docs/JURISDICTION_SETUP.md), parented
@@ -238,12 +244,6 @@ pub async fn populate_jurisdiction_content_for_region(
     });
 
     const JURISDICTION_ROOT_ID: u64 = 7; // crate::types::container::JURISDICTION_ROOT_ID
-    match store.create_container(JURISDICTION_ROOT_ID, container).await {
-        Ok(id) => {
-            tracing::info!(region = %region, container_id = id, path = %full_path, "Jurisdiction: real search-backed national-scope content populated");
-        }
-        Err(e) => {
-            tracing::warn!(region = %region, error = %e, "Failed to register jurisdiction content container (file was written, but won't be found by load_jurisdiction_rules until this is retried/fixed)");
-        }
-    }
+    let id = crate::durable_write::retry_until_ok("jurisdiction content container create", || store.create_container(JURISDICTION_ROOT_ID, container.clone())).await;
+    tracing::info!(region = %region, container_id = id, path = %full_path, "Jurisdiction: real search-backed national-scope content populated");
 }

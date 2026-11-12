@@ -3808,8 +3808,7 @@ impl PromptOrchestrator {
     /// (`{data_dir}/model_calls/`), separate file
     /// (`zero_shot_calls.jsonl`) so pipeline-39 reviews and general
     /// zero-shot calls don't mix in one log. Never panics/blocks the real
-    /// call on a logging failure — best-effort, matching the reference
-    /// implementation's own posture.
+    /// call on a logging failure — the row is DURABLE (retried until written), never dropped.
     fn capture_zero_shot_call(
         &self,
         call_site: &str,
@@ -3818,13 +3817,8 @@ impl PromptOrchestrator {
         retries: u32,
         used_fallback: bool,
     ) {
-        use std::io::Write;
         let dir = format!("{}/model_calls", self.data_dir);
-        let _ = std::fs::create_dir_all(&dir);
         let path = format!("{}/zero_shot_calls.jsonl", dir);
-        let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
-            return;
-        };
         let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
         let (success, model_used, tokens_used, response_preview) = match result {
             Ok(v) => (
@@ -3864,7 +3858,9 @@ impl PromptOrchestrator {
                 obj.insert("trace_id".to_string(), serde_json::json!(tid));
             }
         }
-        let _ = writeln!(f, "{}", record);
+        // Durable (src/durable_write.rs): one synchronous attempt, then retried in order until it succeeds — a failed call row is
+        // never lost, and a logging failure never fails the real call.
+        crate::durable_write::append(path, record.to_string());
     }
 
     /// THE MARKER VOCABULARY (operator, 2026-10-03: "why are others still
@@ -3951,8 +3947,8 @@ impl PromptOrchestrator {
     /// all detached background work). Doctrine #35 (no invisible
     /// failures): before this existed, every loop's pipeline-9 call was
     /// invisible to the capture quartet — serving model, tokens, and
-    /// failures left no trace. Best-effort, same posture as the
-    /// reference: a logging failure never fails the real call.
+    /// failures left no trace. Durable (src/durable_write.rs): a failed row is
+    /// retried until written; a logging failure never fails the real call.
     pub fn capture_loop_model_call(
         call_site: &str,
         prompt: &str,
@@ -3973,14 +3969,9 @@ impl PromptOrchestrator {
         result: &Result<serde_json::Value, String>,
         meta: LoopCallMeta,
     ) {
-        use std::io::Write;
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let dir = format!("{data_dir}/model_calls");
-        let _ = std::fs::create_dir_all(&dir);
         let path = format!("{dir}/zero_shot_calls.jsonl");
-        let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
-            return;
-        };
         let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
         let (success, model_used, tokens_used, response_preview) = match result {
             Ok(v) => (
@@ -4007,7 +3998,7 @@ impl PromptOrchestrator {
             "prompt_preview": cut(prompt, 200),
         });
         crate::trace::stamp(&mut record);
-        let _ = writeln!(f, "{}", record);
+        crate::durable_write::append(path, record.to_string()); // durable: retried in order until written
         // CONTEXT RECORD + LEDGER (docs/CONTEXT_OBJECT_MODEL.md step 1): loop
         // calls are points too — same capture contract as the fallback walk.
         Self::record_context_and_ledger(

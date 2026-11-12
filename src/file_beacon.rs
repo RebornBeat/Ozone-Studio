@@ -191,7 +191,6 @@ fn history_dir() -> std::path::PathBuf {
 /// oldest evicted. Content-addressed-enough for diff-on-demand (the git
 /// MCP reads two snapshots and diffs) without storing every intermediate.
 fn record_history(container_id: &str, path: &str, modified: u64, size: u64) {
-    use std::io::Write;
     let dir = history_dir().join("snapshots").join(container_id);
     if std::fs::create_dir_all(&dir).is_err() {
         return;
@@ -203,7 +202,8 @@ fn record_history(container_id: &str, path: &str, modified: u64, size: u64) {
     // Snapshot copy (bounded): read the real file once, write once.
     if let Ok(content) = std::fs::read(path) {
         let snap = dir.join(format!("{}_{:x}.snap", millis, size));
-        let _ = std::fs::write(&snap, &content);
+        // Durable (src/durable_write.rs): retried until the snapshot is on disk.
+        crate::durable_write::replace(&snap, content.clone());
         // Evict oldest beyond 10.
         let mut snaps: Vec<_> = std::fs::read_dir(&dir)
             .map(|rd| {
@@ -224,7 +224,7 @@ fn record_history(container_id: &str, path: &str, modified: u64, size: u64) {
         }
     }
     let hist = history_dir().join(format!("{}.jsonl", container_id));
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&hist) {
+    {
         let row = serde_json::json!({
             "ts": millis,
             "modified": modified,
@@ -232,7 +232,7 @@ fn record_history(container_id: &str, path: &str, modified: u64, size: u64) {
             "path": path,
             "snapshot_dir": format!("snapshots/{}/", container_id),
         });
-        let _ = writeln!(f, "{}", row);
+        crate::durable_write::append_json(hist, &row); // durable: retried in order until written
     }
 }
 
