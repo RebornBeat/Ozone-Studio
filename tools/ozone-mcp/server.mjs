@@ -229,7 +229,7 @@ const slim = (st) => st && typeof st === "object" ? Object.fromEntries(Object.en
 async function advanceWalk(agent, tok) {
   const file = walkFile(tok);
   const rows = readJsonl(file);
-  const lastSeq = rows.reduce((m, r) => (r.kind === "stage" || r.kind === "lagged" ? Math.max(m, (r.seq ?? -1) + 1) : m), 0);
+  const lastSeq = rows.reduce((m, r) => (r.src === "host" && Number.isInteger(r.seq) ? Math.max(m, r.seq + 1) : m), 0);
   const added = [];
   const feed = unwrapSoft(await api(agent, "GET", `/walk/feed${qs({ run_token: tok, after: lastSeq })}`));
   if (feed?.found) for (const r of feed.rows ?? []) added.push({ ...r, src: "host" });

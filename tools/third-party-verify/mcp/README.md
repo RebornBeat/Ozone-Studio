@@ -7,6 +7,7 @@ throwaway context dir, against a real running host. No mocks; every row prints t
 ```
 node tools/third-party-verify/mcp/m1-coordination.mjs        # read-mostly: surface, presence/claims/notes handoff, identity, refusals, chunking
 OZONE_TPV_WALK=1 node tools/third-party-verify/mcp/m2-walk.mjs "<prompt>"    # opt-in (model calls): A starts, B/C observe, completion gate, live call graph
+node tools/third-party-verify/mcp/m4-participants.mjs         # Part A (no model calls): agent-provider request/report path; Part B opt-in with OZONE_TPV_WALK=1 "<prompt>": walk with participants, shared feed
 OZONE_PROJECT_ID=<id> [OZONE_ZSEI_PARENT_ID=<id>] [OZONE_TPV_WALK=1] node tools/third-party-verify/mcp/m3-link-modalities.mjs
                                                               # mutating (links fixtures): link-first non-semantic graph per modality, then walk reuse
 ```

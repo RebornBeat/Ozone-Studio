@@ -88,11 +88,48 @@ function loadState() {
 }
 
 function saveState(state) {
+  // H5: write to a temp file and rename — a reader never sees a half-written state.json
   ensureStateDir();
-  fs.writeFileSync(
-    path.join(STATE_DIR, "state.json"),
-    JSON.stringify(state, null, 2),
-  );
+  const file = path.join(STATE_DIR, "state.json");
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  fs.renameSync(tmp, file);
+}
+
+// H5: cross-process lock around read-modify-write of state.json (presence + claims). Two agents heartbeating or claiming
+// at the same instant used to lose an update. The lock file holds the owner's pid; a lock whose owner is gone is stale
+// and is taken over. No fixed wait cap: a live owner is waited for (the critical section is a few synchronous lines).
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
+}
+function withStateLock(fn) {
+  ensureStateDir();
+  const lock = path.join(STATE_DIR, "state.lock");
+  let wait = 2;
+  for (;;) {
+    try {
+      fs.writeFileSync(lock, String(process.pid), { flag: "wx" });
+      break;
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      let owner = NaN;
+      try { owner = Number(fs.readFileSync(lock, "utf8")); } catch { /* released between our attempts */ }
+      if (Number.isFinite(owner) && owner > 0 && !pidAlive(owner)) {
+        try { fs.unlinkSync(lock); } catch { /* another process took it over first */ }
+        continue;
+      }
+      sleepMs(wait);
+      wait = Math.min(50, wait * 2);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try { fs.unlinkSync(lock); } catch { /* already gone */ }
+  }
 }
 
 function appendNote(note) {
@@ -254,7 +291,9 @@ function isLive(lastSeen) {
   return Date.now() - lastSeen < PRESENCE_TTL_MS;
 }
 
-function presenceHeartbeat({ agent, role, current_files, task }) {
+function presenceHeartbeat(args) { return withStateLock(() => presenceHeartbeatUnlocked(args)); }
+
+function presenceHeartbeatUnlocked({ agent, role, current_files, task }) {
   const state = loadState();
   const isNew = !state.sessions[agent];
   state.sessions[agent] = {
@@ -287,7 +326,9 @@ function presenceList() {
   return { live, ttl_seconds: PRESENCE_TTL_MS / 1000 };
 }
 
-function fileClaim({ agent, files, reason }) {
+function fileClaim(args) { return withStateLock(() => fileClaimUnlocked(args)); }
+
+function fileClaimUnlocked({ agent, files, reason }) {
   const state = loadState();
   const conflicts = [];
   for (const f of files || []) {
@@ -313,7 +354,9 @@ function fileClaim({ agent, files, reason }) {
   return { ok: true, claimed: files || [] };
 }
 
-function fileRelease({ agent, files }) {
+function fileRelease(args) { return withStateLock(() => fileReleaseUnlocked(args)); }
+
+function fileReleaseUnlocked({ agent, files }) {
   const state = loadState();
   const released = [];
   for (const f of files || []) {
@@ -623,7 +666,20 @@ const TOOLS = [
   { name: "answer_search", description: "Fulfill a pending search request with real results you actually retrieved via your own search tool — never fabricate results to close a request.", inputSchema: { type: "object", properties: { agent: { type: "string" }, id: { type: "string" }, results: { type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, snippet: { type: "string" } } } } }, required: ["agent", "id", "results"] } },
 ];
 
+// H1 (OPT-IN here): OZONE_CONTEXT_STRICT_AGENT=1 binds this server process to OZONE_AGENT_NAME — an `agent` argument can then
+// only equal it, so a call cannot claim files, presence or notes as someone else. DEFAULT OFF on purpose: this server is the
+// advisory coordination layer, and one Claude Code session legitimately speaks through it as several named forks/workers
+// (AGENTS.md protocol), each with its own claim name. Identity that must hold is enforced in ozone-mcp (always bound).
+const BOUND_AGENT = process.env.OZONE_CONTEXT_STRICT_AGENT === "1" ? (process.env.OZONE_AGENT_NAME || null) : null;
 function callTool(name, args) {
+  if (BOUND_AGENT && process.env.OZONE_MCP_ALLOW_AGENT_OVERRIDE !== "1") {
+    if (args && typeof args.agent === "string" && args.agent !== BOUND_AGENT) {
+      throw new Error(`this server is bound to agent '${BOUND_AGENT}'; it will not act as '${args.agent}' (OZONE_MCP_ALLOW_AGENT_OVERRIDE=1 to override deliberately)`);
+    }
+    if (args && typeof args === "object" && args.agent === undefined && ["presence_heartbeat", "file_claim", "file_release", "note_add", "search_request", "answer_search"].includes(name)) {
+      args = { ...args, agent: BOUND_AGENT };
+    }
+  }
   switch (name) {
     case "presence_heartbeat": return presenceHeartbeat(args);
     case "presence_list": return presenceList();

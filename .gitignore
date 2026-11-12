@@ -64,3 +64,6 @@ data/
 *.log
 .gitignore.bak
 dist/
+
+# --- MCP walk feed mirror: stage summaries can contain prompt-derived text, so it is never git-visible
+.ozone-context/walks/

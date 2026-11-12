@@ -34,6 +34,12 @@ try {
   const bad = await cc.ozone.call("ozone_health", { agent: "bad agent; rm -rf" });
   s.check("I1", "invalid agent identity is rejected loudly", !bad.ok && /agent must match/.test(bad.text), bad.text.slice(0, 120));
 
+  // H1: one server process = one agent — an argument cannot make it act as another agent
+  const other = await cc.ozone.call("ozone_health", { agent: "zcode" });
+  s.check("I2", "ozone-mcp refuses to act as a different agent than the one it is bound to", !other.ok && /is bound to agent 'claude-code'/.test(other.text), other.text.slice(0, 140));
+  const who = await zc.ozone.call("ozone_whoami");
+  s.check("I3", "whoami reports the bound agent and key mode, never a key", who.ok && who.json?.agent === "zcode" && who.json?.bound === true && !/BEGIN|PRIVATE/.test(who.text), who.text.slice(0, 160));
+
   // host reads from three agents (same session surface, separate identities)
   for (const [n, a] of Object.entries(agents)) {
     const h = await a.ozone.call("ozone_health");
