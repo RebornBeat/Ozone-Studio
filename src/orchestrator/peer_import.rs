@@ -9,6 +9,8 @@
 //!     name ("… (from peer xxxxxx)") — both are kept, nothing is ever overwritten.
 //!   * `jurisdiction_rule_set` → fetched and VALIDATED (`JurisdictionContentFile`: mandatory disclaimer, rules present) and only STAGED under
 //!     `peer_staging/jurisdiction/` — never registered, never active: this is the safety layer, activating it is a human step.
+//!   * `jurisdiction_policy` (G5) → the same staging, and only when the body carries a `policy` object; adopting it is the explicit operator call
+//!     `POST /jurisdiction/policy/adopt`, never automatic.
 //!   * `tool` / `pipeline` → approval is recorded and NOTHING is fetched: executables need a human, reviewed install.
 //! Every outcome is recorded in `peer_import_done.json`; an item imported from a peer is listed in `peer_imported_items.json` so the marketplace
 //! bridge does not echo it back. A request with no answer in 15 minutes is marked failed (re-deciding `download` retries it).
@@ -387,7 +389,7 @@ async fn import_pass(network: &Arc<tokio::sync::RwLock<NetworkManager>>, store: 
             "tool" | "pipeline" => {
                 done.insert(key.clone(), json!({"status": "approval_only", "at": now_secs(), "detail": "executables and tools need a human, reviewed install — approval recorded, nothing was fetched"}));
             }
-            "methodology" | "jurisdiction_rule_set" => {
+            "methodology" | "jurisdiction_rule_set" | "jurisdiction_policy" => {
                 let Ok(peer) = from.parse::<libp2p::PeerId>() else {
                     done.insert(key.clone(), json!({"status": "failed", "at": now_secs(), "detail": "the offering peer id is not valid"}));
                     continue;
@@ -460,6 +462,8 @@ async fn import_pass(network: &Arc<tokio::sync::RwLock<NetworkManager>>, store: 
                         Ok(Imported::Created { id, name }) => json!({"status": "imported", "local_id": id, "local_name": name, "detail": "imported through the normal create path; its keywords are pending validation"}),
                         Err(e) => json!({"status": "failed", "detail": e}),
                     }
+                } else if item_type == "jurisdiction_policy" && serde_json::from_str::<Value>(&body).ok().and_then(|v| v.get("policy").cloned()).map_or(true, |p| !p.is_object()) {
+                    json!({"status": "rejected", "detail": "a jurisdiction policy offer must carry a `policy` object — nothing was staged"})
                 } else {
                     match validate_jurisdiction_content(&body) {
                         Ok(n) => {

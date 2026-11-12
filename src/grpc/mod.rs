@@ -1473,6 +1473,30 @@ async fn execute_pipeline(
                 error: Some(format!("blocked by the jurisdiction gate: {}", reason)),
             });
         }
+        // G2: the call gate above is Block-only; the full review (Warn / Log / RequireConfirmation) runs here as /mcp/call does.
+        let review = jurisdiction_review_for_call(
+            &runtime,
+            &format!("pipeline-{}", req.pipeline_id),
+            "pipeline-execute",
+            &req.input,
+            "external pipeline dispatch — no project standing context (not a chat request)",
+            "pipeline-execute-review",
+        )
+        .await;
+        if review.blocked {
+            let reason = review
+                .confirmations
+                .iter()
+                .find(|(_, r)| r.decision == "Decline")
+                .map(|(rule, r)| format!("confirmation review declined for \"{}\": {}", rule.condition, r.reasoning))
+                .unwrap_or_else(|| "a Block-action jurisdiction rule matched".to_string());
+            return Json(PipelineResponse {
+                success: false,
+                task_id: Some(0),
+                output: None,
+                error: Some(format!("blocked by the jurisdiction gate (review): {}", reason)),
+            });
+        }
     }
 
     // LINK GUARD (hardening H4): FileLink (#30) and every other pipeline that reads a named file or folder go through the
@@ -1847,9 +1871,15 @@ fn jx_err(msg: impl Into<String>) -> Json<serde_json::Value> {
 }
 
 /// GET /jurisdiction/policy — the live policy, its fingerprint, requirement acceptance (current version only) and the open holds.
-async fn get_jurisdiction_policy() -> Json<serde_json::Value> {
+async fn get_jurisdiction_policy(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     use crate::orchestrator::jurisdiction::policy;
     let p = policy::load_policy();
+    // G12: whether THIS instance knows its own region (configured or hardware-detected). Unknown = only Global rules apply and the policy
+    // `unknown_jurisdiction` action governs; the UI says so loudly instead of leaving it implicit.
+    let (instance_region, jurisdiction_enabled) = {
+        let rt = state.runtime.read().await;
+        (rt.config.jurisdiction.instance_region.clone(), rt.config.jurisdiction.enabled)
+    };
     let dd = policy::data_dir();
     let holds: Vec<_> = crate::orchestrator::awaiting::load_all(&dd)
         .into_iter()
@@ -1864,6 +1894,9 @@ async fn get_jurisdiction_policy() -> Json<serde_json::Value> {
         "agreements": policy::agreement_status(&p),
         "unaccepted": policy::unaccepted_requirements(&p),
         "holds": holds,
+        "instance_region": instance_region,
+        "region_known": instance_region.as_deref().map_or(false, |r| !r.trim().is_empty()),
+        "jurisdiction_enabled": jurisdiction_enabled,
         "policy": p,
     }))
 }
@@ -1951,6 +1984,40 @@ async fn post_jurisdiction_policy_adopt(Json(body): Json<serde_json::Value>) -> 
     match crate::orchestrator::jurisdiction::policy::adopt_staged_policy(path, &jx_by(&body)) {
         Ok(p) => Json(serde_json::json!({ "success": true, "version": p.version })),
         Err(e) => jx_err(e),
+    }
+}
+
+/// POST /jurisdiction/policy/share {by} — OPERATOR action: offer this instance's own policy to peers as a MANIFEST (name + hash; the body is served
+/// only on a peer operator's reviewed fetch). Refused unless the policy itself allows it (`p2p.share_policy_as_offer` on AND `jurisdiction_policy`
+/// listed in `p2p.publish_kinds`) and marketplace publishing is on. The offered file carries the policy and a marker rule, no content, no instance
+/// identity in its name; a peer can only STAGE it.
+async fn post_jurisdiction_policy_share(State(state): State<Arc<AppState>>, Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    use crate::orchestrator::jurisdiction::policy;
+    let pol = policy::load_policy();
+    if !policy::publish_kind_allowed_by(&pol, "jurisdiction_policy") {
+        return jx_err("this instance's policy does not publish `jurisdiction_policy` (needs p2p.share_policy_as_offer = true and \"jurisdiction_policy\" in p2p.publish_kinds)");
+    }
+    let content = policy::export_policy_as_content();
+    let text = serde_json::to_string_pretty(&content).unwrap_or_default();
+    let hash = crate::network::body_hash(text.as_bytes());
+    let rel = "jurisdiction_policy_offer.json".to_string();
+    let runtime = state.runtime.read().await;
+    let data_dir = runtime.config.general.data_dir.clone();
+    if !runtime.config.network.publish_enabled() {
+        return jx_err("marketplace publishing is off on this instance");
+    }
+    crate::durable_write::replace(std::path::Path::new(&data_dir).join(&rel), text.into_bytes());
+    let name = format!("Jurisdiction policy v{} ({})", pol.version, &hash[..8]);
+    let manifest = crate::network::announce_envelope(&crate::network::SyncItemType::JurisdictionPolicy, &name, &hash, &["jurisdiction".to_string(), "policy".to_string()], 0);
+    let item = crate::network::AnnounceItem { container_id: 0, item_type: crate::network::SyncItemType::JurisdictionPolicy, manifest, body_path: Some(rel) };
+    let by = jx_by(&body);
+    let net = runtime.network.read().await;
+    match net.on_items_announced(vec![item]).await {
+        Ok(()) => {
+            policy::record_decision("policy-share", &hash, None, &pol, "", "published_manifest", &[], &format!("policy offered as a manifest by {by}"));
+            Json(serde_json::json!({ "success": true, "name": name, "body_hash": hash }))
+        }
+        Err(e) => jx_err(e.to_string()),
     }
 }
 
@@ -2765,8 +2832,6 @@ pub struct DecisionReviewRow {
     pub model_used: String,
     pub tokens_used: u64,
     pub decision: String,
-    #[serde(default)]
-    pub confidence: Option<f32>,
     pub task_summary_preview: String,
     pub reasoning_preview: String,
     #[serde(default)]
@@ -5311,6 +5376,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/jurisdiction/policy", get(get_jurisdiction_policy).post(post_jurisdiction_policy))
         .route("/jurisdiction/policy/adopt", post(post_jurisdiction_policy_adopt))
         .route("/jurisdiction/policy/export", get(get_jurisdiction_policy_export))
+        .route("/jurisdiction/policy/share", post(post_jurisdiction_policy_share))
         .route("/jurisdiction/agree", post(post_jurisdiction_agree))
         .route("/jurisdiction/decisions", get(get_jurisdiction_decisions))
         .route("/jurisdiction/outbound/approve", post(post_jurisdiction_outbound_approve))
@@ -6373,6 +6439,86 @@ fn mcp_call_scope(
 
 /// THE standardized abstract MCP call — every agent, every transport, one
 /// shape (see src/mcp.rs McpCall). Metered, gated, monitor-recorded.
+/// ONE jurisdiction review for a tool / pipeline call (jurisdiction phase 2, G2): the SAME rules, the SAME matching and the SAME
+/// RequireConfirmation model review `/orchestrate` Stage 0 uses, built from a real cheap `PromptOrchestrator`. `/mcp/call` and
+/// `/pipeline/execute` both call this, so neither path is Block-only any more — Warn / Log matches surface as cited warnings and a
+/// RequireConfirmation match gets its yes/no review. The haystack is the tool/pipeline name, the agent and the WHOLE call input.
+async fn jurisdiction_review_for_call(
+    runtime: &crate::OzoneRuntime,
+    tool: &str,
+    agent: &str,
+    input: &serde_json::Value,
+    context_note: &str,
+    entry: &str,
+) -> crate::orchestrator::jurisdiction::JurisdictionGateResult {
+    let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
+        registry: runtime.pipeline_registry.clone(),
+    });
+    let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+        Arc::new(crate::orchestrator::decision_review::DecisionReviewExecutor {
+            inner: base_executor_adapter,
+            available_models: runtime.config.models.available_models.clone(),
+            fallback_order: runtime.config.models.fallback.order.clone(),
+            fallback_free_only: runtime.config.models.fallback.free_only,
+            data_dir: runtime.config.general.data_dir.clone(),
+        });
+    // Call-index coverage: the call-level jurisdiction review is a model call too.
+    let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+        Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(executor_adapter));
+    let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
+        zsei: runtime.zsei.clone(),
+    });
+    let orchestrator = crate::orchestrator::PromptOrchestrator::new(
+        executor_adapter.clone(),
+        zsei_adapter,
+        runtime.task_manager.clone(),
+        Arc::new(tokio::sync::RwLock::new(None)),
+        runtime.config.models.context_length as u32,
+        runtime.config.jurisdiction.clone(),
+        runtime.config.general.data_dir.clone(),
+    );
+    let region = if runtime.config.jurisdiction.enabled {
+        runtime.config.jurisdiction.instance_region.clone()
+    } else {
+        None
+    };
+    let rules = orchestrator.load_jurisdiction_rules(region.as_deref()).await;
+    let haystack = format!("{} {} {}", tool, agent, serde_json::to_string(input).unwrap_or_default()).to_lowercase();
+    let mut jr = crate::orchestrator::jurisdiction::JurisdictionGateResult {
+        rules_loaded: rules.len(),
+        ..Default::default()
+    };
+    let confirmation_matches = crate::orchestrator::jurisdiction::categorize_jurisdiction_matches(&rules, &haystack, &mut jr);
+    if !confirmation_matches.is_empty() {
+        crate::orchestrator::jurisdiction::resolve_confirmation_reviews(
+            &executor_adapter,
+            &confirmation_matches,
+            &haystack,
+            0,
+            0,
+            &mut jr,
+            context_note,
+            entry,
+        )
+        .await;
+    }
+    // AUDIT: the review outcome is an append-only decision row (hashes and the entry label only).
+    let pol = crate::orchestrator::jurisdiction::policy::load_policy();
+    let h = blake3::hash(haystack.as_bytes()).to_hex().to_string();
+    let matched: Vec<String> = jr.warnings.iter().cloned().collect();
+    crate::orchestrator::jurisdiction::policy::record_decision(
+        entry,
+        &h[..32],
+        region.as_deref(),
+        &pol,
+        &crate::orchestrator::jurisdiction::policy::rules_fingerprint(&rules),
+        if jr.blocked { "blocked" } else if !matched.is_empty() { "warned" } else { "allowed" },
+        &matched,
+        "call-level review (Block / Warn / Log / RequireConfirmation) — same path as /mcp/call and /orchestrate",
+    );
+    jr
+}
+
 async fn mcp_call(
     State(state): State<Arc<AppState>>,
     Json(call): Json<crate::mcp::McpCall>,
@@ -6419,74 +6565,15 @@ async fn mcp_call(
     // real functions, not reimplemented here. Runs BEFORE invoke() — a Block
     // match refuses the tool call outright, mirroring Stage 0's own
     // block-before-processing behavior.
-    let jurisdiction_result: crate::orchestrator::jurisdiction::JurisdictionGateResult = {
-        let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
-            registry: runtime.pipeline_registry.clone(),
-        });
-        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
-            Arc::new(crate::orchestrator::decision_review::DecisionReviewExecutor {
-                inner: base_executor_adapter,
-                available_models: runtime.config.models.available_models.clone(),
-                fallback_order: runtime.config.models.fallback.order.clone(),
-                fallback_free_only: runtime.config.models.fallback.free_only,
-                data_dir: runtime.config.general.data_dir.clone(),
-            });
-        // Call-index coverage: the MCP-call jurisdiction review is a model call too.
-        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
-            Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(executor_adapter));
-        let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
-            zsei: runtime.zsei.clone(),
-        });
-        let orchestrator = crate::orchestrator::PromptOrchestrator::new(
-            executor_adapter.clone(),
-            zsei_adapter,
-            runtime.task_manager.clone(),
-            Arc::new(tokio::sync::RwLock::new(None)),
-            runtime.config.models.context_length as u32,
-            runtime.config.jurisdiction.clone(),
-            runtime.config.general.data_dir.clone(),
-        );
-
-        let region = if runtime.config.jurisdiction.enabled {
-            runtime.config.jurisdiction.instance_region.clone()
-        } else {
-            None
-        };
-        let rules = orchestrator.load_jurisdiction_rules(region.as_deref()).await;
-
-        // Real haystack: the tool name, agent, and real call input — the
-        // same "match real request content against real rule conditions"
-        // contract Stage 0 uses on the chat prompt, applied here to what an
-        // MCP call actually carries.
-        let haystack = format!(
-            "{} {} {}",
-            call_tool,
-            call_agent,
-            serde_json::to_string(&call_input).unwrap_or_default()
-        )
-        .to_lowercase();
-
-        let mut jr = crate::orchestrator::jurisdiction::JurisdictionGateResult {
-            rules_loaded: rules.len(),
-            ..Default::default()
-        };
-        let confirmation_matches =
-            crate::orchestrator::jurisdiction::categorize_jurisdiction_matches(&rules, &haystack, &mut jr);
-        if !confirmation_matches.is_empty() {
-            crate::orchestrator::jurisdiction::resolve_confirmation_reviews(
-                &executor_adapter,
-                &confirmation_matches,
-                &haystack,
-                0,
-                0,
-                &mut jr,
-                "MCP tool call — no project standing context (not a chat request)",
-                "mcp-call",
-            )
-            .await;
-        }
-        jr
-    };
+    let jurisdiction_result: crate::orchestrator::jurisdiction::JurisdictionGateResult = jurisdiction_review_for_call(
+        &runtime,
+        &call_tool,
+        &call_agent,
+        &call_input,
+        "MCP tool call — no project standing context (not a chat request)",
+        "mcp-call",
+    )
+    .await;
 
     if jurisdiction_result.blocked {
         let reason = jurisdiction_result

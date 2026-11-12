@@ -868,7 +868,9 @@ impl PromptOrchestrator {
     /// No skip (operator 2026-11-11): a failed partner search, container load or edge write is RETRIED until it succeeds
     /// (`durable_write::retry_until_ok` — the pass pauses, visibly, and resumes); nothing is skipped. The edge writes are idempotent
     /// (an existing target is not re-added).
-    pub(crate) async fn link_walk_content(&self, state: &mut OrchestrationState) {
+    /// The owned inputs of the stage-13 link pass: the durable container ids this walk made, the vocabulary to find prior partners with, and
+    /// whether a blueprint was assigned (for the honest empty-case log). Owned so the pass can run AFTER delivery, in a background task.
+    fn link_pass_inputs(&self, state: &OrchestrationState) -> (Vec<u64>, Vec<String>, bool) {
         let mut ids: Vec<u64> = state.modality_graphs.values().copied().collect();
         if let Some(bp) = state.blueprint_id {
             ids.push(bp);
@@ -905,9 +907,73 @@ impl PromptOrchestrator {
                 .into_iter()
                 .collect() // ALL prompt terms (audit #17)
         };
+        (ids, prompt_terms, state.blueprint_id.is_some())
+    }
+
+    /// Run the link pass inline and mark the stage (the resume path and walks with no task use this).
+    pub(crate) async fn link_walk_content(&self, state: &mut OrchestrationState) {
+        let (ids, prompt_terms, blueprint_assigned) = self.link_pass_inputs(state);
+        let (wired, n) = run_link_pass(self.store.clone(), ids, prompt_terms, blueprint_assigned).await;
+        if wired > 0 {
+            self.emit_marker(state, "[13.link]", &format!("edge supply: {} walk-content edges wired across {} containers", wired, n));
+        }
+    }
+
+    /// STAGE 13 (operator 2026-11-11): DELIVER THE ANSWER FIRST. The link pass is bookkeeping for the NEXT walk, so a persistently failing
+    /// edge write must not hold this walk's answer. Before delivery a `wo_link` child item is opened under the walk's task (the completion
+    /// gate waits on it: the walk is not COMPLETED until the pass has run — completed is final); delivery runs; then the pass runs in a
+    /// background task that retries every store call until it succeeds (no skip) and ticks the item when done. A walk with no task runs the pass
+    /// inline after delivery.
+    pub(crate) async fn deliver_then_link(&self, state: &mut OrchestrationState) -> Result<(), String> {
+        let (ids, prompt_terms, blueprint_assigned) = self.link_pass_inputs(state);
+        let child = match state.task_id {
+            Some(t) => {
+                let tm = self.task_manager.read().await;
+                tm.create_work_task(
+                    Some(t),
+                    "wo_link",
+                    "13.link",
+                    "walk-content link pass (edge supply)",
+                    &[("link".to_string(), "the walk-content edge-supply pass ran to completion".to_string())],
+                    None,
+                    Some(t),
+                )
+                .await
+            }
+            None => None,
+        };
+        self.stage_11_response_delivery(state).await?;
+        match child {
+            Some(child_id) => {
+                let (store, tm) = (self.store.clone(), self.task_manager.clone());
+                tokio::spawn(async move {
+                    let (wired, n) = run_link_pass(store, ids, prompt_terms, blueprint_assigned).await;
+                    tm.read().await.complete_item(child_id, "link", &format!("{wired} edges wired across {n} containers"), "walk-link").await;
+                });
+            }
+            None => {
+                let (wired, n) = run_link_pass(self.store.clone(), ids, prompt_terms, blueprint_assigned).await;
+                if wired > 0 {
+                    self.emit_marker(state, "[13.link]", &format!("edge supply: {} walk-content edges wired across {} containers", wired, n));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The stage-13 edge-supply pass as a free function over owned inputs (see `deliver_then_link`). Returns `(edges_wired, containers_loaded)`.
+/// Every store call is retried until it succeeds (`durable_write::retry_until_ok`) — nothing is skipped; the edge writes are idempotent
+/// (an existing target is not re-added).
+pub(crate) async fn run_link_pass(
+    store: std::sync::Arc<dyn crate::orchestrator::StoreAccess>,
+    mut ids: Vec<u64>,
+    prompt_terms: Vec<String>,
+    blueprint_assigned: bool,
+) -> (usize, usize) {
         if !prompt_terms.is_empty() {
             { // ranked + token-aware (2026-11-08); retried until it succeeds (no skip)
-                let hits = crate::durable_write::retry_until_ok("walk-content partner search (13.link)", || self.store.search_ranked(&prompt_terms, None)).await;
+                let hits = crate::durable_write::retry_until_ok("walk-content partner search (13.link)", || store.search_ranked(&prompt_terms, None)).await;
                 {
                     let before = ids.len();
                     for id in hits.into_iter() { // every hit (audit #17)
@@ -934,17 +1000,17 @@ impl PromptOrchestrator {
             tracing::info!(
                 stage = "13.link",
                 containers = ids.len(),
-                blueprint_assigned = state.blueprint_id.is_some(),
+                blueprint_assigned,
                 "walk-content link pass: fewer than 2 durable containers — nothing to link (real counts)"
             );
-            return;
+            return (0, ids.len());
         }
 
         // Load once: id → (terms set, container JSON, existing target ids).
         let mut loaded: Vec<(u64, std::collections::HashSet<String>, serde_json::Value, Vec<u64>)> =
             Vec::with_capacity(ids.len());
         for id in &ids {
-            let fetched = crate::durable_write::retry_until_ok("walk-content container load (13.link)", || self.store.get_container(*id)).await;
+            let fetched = crate::durable_write::retry_until_ok("walk-content container load (13.link)", || store.get_container(*id)).await;
             match fetched {
                 Some(container) => {
                     let terms: std::collections::HashSet<String> = container
@@ -1014,12 +1080,11 @@ impl PromptOrchestrator {
                         arr.push(serde_json::json!({
                             "target_id": dst,
                             "relation_type": "RelatedTo",
-                            "confidence": 1.0, // present (confidence retired: relationships are present or absent; was the 0.5 "convention")
                             "discovered_via": "Traversal",
                             "shared_terms": shared,
                         }));
                         crate::durable_write::retry_until_ok("walk-content edge write (13.link)", || {
-                            self.store.update_container(src, serde_json::json!({ "context": ctx.clone() }))
+                            store.update_container(src, serde_json::json!({ "context": ctx.clone() }))
                         })
                         .await;
                         wired += 1;
@@ -1045,18 +1110,7 @@ impl PromptOrchestrator {
             already_linked,
             "walk-content link pass complete (all counts real)"
         );
-        if wired > 0 {
-            self.emit_marker(
-                state,
-                "[13.link]",
-                &format!(
-                    "edge supply: {} walk-content edges wired across {} containers",
-                    wired,
-                    loaded.len()
-                ),
-            );
-        }
-    }
+        (wired, loaded.len())
 }
 
 /// The one modality-name → modality-pipeline-id table (the walk's `modality_name_to_pipeline_id` delegates here; `graph_on_link` uses it

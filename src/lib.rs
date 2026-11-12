@@ -630,6 +630,8 @@ impl OzoneRuntime {
                     crate::durable_write::replace(&manifest_path, raw.into_bytes());
                 }
                 tracing::info!(?counts, force, "Jurisdiction content sync (assets -> data dir)");
+                // G9: a content sync that adopted or added rule files refreshes the gate snapshot (a no-op wake when nothing changed).
+                crate::orchestrator::jurisdiction::notify_rules_changed();
                 if counts.get("kept-newer-available").copied().unwrap_or(0) > 0 {
                     tracing::warn!(
                         "{} jurisdiction file(s) differ from the shipped version and were NOT overwritten (edited, or first sync without a manifest). OZONE_JURISDICTION_FORCE_SYNC is on by default and adopts each shipped version once; it is switched off on this host (=off) — remove that to adopt the shipped content (old copies are kept as .bak).",
@@ -1378,20 +1380,34 @@ impl OzoneRuntime {
                         None
                     }
                 };
+                // G9 (jurisdiction phase 2): the gates are installed SYNCHRONOUSLY here, before anything is served, from the compiled Global
+                // set (the unconditional layer) — never an uninstalled window. The loaded rules replace the snapshot as soon as the store can
+                // answer, and the snapshot is rebuilt on every rule / policy change (`jurisdiction::notify_rules_changed`), not only on the
+                // 10-minute timer (which stays as the backstop).
+                {
+                    let boot_rules = crate::orchestrator::jurisdiction::compiled_global_fallback_rules();
+                    crate::mcp::set_call_gate(Some(crate::orchestrator::jurisdiction::build_step_gate(boot_rules.clone())));
+                    crate::orchestrator::jurisdiction::install_step_gate(boot_rules);
+                }
                 tokio::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     loop {
                         let (rules, source) =
                             crate::orchestrator::jurisdiction::load_rules_from_store(&sg_store, sg_region.as_deref()).await;
                         if rules.is_empty() {
-                            tracing::warn!("step gate: no jurisdiction rules loaded — per-step gate not installed");
+                            tracing::warn!("step gate: no jurisdiction rules loaded from the store — the compiled Global set stays installed");
                         } else {
                             tracing::info!("step gate: installed with {} rules (source {})", rules.len(), source);
                             // Same snapshot gates in-process MCP calls (mcp::call_global).
                             crate::mcp::set_call_gate(Some(crate::orchestrator::jurisdiction::build_step_gate(rules.clone())));
                             crate::orchestrator::jurisdiction::install_step_gate(rules);
                         }
-                        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+                        tokio::select! {
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(600)) => {}
+                            _ = crate::orchestrator::jurisdiction::rules_changed().notified() => {
+                                tracing::info!("step gate: rule or policy change — rebuilding the snapshot now");
+                            }
+                        }
                     }
                 });
             }

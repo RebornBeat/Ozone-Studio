@@ -2,7 +2,7 @@
 //! applicable tools may now augment a step with REAL tool output, under the
 //! exact conditions the reviews demanded:
 //!
-//! - **GATED**: dead unless `OZONE_TOOL_ROUTING=1`. The ruling (#46: the
+//! - **GATED**: ON by default since 2026-11-11 (a host opts out with `OZONE_TOOL_ROUTING=off`); it was dead unless `OZONE_TOOL_ROUTING=1`. The ruling (#46: the
 //!   simulation owns pipeline/MCP/tool calls) becomes a flag the operator
 //!   flips — the code being present never turns it on.
 //! - **FALLBACK PATH** (2026-11-04): methodologies bind PROVIDERS per rule and blueprint creation turns each into a
@@ -67,7 +67,9 @@ const ENV_TOOL_ROUTING: &str = "OZONE_TOOL_ROUTING";
 const AGENT: &str = "orchestrator-step";
 
 pub fn tool_routing_enabled() -> bool {
-    std::env::var(ENV_TOOL_ROUTING).as_deref() == Ok("1")
+    // DEFAULT ON (operator 2026-11-11: every switch defaults on, a host opts out in its own environment): unset or anything but an
+    // explicit off (`off` / `0` / `false` / `no`) = routing is on. Every routed call still passes the call gate + per-step gate.
+    crate::config::switch_on(ENV_TOOL_ROUTING)
 }
 
 /// Pick the tools worth calling for this step: `matched` entries first

@@ -339,12 +339,8 @@ pub struct ThinkingEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GateResult {
     pub decision: String,
-    /// RETIRED (no self-reported confidence — a gate verdict is yes/no).
-    /// Never populated and never serialized; kept only so legacy persisted
-    /// rows still deserialize (and until jurisdiction.rs, which still names
-    /// the field, can drop it — see docs/evidence/no-skip-sweep/REPORT_D6_FOLLOWUP.md).
-    #[serde(default, skip_serializing)]
-    pub confidence: Option<f32>,
+    // `confidence` REMOVED (no self-reported confidence — a gate verdict is yes/no). A legacy persisted row that still carries the key
+    // deserializes fine (serde ignores unknown fields) and the value is dropped, never recomputed.
     pub reasoning: String,
 }
 

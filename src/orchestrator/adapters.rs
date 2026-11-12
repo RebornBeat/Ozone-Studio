@@ -67,6 +67,8 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
         // never let through unjudged — and the pause/resume machinery retries it once the operator decides.
         let verdict = crate::orchestrator::jurisdiction::policy::check_outbound(pipeline_id, &input, Some(self)).await;
         if !verdict.allow {
+            // G11: pace the caller's retries of a held call (never an allow; ends early when the operator decides).
+            crate::orchestrator::jurisdiction::policy::held_backoff(verdict.await_id.as_deref().unwrap_or(&verdict.reason)).await;
             return Err(verdict.reason);
         }
 

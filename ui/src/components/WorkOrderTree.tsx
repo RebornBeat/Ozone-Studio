@@ -22,6 +22,7 @@ const KIND_LABEL: Record<string, string> = {
   wo_step: "Step",
   wo_capability: "Capability gap",
   wo_graph: "File graph",
+  wo_link: "Link pass (after delivery)",
 };
 
 function kindLabel(kind: string): string {

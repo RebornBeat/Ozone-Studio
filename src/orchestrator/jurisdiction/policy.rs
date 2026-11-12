@@ -332,6 +332,8 @@ pub fn save_policy(
         .open(path(POLICY_HISTORY))
         .map_err(|e| format!("policy history: {e}"))?;
     writeln!(f, "{line}").map_err(|e| format!("policy history: {e}"))?;
+    // G9: a policy change refreshes the call / step gate snapshot now.
+    super::notify_rules_changed();
     Ok(next)
 }
 
@@ -751,6 +753,33 @@ pub fn record_outbound_approval(
     Ok(())
 }
 
+/// G11: held calls return an `Err` that callers may retry. To keep ANY caller (a loop, a strength-N vote, a boot hook) from hot-looping on a
+/// held call, the executor seam waits here before handing the `Err` back: a per-key doubling delay (250 ms .. 30 s, reset after 5 quiet
+/// minutes) that ends EARLY the moment the operator decides anything (`awaiting::await_wake`). It never turns a hold into an allow — it only
+/// paces the retries — and the awaiting item stays open the whole time.
+pub async fn held_backoff(key: &str) {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static STATE: OnceLock<Mutex<HashMap<String, (u32, Instant)>>> = OnceLock::new();
+    let delay = {
+        let mut m = STATE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|p| p.into_inner());
+        let now = Instant::now();
+        let e = m.entry(key.to_string()).or_insert((0, now));
+        if now.duration_since(e.1) > Duration::from_secs(300) {
+            e.0 = 0;
+        }
+        e.1 = now;
+        let d = Duration::from_millis(250u64.saturating_mul(1u64 << e.0.min(7))).min(Duration::from_secs(30));
+        e.0 = e.0.saturating_add(1);
+        d
+    };
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => {}
+        _ = crate::orchestrator::awaiting::await_wake().notified() => {}
+    }
+}
+
 /// The outbound content gate. Called by the single pipeline-executor seam (`adapters::RegistryExecutorAdapter::execute`) before ANY pipeline
 /// runs, because every model call, graph analysis and loop prompt travels through it.
 ///
@@ -759,6 +788,41 @@ pub fn record_outbound_approval(
 /// `allow=false` with `AWAITING_PREFIX` in the reason and an open awaiting item; it is NEVER let through unjudged.
 pub async fn check_outbound(
     pipeline_id: u64,
+    input: &serde_json::Value,
+    executor: Option<&dyn crate::orchestrator::PipelineExecutor>,
+) -> OutboundVerdict {
+    check_outbound_inner(pipeline_id, None, input, executor).await
+}
+
+/// G4 (jurisdiction phase 2): the SAME outbound gate for content handed to a participating MCP AGENT (agent-provider steps). The
+/// destination is the agent's endpoint (`agent:<name>`) matched against the instance policy's `providers` rows (an operator who runs a
+/// local agent lists `agent:<name>` → `local`); an unlisted agent takes `default_region_unlisted_endpoint` (never silently local: an agent
+/// such as a hosted coding assistant forwards content to its own provider). Nothing is let through unjudged.
+pub async fn check_outbound_to_agent(
+    agent_endpoint: &str,
+    input: &serde_json::Value,
+    executor: Option<&dyn crate::orchestrator::PipelineExecutor>,
+) -> OutboundVerdict {
+    let policy = load_policy();
+    let lower = agent_endpoint.to_lowercase();
+    let region = policy
+        .providers
+        .iter()
+        .find(|p| !p.endpoint_contains.is_empty() && lower.contains(&p.endpoint_contains.to_lowercase()))
+        .map(|p| p.region.clone())
+        .unwrap_or_else(|| {
+            if policy.default_region_unlisted_endpoint.is_empty() {
+                "third_country_unverified".to_string()
+            } else {
+                policy.default_region_unlisted_endpoint.clone()
+            }
+        });
+    check_outbound_inner(0, Some(region), input, executor).await
+}
+
+async fn check_outbound_inner(
+    pipeline_id: u64,
+    region_override: Option<String>,
     input: &serde_json::Value,
     executor: Option<&dyn crate::orchestrator::PipelineExecutor>,
 ) -> OutboundVerdict {
@@ -781,7 +845,7 @@ pub async fn check_outbound(
             await_id: None,
         };
     }
-    let region = classify_destination(&policy, input);
+    let region = region_override.unwrap_or_else(|| classify_destination(&policy, input));
     // Destination allowed for personal data: nothing to scan, nothing to ask.
     if policy
         .allow_personal_data_regions
@@ -1215,6 +1279,26 @@ pub fn erasure_apply(needle: &str, confirm: &str, by: &str) -> Result<ErasurePla
 // ============================================================================
 // ADOPT / EXPORT (policy sharing is manifest-only, staged, operator-gated)
 // ============================================================================
+
+/// The kinds this instance may PUBLISH to peers (G5). `p2p.publish_kinds` empty = the four shipped kinds (methodology,
+/// jurisdiction_rule_set, pipeline, tool); a non-empty list is exactly what the operator chose. `jurisdiction_policy` (the instance's own
+/// policy offered as a manifest) is only ever publishable when the operator listed it AND `p2p.share_policy_as_offer` is true — it is never
+/// part of the default set. Blueprints, containers and results are not publishable kinds at all (the network door refuses them).
+pub fn publish_kind_allowed(kind: &str) -> bool {
+    publish_kind_allowed_by(&load_policy(), kind)
+}
+
+pub fn publish_kind_allowed_by(policy: &JurisdictionPolicy, kind: &str) -> bool {
+    const DEFAULT_KINDS: [&str; 4] = ["methodology", "jurisdiction_rule_set", "pipeline", "tool"];
+    if kind == "jurisdiction_policy" {
+        return policy.p2p.share_policy_as_offer && policy.p2p.publish_kinds.iter().any(|k| k == kind);
+    }
+    if policy.p2p.publish_kinds.is_empty() {
+        DEFAULT_KINDS.contains(&kind)
+    } else {
+        policy.p2p.publish_kinds.iter().any(|k| k == kind)
+    }
+}
 
 /// Adopt the `policy` block of a STAGED jurisdiction content file (`peer_staging/jurisdiction/<file>.json`) as the next policy version.
 /// Operator-gated (the HTTP route requires an authenticated operator call); nothing is applied automatically when a peer offer is staged.

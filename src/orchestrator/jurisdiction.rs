@@ -842,6 +842,16 @@ pub fn step_gate_check(rules: &[JurisdictionRule], step_text: &str) -> Result<()
     Ok(())
 }
 
+/// G9: wakes the gate-snapshot loop (lib.rs) the moment a rule set or the instance policy changes. `notify_one` stores a permit, so a change
+/// that lands before the loop is waiting is not lost.
+static RULES_CHANGED: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
+pub fn rules_changed() -> &'static tokio::sync::Notify {
+    RULES_CHANGED.get_or_init(tokio::sync::Notify::new)
+}
+pub fn notify_rules_changed() {
+    rules_changed().notify_one();
+}
+
 /// Build the `fn(&str)->Result<(),String>` step gate from loaded Block rules.
 pub fn build_step_gate(rules: Vec<JurisdictionRule>) -> crate::orchestrator::tool_routing::StepGate {
     std::sync::Arc::new(move |text: &str| step_gate_check(&rules, text))
@@ -971,7 +981,6 @@ pub(crate) async fn resolve_confirmation_reviews(
                     rule.clone(),
                     GateResult {
                         decision: "ReviewFailed".to_string(),
-                        confidence: None,
                         reasoning: format!("decision_gate call failed: {}", e),
                     },
                 ));
@@ -984,11 +993,6 @@ pub(crate) async fn resolve_confirmation_reviews(
             .and_then(|d| d.as_str())
             .unwrap_or("Proceed")
             .to_string();
-        let confidence = review
-            .get("gate")
-            .and_then(|g| g.get("confidence"))
-            .and_then(|c| c.as_f64())
-            .map(|c| c as f32);
         let reasoning = review
             .get("gate")
             .and_then(|g| g.get("reasoning"))
@@ -1006,7 +1010,7 @@ pub(crate) async fn resolve_confirmation_reviews(
             ));
             result.blocked = true;
         }
-        result.confirmations.push((rule.clone(), GateResult { decision, confidence, reasoning }));
+        result.confirmations.push((rule.clone(), GateResult { decision, reasoning }));
     }
 }
 
@@ -1633,7 +1637,7 @@ mod graph_tests {
             _input: serde_json::Value,
         ) -> Result<serde_json::Value, String> {
             Ok(serde_json::json!({
-                "gate": { "decision": self.decision, "confidence": 0.9, "reasoning": "test reasoning" }
+                "gate": { "decision": self.decision, "reasoning": "test reasoning" }
             }))
         }
         async fn pipeline_exists(&self, _pipeline_id: u64) -> bool {
@@ -1665,7 +1669,7 @@ mod graph_tests {
         assert!(result.blocked, "a genuine Decline must set blocked");
         assert_eq!(result.confirmations.len(), 1);
         assert_eq!(result.confirmations[0].1.decision, "Decline");
-        assert_eq!(result.confirmations[0].1.confidence, Some(0.9));
+        assert_eq!(result.confirmations[0].1.reasoning, "test reasoning");
     }
 
     #[tokio::test]

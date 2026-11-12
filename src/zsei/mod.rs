@@ -99,10 +99,33 @@ impl ZSEI {
         let Some(integrity) = self.integrity.as_ref() else {
             return;
         };
-        let old = crate::durable_write::retry_until_ok("pre-write snapshot: load container", || async {
-            self.storage.read().await.load(container_id)
-        })
-        .await;
+        // OPTION A (operator 2026-11-11): a container whose `load` FAILS (e.g. unparseable local-state JSON) cannot be retried into
+        // health — so its RAW bytes are the rollback copy and the mutation (an Update or the Delete that removes it) proceeds with a real
+        // restore point. A failure to even READ the raw bytes (an I/O error) is the transient case: that pauses and retries.
+        let loaded = self.storage.read().await.load(container_id);
+        let old = match loaded {
+            Ok(v) => v,
+            Err(load_err) => {
+                tracing::error!(container_id, error = %load_err, "pre-write snapshot: the container does not load — snapshotting its RAW bytes so the mutation can proceed with a restore point");
+                crate::graph_events::emit("rollback_raw_snapshot", container_id, 0, format!("load failed: {load_err}"), "zsei", vec![]);
+                let raw = crate::durable_write::retry_until_ok("pre-write snapshot: raw read", || async {
+                    self.storage.read().await.raw_local_bytes(container_id)
+                })
+                .await;
+                match raw {
+                    Some(bytes) => {
+                        crate::durable_write::retry_until_ok("pre-write snapshot: create (raw)", || async {
+                            integrity.read().await.create_snapshot(container_id, &bytes).await
+                        })
+                        .await;
+                    }
+                    None => {
+                        tracing::error!(container_id, "pre-write snapshot: no local-state file to snapshot (global record only) — nothing to lose; the mutation proceeds");
+                    }
+                }
+                return;
+            }
+        };
         let Some(old) = old else {
             return; // the container does not exist yet: nothing to snapshot
         };

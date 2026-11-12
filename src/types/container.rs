@@ -333,6 +333,9 @@ pub struct TermHits {
 pub struct Relation {
     pub target_id: ContainerID,
     pub relation_type: RelationType,
+    /// RETIRED (no self-reported confidence: a relationship is present or absent). Kept as a field so existing literals compile; a
+    /// legacy edge that carries it still reads, an edge without it reads as 0.0, and it is never written back (`skip_serializing`).
+    #[serde(default, skip_serializing)]
     pub confidence: f32,
     pub discovered_via: DiscoveryMethod,
     /// Real relationship-graph proximity provenance — hop distance from the

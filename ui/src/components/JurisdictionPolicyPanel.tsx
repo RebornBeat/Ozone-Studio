@@ -84,6 +84,13 @@ export const JurisdictionPolicyPanel: React.FC<{ compact?: boolean; pollMs?: num
         agreements and requirements need. This is engineering configuration, not legal advice — have qualified counsel review it.
       </div>
       {msg && <div style={{ ...card, color: "#9fd4b4" }}>{msg}</div>}
+      {data.region_known === false && (
+        <div style={{ ...card, color: "#f0c987" }}>
+          <strong>This instance's region is not set or detected.</strong> Only Global (U.N.-level) rules apply, and the policy action for an unknown
+          jurisdiction is <span className="omono">{data.policy.unknown_jurisdiction}</span>. Set <span className="omono">jurisdiction.instance_region</span> in
+          the instance configuration (for example <span className="omono">IE</span> or <span className="omono">US-CA</span>) so national and local rules apply.
+        </div>
+      )}
 
       <div style={card}>
         <div className="omono" style={{ fontWeight: 600, marginBottom: 6 }}>
@@ -154,6 +161,15 @@ export const JurisdictionPolicyPanel: React.FC<{ compact?: boolean; pollMs?: num
             <div style={{ display: "flex", gap: 6 }}>
               <input style={{ ...input, flex: 1 }} value={draft.detection.vote_model} onChange={(e) => set("detection", { ...draft.detection, vote_model: e.target.value })} />
               <input style={{ ...input, width: 160 }} value={draft.detection.vote_model_region} onChange={(e) => set("detection", { ...draft.detection, vote_model_region: e.target.value })} />
+            </div>
+            <label style={{ ...label, marginTop: 8 }}>
+              What this instance may publish to peers (comma separated item kinds; empty = methodology, jurisdiction_rule_set, pipeline, tool). Published items cannot be
+              recalled. Add <span className="omono">jurisdiction_policy</span> only if you want to offer your own policy as a manifest (peers can only stage it).
+            </label>
+            <input style={{ ...input, width: "100%" }} value={draft.p2p.publish_kinds.join(", ")} onChange={(e) => set("p2p", { ...draft.p2p, publish_kinds: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12.5 }}>
+              <label><input type="checkbox" checked={draft.p2p.share_policy_as_offer} onChange={(e) => set("p2p", { ...draft.p2p, share_policy_as_offer: e.target.checked })} /> allow offering my policy as a manifest</label>
+              <label><input type="checkbox" checked={draft.p2p.recall_notice} onChange={(e) => set("p2p", { ...draft.p2p, recall_notice: e.target.checked })} /> show the no-recall notice</label>
             </div>
             <div style={{ marginTop: 10 }}>
               <button style={btn} onClick={save}>Save as new policy version</button>{" "}

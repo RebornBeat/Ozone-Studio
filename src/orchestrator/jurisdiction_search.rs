@@ -246,4 +246,6 @@ pub async fn populate_jurisdiction_content_for_region(
     const JURISDICTION_ROOT_ID: u64 = 7; // crate::types::container::JURISDICTION_ROOT_ID
     let id = crate::durable_write::retry_until_ok("jurisdiction content container create", || store.create_container(JURISDICTION_ROOT_ID, container.clone())).await;
     tracing::info!(region = %region, container_id = id, path = %full_path, "Jurisdiction: real search-backed national-scope content populated");
+    // G9: newly populated rules reach the call / step gate snapshot now, not at the next timer tick.
+    super::jurisdiction::notify_rules_changed();
 }

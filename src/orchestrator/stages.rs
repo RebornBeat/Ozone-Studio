@@ -408,12 +408,12 @@ impl PromptOrchestrator {
         self.emit_marker(state, "[13.0]", "");
         tracing::info!(stage = 13, "[13.0] delivery context: blueprint steps executed = {}, gate decision = {:?}", state.blueprint_steps.len(), state.gate_result.as_ref().map(|g| &g.decision));
         // EDGE SUPPLY (2026-10-13): wire RelatedTo edges between the
-        // containers this walk created BEFORE delivering — the next walk's
-        // seed→hop traverses them. No skip: a failed store call inside the
-        // pass is retried until it succeeds (the walk pauses here, visibly,
-        // and resumes) — it is never skipped.
-        self.link_walk_content(state).await;
-        self.stage_11_response_delivery(state).await?;
+        // containers this walk created — the next walk's seed→hop traverses
+        // them. Since 2026-11-11 this runs AFTER delivery (see below). No skip:
+        // a failed store call inside the pass is retried until it succeeds.
+        // DELIVER FIRST (operator 2026-11-11): the answer is delivered before the link pass; the pass is a `wo_link` child item the completion
+        // gate waits on (see `deliver_then_link`), retried until it succeeds in the background.
+        self.deliver_then_link(state).await?;
 
         tracing::info!("Orchestration complete: all 14 stages finished");
         Ok(())
@@ -2999,7 +2999,6 @@ Return JSON:
 
         state.gate_result = Some(GateResult {
             decision: decision.to_string(),
-            confidence: None, // retired: yes/no verdict only (operator doctrine); field kept until jurisdiction.rs releases its claim
             reasoning: reasoning.clone(),
         });
 
@@ -3030,8 +3029,7 @@ Return JSON:
         } else {
             self.record_stage(state, 12, "Post-execution", true, "Skipped (disabled)");
         }
-        self.link_walk_content(state).await;
-        self.stage_11_response_delivery(state).await
+        self.deliver_then_link(state).await
     }
 
     async fn stage_6_to_8_execute_steps(

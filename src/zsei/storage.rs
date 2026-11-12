@@ -818,6 +818,18 @@ impl ContainerStorage {
         }
     }
     
+    /// RAW bytes of a container's local-state file exactly as they sit on disk (never the parsed/cached form). Used by the pre-write
+    /// rollback snapshot when `load` fails deterministically (corrupt JSON): the rollback copy is the raw bytes, so the mutation — including
+    /// the Delete an operator would use to remove the corrupt container — can proceed with a real restore point. `Ok(None)` = no such file.
+    pub fn raw_local_bytes(&self, id: ContainerID) -> OzoneResult<Option<Vec<u8>>> {
+        let path = self.local_path.join(format!("{}.json", id));
+        match fs::read(&path) {
+            Ok(b) => Ok(Some(b)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(OzoneError::StorageError(format!("Failed to read raw local state: {}", e))),
+        }
+    }
+
     /// Store local state to JSON file
     ///
     /// Write-behind: the write is queued on the ordered writer thread (see

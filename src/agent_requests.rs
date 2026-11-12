@@ -128,6 +128,26 @@ pub async fn request_and_await(
         .unwrap_or(endpoint)
         .to_string();
     let id = request_id(tool, input, ctx);
+    // G4: content leaving the host for an agent passes the instance's outbound jurisdiction policy FIRST. A request that already exists
+    // (a resumed walk adopting it) was cleared when it was created. A hold AWAITS — retried with a doubling backoff (2 s .. 60 s) until the
+    // operator's decision clears it; the content is never handed to the agent while held, and nothing fails open.
+    let already_requested = {
+        let mut s = store().lock().unwrap_or_else(|e| e.into_inner());
+        ensure_loaded(&mut s);
+        s.by_id.contains_key(&id)
+    };
+    if !already_requested {
+        let mut wait = std::time::Duration::from_secs(2);
+        loop {
+            let verdict = crate::orchestrator::jurisdiction::policy::check_outbound_to_agent(endpoint, input, None).await;
+            if verdict.allow {
+                break;
+            }
+            tracing::warn!(tool, endpoint, reason = %verdict.reason, "agent provider call held by the jurisdiction outbound policy — awaiting the operator");
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(std::time::Duration::from_secs(60));
+        }
+    }
     let mut rx = {
         let mut s = store().lock().unwrap_or_else(|e| e.into_inner());
         ensure_loaded(&mut s);

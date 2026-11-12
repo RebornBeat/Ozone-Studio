@@ -27,6 +27,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { detectPersonalDataShapes } = require("../shared/pii_shapes.cjs");
 
 const OZONE_HOST = process.env.OZONE_HOST || "http://127.0.0.1:50051";
 
@@ -452,10 +453,39 @@ function searchRequest({ agent, query }) {
   }
   const list = loadSearchRequests();
   const id = "sr-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  // JURISDICTION (G6): a query text leaves the host to whichever session answers it with a real web search. A query that carries a
+  // personal-data SHAPE (email / phone / IBAN / card number) is HELD, not sent: it is not offered to any answering session until the
+  // operator releases it (`search_release`). Only the shape KINDS are recorded, never the values.
+  const heldKinds = detectPersonalDataShapes(query);
+  if (heldKinds.length) {
+    list.push({ id, requester: agent, query: query.trim(), status: "held", held_kinds: heldKinds, at: Date.now() });
+    saveSearchRequests(list);
+    pushActivity("job", "warn", agent, `search request ${id} HELD by the jurisdiction shape check (${heldKinds.join(", ")}) — awaiting the operator`);
+    return { ok: true, id, status: "held", held_kinds: heldKinds, note: "HELD: the query carries a personal-data shape, so it is not sent to any answering session. The operator releases it with search_release (or rewrites the query without the personal data)." };
+  }
   list.push({ id, requester: agent, query: query.trim(), status: "pending", at: Date.now() });
   saveSearchRequests(list);
   pushActivity("job", "info", agent, `search request ${id}: "${query.trim().slice(0, 80)}"`);
   return { ok: true, id, note: "Non-blocking — poll search_result with this id. A Claude Code session must be live and check pending requests to answer it; there is no guaranteed latency." };
+}
+
+// search_release: the OPERATOR's decision on a held query. Refused unless this server process was started by the operator with
+// OZONE_OPERATOR_RELEASE=1 (agents' own MCP processes do not set it) and the caller types the confirmation word.
+function searchRelease({ agent, id, confirm }) {
+  if (process.env.OZONE_OPERATOR_RELEASE !== "1") {
+    return { ok: false, error: "search_release is an operator action: this MCP process was not started with OZONE_OPERATOR_RELEASE=1" };
+  }
+  if (confirm !== "RELEASE") return { ok: false, error: 'pass confirm:"RELEASE" to release a held query' };
+  const list = loadSearchRequests();
+  const rec = list.find((r) => r.id === id);
+  if (!rec) return { ok: false, error: `no request with id ${id}` };
+  if (rec.status !== "held") return { ok: false, error: `request ${id} is ${rec.status}, not held` };
+  rec.status = "pending";
+  rec.released_by = agent || "operator";
+  rec.released_at = Date.now();
+  saveSearchRequests(list);
+  pushActivity("job", "info", agent || "operator", `released held search ${id} (kinds: ${(rec.held_kinds || []).join(", ")})`);
+  return { ok: true, id, status: "pending" };
 }
 
 function searchPending({ limit = 20 } = {}) {
@@ -468,6 +498,7 @@ function searchResult({ id }) {
   const list = loadSearchRequests();
   const rec = list.find((r) => r.id === id);
   if (!rec) return { ok: false, error: `no request with id ${id}` };
+  if (rec.status === "held") return { ok: true, status: "held", held_kinds: rec.held_kinds || [], at: rec.at, note: "awaiting the operator (jurisdiction shape check)" };
   if (rec.status === "pending") return { ok: true, status: "pending", query: rec.query, at: rec.at };
   return { ok: true, status: "answered", query: rec.query, results: rec.results, answered_by: rec.answered_by, answered_at: rec.answered_at };
 }
@@ -661,6 +692,7 @@ const TOOLS = [
   { name: "tasks_list", description: "List Ozone-Studio tasks (includes coordination tasks routed to agents).", inputSchema: { type: "object", properties: { limit: { type: "number" } } } },
   { name: "mcp_usage", description: "Your own MCP usage: today's calls, daily limit, remaining, per-tool breakdown.", inputSchema: { type: "object", properties: {} } },
   { name: "search_request", description: "Ask for a real web search — non-blocking, returns an id immediately. Answered by whichever Claude Code session is live and checking pending requests (Claude Code has a real native search tool; ZCode/pipeline 56 do not, no Brave API key on this host). Poll search_result with the id; there is no guaranteed latency.", inputSchema: { type: "object", properties: { agent: { type: "string" }, query: { type: "string" } }, required: ["agent", "query"] } },
+  { name: "search_release", description: "OPERATOR action: release a search request HELD by the personal-data shape check (jurisdiction). Needs OZONE_OPERATOR_RELEASE=1 in this MCP process and confirm:\"RELEASE\". Agents must not call it.", inputSchema: { type: "object", properties: { agent: { type: "string" }, id: { type: "string" }, confirm: { type: "string" } }, required: ["id", "confirm"] } },
   { name: "search_pending", description: "List pending (unanswered) search requests — call this if you are a Claude Code session willing to answer some with your real search tool.", inputSchema: { type: "object", properties: { limit: { type: "number" } } } },
   { name: "search_result", description: "Poll a search request by id — status:pending or status:answered with real results.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
   { name: "answer_search", description: "Fulfill a pending search request with real results you actually retrieved via your own search tool — never fabricate results to close a request.", inputSchema: { type: "object", properties: { agent: { type: "string" }, id: { type: "string" }, results: { type: "array", items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, snippet: { type: "string" } } } } }, required: ["agent", "id", "results"] } },
@@ -694,6 +726,7 @@ function callTool(name, args) {
     case "tasks_list": return tasksList(args);
     case "mcp_usage": return mcpUsage();
     case "search_request": return searchRequest(args);
+    case "search_release": return searchRelease(args);
     case "search_pending": return searchPending(args);
     case "search_result": return searchResult(args);
     case "answer_search": return answerSearch(args);

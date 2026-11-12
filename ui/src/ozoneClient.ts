@@ -866,6 +866,8 @@ export interface JurisdictionHold { await_id: string; kind: string; status: stri
 export interface JurisdictionPolicyResponse {
   success: boolean; fingerprint: string; policy: JurisdictionPolicy;
   agreements: JurisdictionRequirementStatus[]; unaccepted: string[]; holds: JurisdictionHold[];
+  /** G12: the region this instance knows (configured or hardware-detected); null/empty = unknown, only Global rules apply. */
+  instance_region?: string | null; region_known?: boolean; jurisdiction_enabled?: boolean;
 }
 export interface JurisdictionDecision {
   at: number; entry_point: string; subject_hash: string; region: string | null; region_known: boolean;

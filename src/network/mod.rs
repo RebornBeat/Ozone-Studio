@@ -65,6 +65,9 @@ pub enum SyncItemType {
     Container,
     PipelineResult,
     JurisdictionRuleSet,
+    /// The instance's own jurisdiction POLICY offered as a manifest (G5). Only published when the operator lists it in `p2p.publish_kinds` and
+    /// `p2p.share_policy_as_offer` is on; a receiver only ever STAGES it — adopting a policy is an explicit operator call, never automatic.
+    JurisdictionPolicy,
     /// A pipeline (a built unit) — announced as a manifest; installing it is a reviewed, explicit step.
     Pipeline,
     /// A tool / MCP provider — announced as a manifest; installing it is a reviewed, explicit step (never auto-run).
@@ -79,6 +82,7 @@ impl SyncItemType {
             SyncItemType::Container => "container",
             SyncItemType::PipelineResult => "pipeline_result",
             SyncItemType::JurisdictionRuleSet => "jurisdiction_rule_set",
+            SyncItemType::JurisdictionPolicy => "jurisdiction_policy",
             SyncItemType::Pipeline => "pipeline",
             SyncItemType::Tool => "tool",
         }
@@ -114,7 +118,9 @@ pub fn marketplace_kind(data: &[u8]) -> Option<String> {
 
 /// THE DOOR (operator 2026-11-10: "we don't accept anything not allowed"). The ONLY item kinds that may be offered, fetched or imported;
 /// everything else — blueprints, user data, events, chat, any unknown kind — is refused at the door and never reaches the inbox.
-pub const ALLOWED_ITEM_TYPES: [&str; 4] = ["methodology", "jurisdiction_rule_set", "pipeline", "tool"];
+/// `jurisdiction_policy` (G5) is part of the door's vocabulary so a peer's policy manifest can be seen and gated; WHAT THIS INSTANCE PUBLISHES
+/// is narrowed by its own policy (`p2p.publish_kinds`, see `jurisdiction::policy::publish_kind_allowed`).
+pub const ALLOWED_ITEM_TYPES: [&str; 5] = ["methodology", "jurisdiction_rule_set", "jurisdiction_policy", "pipeline", "tool"];
 
 /// NO fixed size guards on peer manifests (operator 2026-11-11: no fixed limits). The name / keyword-count / chunk-size limits that stood here
 /// (512 chars, 500 keywords, 2 x the chunk size) are gone: the transport already bounds one message (gossipsub's maximum message size), and
@@ -973,6 +979,11 @@ impl NetworkManager {
             if matches!(it.item_type, SyncItemType::Blueprint | SyncItemType::Container | SyncItemType::PipelineResult) {
                 continue; // not a publishable kind
             }
+            // G5: what THIS instance publishes is narrowed by its own jurisdiction policy (`p2p.publish_kinds`); a withheld kind is recorded.
+            if !crate::orchestrator::jurisdiction::policy::publish_kind_allowed(it.item_type.as_str()) {
+                tracing::info!(kind = it.item_type.as_str(), "P2P: item not published — its kind is not in this instance's jurisdiction policy `p2p.publish_kinds`");
+                continue;
+            }
             let Ok(m) = serde_json::from_slice::<serde_json::Value>(&it.manifest) else { continue };
             // an item we just IMPORTED from a peer is not re-published (it would only echo back to where it came from)
             let imported_key = format!("{}|{}", m["name"].as_str().unwrap_or(""), m["body_hash"].as_str().unwrap_or(""));
@@ -1021,6 +1032,9 @@ impl NetworkManager {
         let mut listing: serde_json::Map<String, serde_json::Value> =
             crate::durable_write::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         for (item_type, manifest) in items {
+            if !crate::orchestrator::jurisdiction::policy::publish_kind_allowed(item_type.as_str()) {
+                continue; // G5: same policy filter on the listing itself (a second line of defence for any other caller)
+            }
             listing.insert(format!("{}|{}", item_type.as_str(), manifest["name"].as_str().unwrap_or("")), manifest.clone());
         }
         let version = body_hash(serde_json::to_string(&listing).unwrap_or_default().as_bytes());
@@ -1529,6 +1543,8 @@ pub fn spawn_marketplace_exchange(network: std::sync::Arc<tokio::sync::RwLock<Ne
                             .and_then(|v| v.as_str())
                             .and_then(crate::orchestrator::tool_binding::read_object_file)
                             .filter(|b| body_hash(b.as_bytes()) == hash);
+                        // G5: a body goes out only for a kind this instance's policy still lets it publish (a policy change withdraws serving too)
+                        let body = body.filter(|_| crate::orchestrator::jurisdiction::policy::publish_kind_allowed(item_type));
                         let net = network.read().await;
                         match body {
                             Some(body) => {
