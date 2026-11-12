@@ -161,3 +161,13 @@ Honest limits (read before relying on any of it):
 
 ## Update 2026-11-12 — policy, outbound gate and call sites
 This file describes the RULE content and how a region is set. The per-instance POLICY (providers, agreements, personal-data detection, approvals, erasure, P2P kinds, `tool_egress`) and the outbound gate are documented in `docs/evidence/jurisdiction-deepening/REPORT.md`, `REPORT_PHASE2.md` and the call-site inventory `CALL_SITE_INVENTORY.md`. The older "we never ask" wording is superseded: the first boot of this build holds every call to a third-country / unverified destination until the operator accepts the policy's requirements in the UI. Sidecar tools that reach external services are declared in the policy key `tool_egress`; add a `providers` row for any destination label you verify (for example `browser-farm`, `unaudited-pipeline:<id>`).
+
+---
+
+## Vendor APIs and CLI agents (bridges incorporation, 2026-11-12)
+
+Model access that used to live in the standalone provider console is now an ordinary host provider and is judged like any other destination:
+- Shipped `providers` rows (all `third_country_unverified` until you verify otherwise): `api.anthropic.com`, `api.openai.com`, `generativelanguage.googleapis.com`, `api.z.ai`, `api.minimax.io`, `api.minimaxi.com`, and the CLI destinations `cli:codex`, `cli:claude` (also matches `cli:claude-code`), `cli:zcode`.
+- A **CLI agent** sends the prompt to whatever vendor sits behind the operator's own CLI login; the instance cannot see that destination, so the region you declare for `cli:<name>` is the operator's statement, not a verification.
+- These are paid classes: the host accepts them only while "Allow paid models" is on, and nothing adds them to a fallback chain automatically.
+- An instance that already saved a policy keeps its saved `providers` list: add the new rows in Marketplace → Jurisdiction (or adopt the defaults once). Until a row exists, the destination takes `default_region_unlisted_endpoint` (never silently allowed).

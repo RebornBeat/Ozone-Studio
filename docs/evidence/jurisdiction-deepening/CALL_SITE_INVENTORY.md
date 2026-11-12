@@ -75,3 +75,6 @@ All other JS tools (`ozone-mcp`, `ozone-shared-context`, `zcode-connector`, `bro
 
 ## G. Still open
 Bridges (E, operator choice); WebSocket push is not an outbound hop (own UI); remote operator of the UI is out of scope; the vote model's endpoint must be listed in `providers` with an allowed region or the vote call is itself held (documented in the policy note, not auto-fixed).
+
+## E-resolution (2026-11-12) — tools/bridges console and web proxy retired
+Operator decision: break the console and the web proxy off and incorporate their capability into the host. Done as: vendor providers = host presets (R46), CLI agents = host `cli` transport behind the same clearance (R47), engine bridge vendored to `tools/engine-bridge` and token-guarded (R48). Options A/B/C above are superseded (B, with the CLI case handled by the host transport). Detail and capability map: `docs/evidence/bridges-incorporation/`.

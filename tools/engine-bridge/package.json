@@ -1,0 +1,29 @@
+{
+  "name": "ozone-engine-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Ozone-Studio engine bridge: Roblox / Unity / Unreal / Blender control as remote pipelines 200-203 plus the engine MCP tools. Vendored from gamedev-all-in-one (AGPL-3.0, see LICENSE) with the provider console and web dashboard REMOVED: model calls belong to the host's own provider layer (docs/evidence/bridges-incorporation).",
+  "type": "module",
+  "bin": {
+    "ozone-engine-bridge": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

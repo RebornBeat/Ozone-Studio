@@ -903,6 +903,48 @@ impl ModelConfig {
     }
 }
 
+/// A direct model-vendor preset (bridges incorporation 2026-11-12). The standalone provider console in tools/bridges carried
+/// openai / anthropic / z.ai / minimax (and the web proxy google) behind its own keys; the host's provider layer already speaks both wire
+/// protocols these need (pipeline 9: `anthropic` Messages and `chat_completions`), so a vendor is DATA — an endpoint, a wire protocol, a
+/// key variable — not new code. Every row is a paid direct provider: selectable only while the user's `allow_paid_models` is on (the
+/// user-defined chain doctrine: options, never defaults), judged by the jurisdiction gate like any other destination.
+pub struct VendorPreset {
+    pub provider: &'static str,
+    pub label: &'static str,
+    pub endpoint: &'static str,
+    pub wire_protocol: &'static str,
+    pub key_env: &'static str,
+}
+
+pub const VENDOR_PRESETS: &[VendorPreset] = &[
+    VendorPreset { provider: "openrouter", label: "OpenRouter", endpoint: "https://openrouter.ai/api/v1/chat/completions", wire_protocol: "chat_completions", key_env: "OPENROUTER_API_KEY" },
+    VendorPreset { provider: "anthropic", label: "Anthropic", endpoint: "https://api.anthropic.com/v1/messages", wire_protocol: "anthropic", key_env: "ANTHROPIC_API_KEY" },
+    VendorPreset { provider: "openai", label: "OpenAI", endpoint: "https://api.openai.com/v1/chat/completions", wire_protocol: "chat_completions", key_env: "OPENAI_API_KEY" },
+    // Gemini through Google's OpenAI-compatible endpoint (the console's web proxy used native generateContent with engine tool calls; tool
+    // use is the walk's job here, so the chat-completions surface is the right one).
+    VendorPreset { provider: "google", label: "Google (Gemini)", endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", wire_protocol: "chat_completions", key_env: "GEMINI_API_KEY" },
+    VendorPreset { provider: "zai", label: "z.ai", endpoint: "https://api.z.ai/api/coding/paas/v4/chat/completions", wire_protocol: "chat_completions", key_env: "ZAI_API_KEY" },
+    VendorPreset { provider: "minimax", label: "MiniMax", endpoint: "https://api.minimax.io/v1/text/chatcompletion_v2", wire_protocol: "chat_completions", key_env: "MINIMAX_API_KEY" },
+];
+
+pub fn vendor_preset(provider: &str) -> Option<&'static VendorPreset> {
+    VENDOR_PRESETS.iter().find(|p| p.provider.eq_ignore_ascii_case(provider))
+}
+
+/// Providers whose models cost money per call (paid direct APIs and the vendors' CLI agents) — refused by `set_config` while the user's
+/// `allow_paid_models` is off. `openrouter` is NOT here: its free catalog is policed separately.
+pub const PAID_PROVIDERS: &[&str] = &["anthropic", "openai", "google", "zai", "minimax", "codex", "claude", "claude-code", "zcode"];
+
+/// Paid direct endpoints (substring match on the model's `api_endpoint`).
+pub const PAID_ENDPOINT_HOSTS: &[&str] = &[
+    "api.anthropic.com",
+    "api.openai.com",
+    "generativelanguage.googleapis.com",
+    "api.z.ai",
+    "api.minimax.io",
+    "api.minimaxi.com",
+];
+
 impl Default for ModelConfig {
     fn default() -> Self {
         // Policy default: the OpenRouter FREE router. Paid direct providers

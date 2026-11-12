@@ -21,7 +21,24 @@ interface AvailableModelEntry {
   model_type: string;
   identifier: string;
   context_length?: number;
+  provider?: string;
+  is_free?: boolean;
+  api_endpoint?: string;
 }
+
+// Providers the host can talk to directly (host config::VENDOR_PRESETS + the vendor CLI agents). The HOST owns the endpoint and wire protocol
+// for each name (it fills them in when an entry is added), so this list is only the choice the operator sees. All are PAID classes:
+// the host refuses them while "Allow paid models" is off.
+const PROVIDER_CHOICES: { value: string; label: string; kind: "api" | "cli" }[] = [
+  { value: "anthropic", label: "Anthropic (API)", kind: "api" },
+  { value: "openai", label: "OpenAI (API)", kind: "api" },
+  { value: "google", label: "Google Gemini (API)", kind: "api" },
+  { value: "zai", label: "z.ai (API)", kind: "api" },
+  { value: "minimax", label: "MiniMax (API)", kind: "api" },
+  { value: "codex", label: "Codex CLI agent", kind: "cli" },
+  { value: "claude", label: "Claude Code CLI agent", kind: "cli" },
+  { value: "zcode", label: "ZCode CLI agent", kind: "cli" },
+];
 
 interface ModelsCfg {
   model_type?: string;
@@ -38,6 +55,7 @@ interface ModelsCfg {
   local_model_path?: string;
   local_model_type?: string;
   available_models?: AvailableModelEntry[];
+  fallback?: { order?: string[]; free_only?: boolean };
 }
 
 interface VoiceCfg {
@@ -136,6 +154,72 @@ export const SettingsPanel: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [addForm, setAddForm] = useState({
+    provider: "anthropic",
+    name: "",
+    identifier: "",
+    api_key: "",
+    context_length: "",
+  });
+  const [addNote, setAddNote] = useState("");
+
+  // Register a provider model (API vendor or CLI agent). The host fills in the endpoint / wire protocol from its own presets.
+  const addProviderModel = async () => {
+    setAddNote("");
+    const choice = PROVIDER_CHOICES.find((c) => c.value === addForm.provider);
+    if (!choice) return;
+    const identifier = addForm.identifier.trim() || (choice.kind === "cli" ? `cli/${choice.value}` : "");
+    if (!identifier) {
+      setAddNote("Give the model identifier (for example the vendor's model id).");
+      return;
+    }
+    const entry: AvailableModelEntry & { api_key?: string } = {
+      name: addForm.name.trim() || `${choice.label} — ${identifier}`,
+      model_type: choice.kind === "cli" ? "cli" : "api",
+      identifier,
+      context_length: addForm.context_length ? Number(addForm.context_length) : undefined,
+      provider: choice.value,
+      is_free: false,
+    };
+    if (choice.kind === "api" && addForm.api_key.trim()) entry.api_key = addForm.api_key.trim();
+    try {
+      const out = await ozoneConfigSet({ models: { add_model: entry } });
+      if (out?.success === false) throw new Error(out?.error ?? "Could not add the model");
+      const fresh = await ozoneConfigGet();
+      const cfg = fresh?.config ?? fresh;
+      setModels((m) => ({ ...m, available_models: cfg?.models?.available_models ?? m.available_models }));
+      setAddForm({ ...addForm, name: "", identifier: "", api_key: "" });
+      setAddNote("Added. Put it in the fallback chain below to use it.");
+    } catch (e: any) {
+      setAddNote(e?.message ?? "Could not add the model");
+    }
+  };
+
+  const removeProviderModel = async (identifier: string) => {
+    setAddNote("");
+    try {
+      const out = await ozoneConfigSet({ models: { remove_model: identifier } });
+      if (out?.success === false) throw new Error(out?.error ?? "Could not remove the model");
+      setModels((m) => ({
+        ...m,
+        available_models: (m.available_models ?? []).filter((x) => x.identifier !== identifier),
+        fallback: { ...(m.fallback ?? {}), order: (m.fallback?.order ?? []).filter((x) => x !== identifier) },
+      }));
+    } catch (e: any) {
+      setAddNote(e?.message ?? "Could not remove the model");
+    }
+  };
+
+  const chainOrder = models.fallback?.order ?? [];
+  const setChain = (order: string[]) =>
+    setModels({ ...models, fallback: { ...(models.fallback ?? {}), order } });
+  const moveInChain = (i: number, delta: number) => {
+    const j = i + delta;
+    if (j < 0 || j >= chainOrder.length) return;
+    const next = [...chainOrder];
+    [next[i], next[j]] = [next[j], next[i]];
+    setChain(next);
+  };
 
   useEffect(() => {
     (async () => {
@@ -198,6 +282,9 @@ export const SettingsPanel: React.FC = () => {
         bitnet_cli_path: models.bitnet_cli_path || undefined,
         local_model_path: models.local_model_path || undefined,
         local_model_type: models.local_model_type,
+        fallback: models.fallback
+          ? { order: models.fallback.order ?? [], free_only: models.fallback.free_only ?? false }
+          : undefined,
       },
       voice: {
         enabled: voice.enabled ?? false,
@@ -307,6 +394,7 @@ export const SettingsPanel: React.FC = () => {
                   <option value="bitnet">BitNet (1-bit local)</option>
                   <option value="gguf">GGUF (local, llama.cpp)</option>
                   <option value="onnx">ONNX (local)</option>
+                  <option value="cli">CLI agent (codex / claude / zcode)</option>
                 </select>
               </div>
 
@@ -324,6 +412,8 @@ export const SettingsPanel: React.FC = () => {
                       <option value="anthropic">Anthropic</option>
                       <option value="openai">OpenAI</option>
                       <option value="google">Google</option>
+                      <option value="zai">z.ai</option>
+                      <option value="minimax">MiniMax</option>
                       <option value="openrouter">OpenRouter</option>
                       <option value="custom">Custom</option>
                     </select>
@@ -379,6 +469,45 @@ export const SettingsPanel: React.FC = () => {
                       </option>
                     </select>
                   </div>
+                </>
+              )}
+
+              {models.model_type === "cli" && (
+                <>
+                  <div className="ofield">
+                    <label>CLI agent</label>
+                    <select
+                      className="oinput"
+                      value={models.api_endpoint ?? "cli:codex"}
+                      onChange={(e) =>
+                        setModels({ ...models, api_endpoint: e.target.value })
+                      }
+                    >
+                      <option value="cli:codex">Codex CLI</option>
+                      <option value="cli:claude">Claude Code CLI</option>
+                      <option value="cli:zcode">ZCode CLI</option>
+                    </select>
+                  </div>
+                  <div className="ofield">
+                    <label>Model (optional — the CLI's own default if empty)</label>
+                    <input
+                      className="oinput"
+                      value={models.api_model ?? ""}
+                      onChange={(e) =>
+                        setModels({ ...models, api_model: e.target.value })
+                      }
+                    />
+                  </div>
+                  <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "2px 0 0" }}>
+                    The host runs the CLI itself in a scratch directory with a
+                    cleared environment (only its own credentials pass), sends
+                    the prompt on stdin and reads the answer from stdout. The
+                    call is judged by the jurisdiction gate like any provider:
+                    list the CLI's vendor under Marketplace → Jurisdiction →
+                    providers (destination <code>cli:codex</code>,{" "}
+                    <code>cli:claude</code>, <code>cli:zcode</code>) or it is
+                    held for your decision. Needs "Allow paid models".
+                  </p>
                 </>
               )}
 
@@ -500,8 +629,10 @@ export const SettingsPanel: React.FC = () => {
                     <tr>
                       <th>Name</th>
                       <th>Type</th>
+                      <th>Provider</th>
                       <th>Identifier</th>
                       <th>Context</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -511,17 +642,162 @@ export const SettingsPanel: React.FC = () => {
                         <td>
                           <span className="ochip cat">{m.model_type}</span>
                         </td>
+                        <td className="omono">{m.provider || "—"}</td>
                         <td className="omono">{m.identifier}</td>
                         <td className="omono">{m.context_length ?? "—"}</td>
+                        <td>
+                          <button
+                            className="obtn"
+                            title="Remove this model from the registry (and the chain)"
+                            onClick={() => removeProviderModel(m.identifier)}
+                          >
+                            Remove
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-              <p style={{ color: "var(--color-text-muted)", fontSize: 12, marginTop: 10 }}>
-                Add/remove models here lands with per-request model routing —
-                each entry will carry its own connection details.
+            </div>
+
+            <div className="ocard">
+              <h4>➕ Add a provider model</h4>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "0 0 8px" }}>
+                Direct vendor APIs and vendor CLI agents are paid classes: the
+                host accepts them only while "Allow paid models" is on, and
+                each destination is judged by the jurisdiction gate. Nothing
+                here joins a fallback chain until you put it there.
               </p>
+              <div className="ofield">
+                <label>Provider</label>
+                <select
+                  className="oinput"
+                  value={addForm.provider}
+                  onChange={(e) => setAddForm({ ...addForm, provider: e.target.value })}
+                >
+                  {PROVIDER_CHOICES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="ofield">
+                <label>Display name (optional)</label>
+                <input
+                  className="oinput"
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                />
+              </div>
+              <div className="ofield">
+                <label>Model identifier</label>
+                <input
+                  className="oinput"
+                  placeholder={
+                    PROVIDER_CHOICES.find((c) => c.value === addForm.provider)?.kind === "cli"
+                      ? "optional — the CLI's model id (empty = its default)"
+                      : "the vendor's model id"
+                  }
+                  value={addForm.identifier}
+                  onChange={(e) => setAddForm({ ...addForm, identifier: e.target.value })}
+                />
+              </div>
+              {PROVIDER_CHOICES.find((c) => c.value === addForm.provider)?.kind === "api" && (
+                <div className="ofield">
+                  <label>API key</label>
+                  <input
+                    className="oinput"
+                    type="password"
+                    value={addForm.api_key}
+                    onChange={(e) => setAddForm({ ...addForm, api_key: e.target.value })}
+                  />
+                </div>
+              )}
+              <div className="ofield">
+                <label>Context length (tokens, optional)</label>
+                <input
+                  className="oinput"
+                  value={addForm.context_length}
+                  onChange={(e) => setAddForm({ ...addForm, context_length: e.target.value.replace(/[^0-9]/g, "") })}
+                />
+              </div>
+              <button className="obtn" onClick={addProviderModel}>
+                Add model
+              </button>
+              {addNote && (
+                <p style={{ color: "var(--color-text-muted)", fontSize: 12, marginTop: 8 }}>{addNote}</p>
+              )}
+            </div>
+
+            <div className="ocard">
+              <h4>🔗 Fallback chain</h4>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "0 0 8px" }}>
+                Your order, tried top to bottom. Nothing is added for you; when
+                the chain runs out it runs out. Press Save to apply.
+              </p>
+              {chainOrder.length === 0 ? (
+                <div className="oempty">The chain is empty (single backend).</div>
+              ) : (
+                <table className="otable">
+                  <tbody>
+                    {chainOrder.map((id, i) => (
+                      <tr key={id}>
+                        <td className="omono">{i + 1}</td>
+                        <td className="omono">{id}</td>
+                        <td>
+                          <button className="obtn" onClick={() => moveInChain(i, -1)} disabled={i === 0}>
+                            ↑
+                          </button>{" "}
+                          <button
+                            className="obtn"
+                            onClick={() => moveInChain(i, 1)}
+                            disabled={i === chainOrder.length - 1}
+                          >
+                            ↓
+                          </button>{" "}
+                          <button className="obtn" onClick={() => setChain(chainOrder.filter((x) => x !== id))}>
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div className="ofield" style={{ marginTop: 8 }}>
+                <label>Add to the chain</label>
+                <select
+                  className="oinput"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) setChain([...chainOrder, e.target.value]);
+                  }}
+                >
+                  <option value="">Choose a registered model…</option>
+                  {(models.available_models ?? [])
+                    .filter((m) => !chainOrder.includes(m.identifier))
+                    .map((m) => (
+                      <option key={m.identifier} value={m.identifier}>
+                        {m.name} ({m.identifier})
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <label className="otoggle" style={{ marginTop: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={models.fallback?.free_only ?? false}
+                  onChange={(e) =>
+                    setModels({
+                      ...models,
+                      fallback: { ...(models.fallback ?? {}), free_only: e.target.checked },
+                    })
+                  }
+                />
+                <span>Free models only</span>
+              </label>
             </div>
           </div>
         )}

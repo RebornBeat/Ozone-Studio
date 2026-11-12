@@ -229,3 +229,9 @@ The seven items are REMOVED (each superseder verified, behaviour captured, no re
 - **First-walk checklist front:** run `tools/third-party-verify/jurisdiction/` j1–j6 BEFORE the first walk (j6 checks the per-pipeline destination, the unaudited-id label and the strict-host session protection).
 - **Expect on a strict host:** UI and e2e tools need a session for `/jurisdiction/*`; the prompt binary needs the host reachable at `OZONE_HOST` (default 127.0.0.1:50051) or its provider requests are not sent.
 - **Operator decisions open:** `tools/bridges` direct provider calls (inventory §E: A patch / B route through host / C do not run the console); vote model endpoint must be listed in `providers`.
+
+## 17. BRIDGES INCORPORATION (2026-11-12, parse-only; checklist L240–L246)
+- **Check first at `cargo check` / pipelines build:** prompt crate `execute_cli` (`cli_spec` tuple `match`, `run_bounded_child_stdin` stdin writer thread, `spawn_blocking` closure captures), `config::VENDOR_PRESETS` / `PAID_*` consts used from `grpc/mod.rs` (`set_config`, `paid_policy_refusal`, `add_model` completion), `orchestrator/mod.rs` local-rank edit, `mcp_supervisor.rs` entry + `OZONE_SUPERVISED` env + provider-id alias.
+- **New build step (EU and local):** `cd tools/engine-bridge && npm install && npm run build`, then `node scripts/register-tools-to-ozone.mjs` (idempotent; adds `bridge_status`). Without the build the supervisor cannot start :3210.
+- **First-walk additions:** engine call through `/mcp/call` (`blender_get_scene` when Blender is up, else `bridge_status`); a `cli` model in the chain held by the jurisdiction gate until its `cli:<name>` destination is decided; vendor model entry refused while "Allow paid models" is off.
+- **Operator steps:** untrack the `tools/bridges` gitlink and refresh policy providers rows — `docs/evidence/bridges-incorporation/DECISION.md`.

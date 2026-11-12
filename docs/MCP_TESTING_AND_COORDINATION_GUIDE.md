@@ -266,3 +266,14 @@ each fork's server lifecycle, logged in its findings.
 
 Each batch's findings get folded back into this doc's §1 table and into
 `CHECKLIST.md`, matching this session's established pattern.
+
+---
+
+## 2026-11-12 — bridges is now `tools/engine-bridge` (port 3210)
+
+The table row "bridges | `tools/bridges/` | :3210 | 67" now reads: **engine-bridge | `tools/engine-bridge/` | :3210 | 67 + `bridge_status`**. Differences for testing:
+- Build first: `cd tools/engine-bridge && npm install && npm run build` (no lockfile shipped; the old console's fastify dependency is gone).
+- The supervisor runs `dist/index.js` with `OZONE_BRIDGE_PORT=3210` and `OZONE_SUPERVISED=1` (no stdio surface). Before this change it ran the provider console `dist/local.js` on :3210, which answered neither `/call` nor `/execute` — re-test every engine call (BL1–BL9 in MASTER_TEST_GUIDE) after the swap.
+- On a strict host `/call` and `/execute` refuse a request without `x-oz-internal` (401), and refuse everything with 503 if the guard is on and no token is available. Call it through `/mcp/call` (the host adds the token) or send the token yourself.
+- New: `bridge_status` (engine + project detection) via `/mcp/call`; the foundation tools (`doctor`, `list_capabilities`, `inspect_project`, `project_init`) are only on the stdio MCP surface (not on `/call`) — as before.
+- `:3100` (dashboard, `/api/chat`, `/mcp`) no longer exists.

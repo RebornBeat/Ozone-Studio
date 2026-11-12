@@ -7,7 +7,16 @@
   "providers": [
     { "endpoint_contains": "localhost", "region": "local", "note": "same machine" },
     { "endpoint_contains": "127.0.0.1", "region": "local", "note": "same machine" },
-    { "endpoint_contains": "openrouter.ai", "region": "third_country_unverified", "note": "aggregator: the serving provider and its region are chosen per request, not by this instance; set zero-data-retention routing and a DPA on the account, then declare a different region here if the operator verifies one" }
+    { "endpoint_contains": "openrouter.ai", "region": "third_country_unverified", "note": "aggregator: the serving provider and its region are chosen per request, not by this instance; set zero-data-retention routing and a DPA on the account, then declare a different region here if the operator verifies one" },
+    { "endpoint_contains": "api.anthropic.com", "region": "third_country_unverified", "note": "Anthropic direct API (paid; selectable only with allow_paid_models). Declare a different region after the operator verifies the account's processing terms and data location" },
+    { "endpoint_contains": "api.openai.com", "region": "third_country_unverified", "note": "OpenAI direct API (paid; selectable only with allow_paid_models). Declare a different region after the operator verifies the account's processing terms and data residency setting" },
+    { "endpoint_contains": "generativelanguage.googleapis.com", "region": "third_country_unverified", "note": "Google Gemini API (paid; selectable only with allow_paid_models). Declare a different region after the operator verifies the account's terms" },
+    { "endpoint_contains": "api.z.ai", "region": "third_country_unverified", "note": "z.ai API (paid; selectable only with allow_paid_models); the serving region is not verified by this instance" },
+    { "endpoint_contains": "api.minimax.io", "region": "third_country_unverified", "note": "MiniMax API (paid; selectable only with allow_paid_models); the serving region is not verified by this instance" },
+    { "endpoint_contains": "api.minimaxi.com", "region": "third_country_unverified", "note": "MiniMax API, alternate host (paid; selectable only with allow_paid_models); the serving region is not verified by this instance" },
+    { "endpoint_contains": "cli:codex", "region": "third_country_unverified", "note": "host-managed Codex CLI agent: the prompt goes to the vendor behind the operator's own CLI login. The CLI's vendor and region are not verified by this instance" },
+    { "endpoint_contains": "cli:claude", "region": "third_country_unverified", "note": "host-managed Claude Code CLI agent (also matches cli:claude-code): the prompt goes to the vendor behind the operator's own CLI login" },
+    { "endpoint_contains": "cli:zcode", "region": "third_country_unverified", "note": "host-managed ZCode CLI agent: the prompt goes to the vendor behind the operator's own CLI login" }
   ],
   "default_region_unlisted_endpoint": "third_country_unverified",
   "allow_personal_data_regions": ["local", "eea"],

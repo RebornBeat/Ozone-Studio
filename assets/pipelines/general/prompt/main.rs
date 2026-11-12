@@ -42,6 +42,12 @@ use std::env;
 /// their own threads so a large write cannot block on a full pipe. A kill is an
 /// error, never partial output.
 fn run_bounded_child(cmd: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    run_bounded_child_stdin(cmd, None)
+}
+
+/// `run_bounded_child` with an optional stdin payload (host-managed CLI providers read the prompt from stdin: no argv-length limit, and
+/// the prompt does not appear in the process list). The payload is written on its own thread and the pipe is then closed.
+fn run_bounded_child_stdin(cmd: &mut std::process::Command, stdin_data: Option<Vec<u8>>) -> std::io::Result<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
     let secs = env::var("OZONE_PIPELINE_TIMEOUT_SECS")
@@ -49,10 +55,19 @@ fn run_bounded_child(cmd: &mut std::process::Command) -> std::io::Result<std::pr
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(285)
         .max(1);
-    cmd.stdin(Stdio::null())
+    cmd.stdin(if stdin_data.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
+    if let Some(data) = stdin_data {
+        if let Some(mut si) = child.stdin.take() {
+            std::thread::spawn(move || {
+                use std::io::Write;
+                // A child that exits before reading everything closes the pipe: that surfaces through its exit status, not here.
+                let _ = si.write_all(&data);
+            });
+        }
+    }
     // PROGRESS-BASED (operator 2026-11-06): the reader threads stamp `activity` on every read (a local model prints tokens/log lines
     // as it works). The child is killed when it has been SILENT for `secs` (idle limit; OZONE_PIPELINE_TIMEOUT_SECS, default 285) —
     // or when it exceeds a very large safety ceiling (OZONE_LOCAL_MAX_SECS, default 7200). Taking long while producing output is
@@ -222,7 +237,7 @@ pub struct PromptOutput {
 /// Model configuration (read from OzoneConfig)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
-    pub model_type: String,  // "api", "gguf", "onnx", "bitnet"
+    pub model_type: String,  // "api", "gguf", "onnx", "bitnet", "cli"
     pub api_endpoint: Option<String>,
     pub api_key_env: Option<String>,
     /// Raw key value — only ever populated by a per-call model_override_config
@@ -365,7 +380,9 @@ pub async fn execute(input: PromptInput, config: &ModelConfig) -> Result<PromptO
     // JURISDICTION (phase 3): this binary is where model content actually LEAVES the machine. It also runs when a modality / zero-shot
     // pipeline spawns it directly (never crossing the host's registry seam), so the clearance is asked of the host HERE, once per provider
     // request: same gate (agreements, destination region, personal-data shapes, operator approvals). A held or unjudgeable call is NOT sent.
-    if model_type == "api" {
+    // A `cli` model (a host-managed CLI agent: codex / claude / zcode) sends the same content to its vendor, so it is judged by the same gate;
+    // its destination is `api_endpoint = cli:<name>` (a policy `providers` row, else the unlisted-endpoint region).
+    if model_type == "api" || model_type == "cli" {
         if let Err(held) = jurisdiction_clearance(&input, effective).await {
             return Err(held);
         }
@@ -376,6 +393,7 @@ pub async fn execute(input: PromptInput, config: &ModelConfig) -> Result<PromptO
         "gguf" => execute_gguf(input, effective).await,
         "onnx" => execute_onnx(input, effective).await,
         "bitnet" => execute_bitnet(input, effective).await,
+        "cli" => execute_cli(input, effective).await,
         _ => Err(format!("Unsupported model type: {}", model_type)),
     };
 
@@ -1606,6 +1624,121 @@ fn stage_prompt_args(prompt: &str) -> (Vec<String>, PromptFileGuard) {
 /// warm server is an optimization, never a dependency. Launch story
 /// (operator/harness): llama-server -m <model> -c 8192 --host 127.0.0.1
 /// --port 8081 — the same BitNet i2_s model file the CLI path uses.
+// ============================================================================
+// CLI PROVIDERS (bridges incorporation 2026-11-12) — codex / claude / zcode as MODELS behind the same contract
+// ============================================================================
+// The standalone provider console (tools/bridges control-plane) spawned these CLIs behind its own door. They are now an ordinary model
+// transport: `model_type = "cli"`, `api_endpoint = "cli:<name>"`. The prompt goes in on STDIN (never argv), the CLI's stdout is the response
+// (parsed like any model answer; an empty answer is an error, never a silent success), a non-zero exit is an error carrying the CLI's own stderr.
+// JURISDICTION: the call is cleared by the host first (see `execute`); `cli:<name>` is a policy `providers` destination, so a CLI whose vendor is
+// not listed takes the instance's unlisted-endpoint region and is HELD until the operator decides — never allowed unjudged.
+// HARDENING: the child runs in a scratch directory (not the repo or the data dir) with a CLEARED environment: only PATH/HOME-class variables
+// and that CLI's own credentials pass through, so the host's provider keys never reach it.
+// Operator knobs (env): OZONE_CLI_<NAME>_COMMAND (command path; REQUIRED for any name other than codex/claude/zcode — an arbitrary
+// `cli:` endpoint is never spawned), OZONE_CLI_<NAME>_ARGS (whitespace-separated args replacing the preset), OZONE_CLI_<NAME>_ENV
+// (comma list of extra env names to pass), OZONE_CLI_CWD. Legacy names CODEX_COMMAND / CLAUDE_CODE_COMMAND / ZCODE_COMMAND are honoured.
+
+struct CliSpec {
+    command: String,
+    args: Vec<String>,
+    pass_env: Vec<String>,
+    model_flag: Option<&'static str>,
+}
+
+fn cli_spec(name: &str) -> Result<CliSpec, String> {
+    let lower = name.trim().to_ascii_lowercase();
+    let key: String = lower
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .collect();
+    let nonempty = |k: &str| env::var(k).ok().filter(|s| !s.trim().is_empty());
+    // (default command, default args, legacy command env, own credential env names, model flag)
+    let (def_cmd, def_args, legacy, creds, model_flag): (Option<&str>, Vec<&str>, &str, Vec<&str>, Option<&'static str>) = match lower.as_str() {
+        "codex" => (Some("codex"), vec!["exec", "--skip-git-repo-check", "-"], "CODEX_COMMAND", vec!["OPENAI_API_KEY", "CODEX_HOME"], Some("-m")),
+        "claude" | "claude-code" => (Some("claude"), vec!["-p", "--output-format", "text"], "CLAUDE_CODE_COMMAND", vec!["ANTHROPIC_API_KEY", "CLAUDE_CONFIG_DIR"], Some("--model")),
+        "zcode" => (Some("zcode"), vec!["-p", "--output-format", "text"], "ZCODE_COMMAND", vec!["ZAI_API_KEY", "ZCODE_HOME"], Some("--model")),
+        _ => (None, vec![], "", vec![], None),
+    };
+    let command = nonempty(&format!("OZONE_CLI_{key}_COMMAND"))
+        .or_else(|| if legacy.is_empty() { None } else { nonempty(legacy) })
+        .or_else(|| def_cmd.map(str::to_string))
+        .ok_or_else(|| format!("cli provider '{name}' is not configured: set OZONE_CLI_{key}_COMMAND (only codex, claude and zcode have built-in presets; an arbitrary cli: endpoint is never spawned)"))?;
+    let args: Vec<String> = match nonempty(&format!("OZONE_CLI_{key}_ARGS")) {
+        Some(a) => a.split_whitespace().map(str::to_string).collect(),
+        None => def_args.iter().map(|a| a.to_string()).collect(),
+    };
+    let mut pass_env: Vec<String> = creds.iter().map(|s| s.to_string()).collect();
+    if let Some(extra) = nonempty(&format!("OZONE_CLI_{key}_ENV")) {
+        pass_env.extend(extra.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+    }
+    Ok(CliSpec { command, args, pass_env, model_flag })
+}
+
+async fn execute_cli(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
+    let endpoint = config.api_endpoint.clone().unwrap_or_default();
+    let name = endpoint.strip_prefix("cli:").unwrap_or("").trim().to_string();
+    if name.is_empty() {
+        return Err("cli model needs api_endpoint = cli:<codex|claude|zcode|name>".to_string());
+    }
+    let spec = cli_spec(&name)?;
+    let prompt = build_prompt(&input);
+    let mut args = spec.args.clone();
+    // A concrete model id selects the CLI's own model; the placeholder ids never do.
+    if let (Some(flag), Some(model)) = (spec.model_flag, config.api_model.as_deref()) {
+        let m = model.trim();
+        if !m.is_empty() && !m.eq_ignore_ascii_case("default") && !m.starts_with("cli/") && !args.iter().any(|a| a == flag) {
+            // flags go BEFORE a trailing "-" (stdin marker) when the preset ends with one
+            let at = if args.last().map(|a| a == "-").unwrap_or(false) { args.len() - 1 } else { args.len() };
+            args.insert(at, m.to_string());
+            args.insert(at, flag.to_string());
+        }
+    }
+    let workdir = env::var("OZONE_CLI_CWD").ok().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
+        format!("{}/cli_workdir", env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string()))
+    });
+    std::fs::create_dir_all(&workdir).map_err(|e| format!("cli provider: cannot create the scratch directory {workdir}: {e}"))?;
+    let started = std::time::Instant::now();
+    let command = spec.command.clone();
+    let pass_env = spec.pass_env.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new(&command);
+        cmd.args(&args).current_dir(&workdir).env_clear();
+        for k in ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TMPDIR", "SHELL", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"] {
+            if let Ok(v) = env::var(k) {
+                cmd.env(k, v);
+            }
+        }
+        for k in &pass_env {
+            if let Ok(v) = env::var(k) {
+                cmd.env(k, v);
+            }
+        }
+        run_bounded_child_stdin(&mut cmd, Some(prompt.into_bytes()))
+    })
+    .await
+    .map_err(|e| format!("cli provider task failed: {e}"))?
+    .map_err(|e| format!("cli provider '{name}' could not run ({}): {e}", spec.command))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !output.status.success() {
+        return Err(format!(
+            "cli provider '{name}' exited with {}: {}",
+            output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "a signal".into()),
+            if stderr.is_empty() { "(no stderr)".to_string() } else { stderr }
+        ));
+    }
+    if stdout.is_empty() {
+        return Err(format!("cli provider '{name}' returned an empty answer{}", if stderr.is_empty() { String::new() } else { format!(" (stderr: {stderr})") }));
+    }
+    Ok(PromptOutput {
+        response: stdout,
+        model_used: format!("cli:{name}"),
+        finish_reason: Some("stop".to_string()),
+        total_time_ms: Some(started.elapsed().as_millis() as f32),
+        ..Default::default()
+    })
+}
+
 async fn execute_bitnet_server(
     input: PromptInput,
     config: &ModelConfig,

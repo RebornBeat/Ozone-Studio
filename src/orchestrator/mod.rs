@@ -4739,7 +4739,8 @@ impl PromptOrchestrator {
                     // whatever its health. Local is the last resort, not a
                     // peer that health reordering can move ahead of remote
                     // free models that are still untried.
-                    let local_rank = usize::from(local_last && m.model_type != "api");
+                    // A `cli` entry (codex / claude / zcode) is REMOTE — it runs on the vendor's account — so it is not "local" for this ordering.
+                    let local_rank = usize::from(local_last && m.model_type != "api" && m.model_type != "cli");
                     // Sort key: (would-overflow, local-last, failure count, original order)
                     (too_small, local_rank, fails.min(999), i, m)
                 })

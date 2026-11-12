@@ -93,7 +93,11 @@ const fn facts(
 /// guessed from directory names.
 pub fn facts_for_port(port: u16) -> Option<McpProcessFacts> {
     match port {
-        3210 => Some(facts("bridges", "dist/local.js", "LOCAL_CONTROL_PORT")),
+        // BRIDGES INCORPORATION (2026-11-12): the engine bridge (pipelines 200-203 /execute + the 67 engine tools on /call) is vendored at
+        // tools/engine-bridge. The previous entry (tools/bridges `dist/local.js`) was the standalone PROVIDER CONSOLE: it squatted :3210 (via
+        // LOCAL_CONTROL_PORT) and answered neither /call nor /execute, so a supervised host had no working engine route. Model calls
+        // (vendor APIs, CLI agents) belong to the host's own provider layer, not to a second console.
+        3210 => Some(facts("engine-bridge", "dist/index.js", "OZONE_BRIDGE_PORT")),
         3215 => Some(facts("terminal-mcp", "server.mjs", "OZONE_TERMINAL_PORT")),
         3220 => Some(facts("visual-mcp", "server.mjs", "OZONE_VISUAL_PORT")),
         3225 => Some(facts("web-mcp", "server.mjs", "OZONE_WEB_PORT")),
@@ -167,7 +171,10 @@ pub fn extract_port(endpoint: &str) -> Option<u16> {
 /// `endpoint-<port>` (or the raw endpoint for stdio/unparseable) so it is still addressable, never silently dropped.
 pub fn provider_for_endpoint(endpoint: &str) -> String {
     match extract_port(endpoint) {
-        Some(port) => facts_for_port(port).map(|f| f.dir.to_string()).unwrap_or_else(|| format!("endpoint-{port}")),
+        Some(port) => facts_for_port(port)
+            // The vendored engine bridge keeps the provider id `bridges` (stored methodology/blueprint bindings and registry rows name it).
+            .map(|f| if f.dir == "engine-bridge" { "bridges".to_string() } else { f.dir.to_string() })
+            .unwrap_or_else(|| format!("endpoint-{port}")),
         None => endpoint.to_string(),
     }
 }
@@ -391,6 +398,8 @@ impl McpProcessSupervisor {
                 .arg(&script)
                 .env(facts.port_env, port.to_string())
                 .env("OZONE_ZSEI_DATA_DIR", zsei_data_dir)
+                // Tells a tool server it runs under the supervisor (stdin is /dev/null): the engine bridge then skips its stdio MCP surface.
+                .env("OZONE_SUPERVISED", "1")
                 // The loopback guard (tools/shared/guard.mjs) verifies the host's
                 // x-oz-internal header against this token. Absent token => the guard
                 // searches the data dir files itself.

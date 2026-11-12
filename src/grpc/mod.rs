@@ -3981,12 +3981,12 @@ async fn get_config(
 fn paid_policy_refusal(models: &serde_json::Value) -> Option<String> {
     const POLICY: &str = "policy: only free OpenRouter models and local BitNet may be used";
     if let Some(p) = models.get("api_provider").and_then(|v| v.as_str()) {
-        if matches!(p, "anthropic" | "openai" | "google") {
+        if crate::config::PAID_PROVIDERS.iter().any(|x| x.eq_ignore_ascii_case(p)) {
             return Some(format!("refused: api_provider '{p}' is a paid direct provider; {POLICY}"));
         }
     }
     if let Some(ep) = models.get("api_endpoint").and_then(|v| v.as_str()) {
-        for paid_host in ["api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com"] {
+        for paid_host in crate::config::PAID_ENDPOINT_HOSTS {
             if ep.contains(paid_host) {
                 return Some(format!("refused: api_endpoint '{ep}' is a paid direct provider; {POLICY}"));
             }
@@ -4080,14 +4080,11 @@ async fn set_config(
                 // map to your actual fields
                 // Paid providers (anthropic, openai, google) never reach this
                 // point: paid_policy_refusal rejects them before any update.
-                model_config.api_endpoint = match v {
-                    "openrouter" => {
-                        Some("https://openrouter.ai/api/v1/chat/completions".to_string())
-                    }
-                    _ => model_config.api_endpoint, // already Option<String>
-                };
-                if v == "openrouter" {
-                    model_config.wire_protocol = Some("chat_completions".to_string());
+                // A named vendor sets its own endpoint AND wire protocol (config::VENDOR_PRESETS). Before 2026-11-12 only `openrouter` did:
+                // choosing anthropic/openai/google in the UI left the previous endpoint in place. `custom` keeps what the operator typed.
+                if let Some(preset) = crate::config::vendor_preset(v) {
+                    model_config.api_endpoint = Some(preset.endpoint.to_string());
+                    model_config.wire_protocol = Some(preset.wire_protocol.to_string());
                 }
             }
             if let Some(v) = models.get("api_key").and_then(|v| v.as_str()) {
@@ -4137,7 +4134,27 @@ async fn set_config(
             // and a wholesale replace risks one clobbering the other's
             // concurrent edit on a stale fetch-then-save.
             if let Some(v) = models.get("add_model") {
-                if let Ok(m) = serde_json::from_value::<crate::config::AvailableModel>(v.clone()) {
+        // A CLI agent (codex / claude / zcode) runs on the vendor's account: same class as the paid direct API.
+        if ep.starts_with("cli:") {
+            return Some(format!("refused: api_endpoint '{ep}' is a vendor CLI agent (paid); {POLICY}"));
+        }
+                if let Ok(mut m) = serde_json::from_value::<crate::config::AvailableModel>(v.clone()) {
+                    // The host owns each vendor's endpoint and wire protocol (config::VENDOR_PRESETS): an entry that names only its provider is
+                    // completed here, so the UI never has to know (or get wrong) a URL. A CLI agent's destination is `cli:<provider>`.
+                    if m.model_type == "api" && m.api_endpoint.as_deref().map(str::is_empty).unwrap_or(true) {
+                        if let Some(preset) = crate::config::vendor_preset(&m.provider) {
+                            m.api_endpoint = Some(preset.endpoint.to_string());
+                            if m.wire_protocol.is_none() {
+                                m.wire_protocol = Some(preset.wire_protocol.to_string());
+                            }
+                            if m.api_key.is_none() && m.api_key_env.is_none() {
+                                m.api_key_env = Some(preset.key_env.to_string());
+                            }
+                        }
+                    }
+                    if m.model_type == "cli" && m.api_endpoint.as_deref().map(str::is_empty).unwrap_or(true) {
+                        m.api_endpoint = Some(format!("cli:{}", m.provider));
+                    }
                     model_config.available_models.retain(|existing| existing.identifier != m.identifier);
                     model_config.available_models.push(m);
                 }
