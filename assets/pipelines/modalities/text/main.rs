@@ -7391,11 +7391,8 @@ RESPOND ONLY WITH JSON."#,
         // whatever id comes back and use it for later GetGraph/UpdateGraph
         // calls, so this MUST be the id ZSEI actually knows about, or
         // "accessible between model change" stays false regardless of the
-        // rest of this fix. On persistence failure, fall back to the local
-        // mint (still cached below) rather than failing the whole analysis —
-        // the caller gets a working in-process graph_id for this run even if
-        // ZSEI is unreachable, same graceful-degradation posture the rest of
-        // this pipeline already uses for optional integrations.
+        // rest of this fix. On persistence failure the creation FAILS (see the
+        // Err arm below): no local mint is ever returned as if it were real.
         let mut link_metrics: Option<Value> = None;
         let mut graph = graph;
         match persist_graph_container(&graph, &analysis, project_id).await {
@@ -7411,7 +7408,15 @@ RESPOND ONLY WITH JSON."#,
                 }
             }
             Err(e) => {
-                eprintln!("Failed to persist text graph to ZSEI (using local id only): {}", e);
+                // NO MINTED IDS (operator 2026-11-11): a graph that was not persisted has no id anyone can query — handing back the local
+                // build-time id made a failure look like success and let later stages work on a graph that does not exist. The failure is
+                // returned; the host records it on the task and opens a retry item (the link worker rebuilds file graphs).
+                eprintln!("Failed to persist text graph to ZSEI — returning the failure, no id is minted: {}", e);
+                return TextModalityOutput {
+                    success: false,
+                    error: Some(format!("the text graph could not be persisted to ZSEI (no graph id was minted): {e}")),
+                    ..Default::default()
+                };
             }
         }
 

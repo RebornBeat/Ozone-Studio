@@ -237,17 +237,17 @@ impl PromptOrchestrator {
             // math's CreateGraph result nests graph_id under "result"
             // (MathResult is #[serde(untagged)]), unlike code/text's
             // CodeModalityOutput-style shape which puts it at the top level.
-            let graph_id = if pipeline_id == 105 {
-                graph_result
-                    .get("result")
-                    .and_then(|r| r.get("graph_id"))
-                    .and_then(|g| g.as_u64())
-                    .unwrap_or(Self::generate_id_static())
+            // NO MINTED IDS (operator 2026-11-11): a creation that returned no real graph id is a FAILURE — recorded (retry item under the
+            // task, gate waits), no `modality_graphs` / `graph_states` entry for it, the walk continues from the request's own chunked text.
+            let found_id = if pipeline_id == 105 {
+                graph_result.get("result").and_then(|r| r.get("graph_id")).and_then(|g| g.as_u64())
             } else {
-                graph_result
-                    .get("graph_id")
-                    .and_then(|g| g.as_u64())
-                    .unwrap_or(Self::generate_id_static())
+                graph_result.get("graph_id").and_then(|g| g.as_u64())
+            };
+            let Some(graph_id) = found_id else {
+                let reason = graph_result.get("error").and_then(|e| e.as_str()).unwrap_or("the pipeline returned no graph_id").to_string();
+                Self::record_graph_failure(state, "modality", &modality, &reason);
+                continue;
             };
 
             state.modality_graphs.insert(modality.clone(), graph_id);
@@ -759,9 +759,20 @@ impl PromptOrchestrator {
             .await
     }
 
+    /// Record a graph creation that FAILED (never mint an id for it). Idempotent on (kind, subject). `kind` = `file` (subject = the file path) or
+    /// `modality` (subject = the modality name of the prompt's own graphs). The record becomes a retry item under the open task
+    /// (`work_order.rs::materialize_work_order`), so the completion gate holds the walk until the graph exists; it is also an intent event.
+    pub(crate) fn record_graph_failure(state: &mut OrchestrationState, kind: &str, subject: &str, reason: &str) {
+        if state.graph_failures.iter().any(|f| f["kind"].as_str() == Some(kind) && f["subject"].as_str() == Some(subject)) {
+            return;
+        }
+        state.graph_failures.push(serde_json::json!({"kind": kind, "subject": subject, "reason": reason}));
+        super::amt::record_intent_event(state, "graph_creation_failed", serde_json::json!({"kind": kind, "subject": subject, "reason": reason, "continues_from": "the chunked text"}));
+    }
+
     /// The walk's attached-file step: analyse the file with its modality pipeline and create its graph, through the shared reader (`file_reader`).
-    ///   * text / code / math — exactly the earlier behaviour: `file_content` (the whole file, or the inline preview) goes through `process_modality`; the
-    ///     minted-id fallback of the old inline code is kept for these three only.
+    ///   * text / code / math — `file_content` (the whole file, or the inline preview) goes through `process_modality`; a CreateGraph that returns no real
+    ///     graph id is an `Err` (2026-11-11: no id is ever minted — the walk records it as a graph failure and continues from the chunked text).
     ///   * every other modality — the pipeline takes the file BY PATH (or the typed source its reader builds), so nothing is read here; a missing graph id is an
     ///     error (never a minted stand-in), and a file whose pipeline needs parameters the file does not state is `Ok(None)` with the reason logged — no
     ///     graph, no invented analysis.
@@ -813,7 +824,9 @@ impl PromptOrchestrator {
                     .execute(pipeline_id, file_reader::create_graph_input(pipeline_id, &analysis, project_id))
                     .await
                     .unwrap_or_default();
-                Ok(Some(file_reader::graph_id_of(pipeline_id, &graph_result).unwrap_or(Self::generate_id_static())))
+                file_reader::graph_id_of(pipeline_id, &graph_result)
+                    .map(Some)
+                    .ok_or_else(|| format!("CreateGraph returned no graph_id for {} (no id is minted)", file_spec.file_path))
             }
             Shape::Wrapped | Shape::Bare => {
                 if file_spec.is_inline {

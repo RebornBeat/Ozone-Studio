@@ -2422,6 +2422,37 @@ Ok(task_id)
         self.tasks.read().await.iter().filter(|(_, t)| t.kind == kind && wo_key(t) == Some(key)).map(|(id, _)| *id).max()
     }
 
+    /// The work keys of every still-open (not completed, not cancelled) work-order task of `kind`.
+    pub async fn open_work_keys(&self, kind: &str) -> Vec<String> {
+        self.tasks
+            .read()
+            .await
+            .values()
+            .filter(|t| t.kind == kind && t.status != "completed" && t.status != "cancelled")
+            .filter_map(|t| wo_key(t).map(String::from))
+            .collect()
+    }
+
+    /// Tick `item_key` on EVERY work-order task of `kind` whose key ends with `key_suffix` (the real event that completes them happened — e.g. the
+    /// graph-on-link worker built the file graph that several walks' retry items were waiting for). Returns how many were ticked.
+    pub async fn complete_work_items_by_key_suffix(&self, kind: &str, key_suffix: &str, item_key: &str, evidence: &str, by: &str) -> usize {
+        let ids: Vec<TaskID> = self
+            .tasks
+            .read()
+            .await
+            .iter()
+            .filter(|(_, t)| t.kind == kind && wo_key(t).map(|k| k.ends_with(key_suffix)).unwrap_or(false))
+            .map(|(id, _)| *id)
+            .collect();
+        let mut n = 0;
+        for id in ids {
+            if self.complete_item(id, item_key, evidence, by).await {
+                n += 1;
+            }
+        }
+        n
+    }
+
     /// The walk task that produced this persisted AMT container (task inputs carry `amt_container_id`) — the parent of work grafted onto that
     /// AMT after the walk (re-expansion).
     pub async fn find_walk_for_amt_container(&self, container_id: u64) -> Option<TaskID> {
