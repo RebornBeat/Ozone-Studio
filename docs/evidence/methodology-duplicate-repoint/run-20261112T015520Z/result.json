@@ -1,0 +1,45 @@
+{
+ "at": "2026-11-12T01:55:21.843Z",
+ "apply": true,
+ "results": [
+  {
+   "pair": "40394->40396",
+   "ok": true,
+   "why": null,
+   "dry": false,
+   "already": false,
+   "plan": {
+    "pair": {
+     "dup": 40394,
+     "canon": 40396,
+     "citers": [
+      40397
+     ]
+    },
+    "checks": {
+     "preflight": "ok",
+     "canonical_monotone": {
+      "saved": 13,
+      "current": 13,
+      "lost": 0
+     },
+     "citers": [
+      40397
+     ],
+     "stray_body_refs": 0
+    },
+    "rewrites": [
+     {
+      "citer": 40397,
+      "name": "AMT Re-expansion Failure Recovery Blueprint for Container 3644",
+      "context_arrays_changed": 1,
+      "body": {
+       "file": "blueprints/walk_1794298398587540751.json",
+       "arrays_changed": 1
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

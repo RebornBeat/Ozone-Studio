@@ -1,0 +1,67 @@
+{
+  "decision_rules": [
+    {
+      "action": "store it under version control so every change has an author, timestamp, and diff",
+      "condition": "a configuration item (file, setting, or parameter set) is created or changed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record the current approved configuration as a baseline first so the change can be compared with it and undone",
+      "condition": "a change to configuration is about to be made",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "record what changes, why, and who approved it before applying it",
+      "condition": "a configuration change is proposed",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    },
+    {
+      "action": "link that state to the exact version and the change that produced it",
+      "condition": "a configuration state is deployed or reported",
+      "exceptions": [],
+      "priority": 5,
+      "requires": []
+    }
+  ],
+  "description": "Auto-synthesized methodology for: Configuration Management",
+  "heuristics": [
+    {
+      "description": "automate that step so it is applied identically every time",
+      "examples": [],
+      "name": "the same configuration step is repeated by hand more than once",
+      "when_to_apply": "the same configuration step is repeated by hand more than once"
+    },
+    {
+      "description": "treat the difference as drift and either reconcile it to the baseline or record it as a controlled change",
+      "examples": [],
+      "name": "deployed configuration differs from the recorded baseline",
+      "when_to_apply": "deployed configuration differs from the recorded baseline"
+    }
+  ],
+  "storage": {
+    "category": "IT Service Management",
+    "description": "A methodology focused on establishing and maintaining consistency across all components of an information system through the systematic control of changes to hardware, software, firmware, documentation, and interfaces.",
+    "keywords": [
+      "version control",
+      "change management",
+      "baselines",
+      "release management",
+      "audit",
+      "compliance"
+    ],
+    "name": "Configuration Management",
+    "principles": [
+      "Version Control",
+      "Change Control",
+      "Traceability",
+      "Baseline Establishment",
+      "Automation"
+    ]
+  }
+}

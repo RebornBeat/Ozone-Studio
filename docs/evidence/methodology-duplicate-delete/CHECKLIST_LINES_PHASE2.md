@@ -1,0 +1,5 @@
+- L160: duplicate pair 40394->40396 repointed (Blueprint 40397) and 40394 hard-deleted on the EU 2026-11-12 (done; verified: no refs, canonical loads, /health 200, journal clean). Evidence docs/evidence/methodology-duplicate-repoint/run-20261112T015520Z.
+- L161: duplicate pair 40252->40305 repointed (AMT 40253, Blueprint 40255) and 40252 hard-deleted on the EU (done; same verification). Supersedes L-lines that list the repoint+delete as pending/blocked (STATUS §Y, plan §12 step 5 is now DONE).
+- L162: plan §12 ordering note "40396 must be updated before 40394 is deleted" checked — 40396 already restated every 40394 rule; not a blocker (superseded as a precondition).
+- L163: for the later 7-draft delete (step 2b): Blueprint 40397 cites 40226/40222/40268/40262/40126/40264/40395/40084 and 40255/40253 cite 40126 — repoint before deleting each.
+- L164: not verified after the deletes: gather counts / keyword search; restore scripts not exercised.

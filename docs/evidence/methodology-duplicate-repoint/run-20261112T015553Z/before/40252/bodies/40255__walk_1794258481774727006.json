@@ -1,0 +1,393 @@
+{
+  "created_by": "orchestrator",
+  "description": "Executes the initial main AMT for container 40211, including container resolution, initial build, main AMT designation, re‑expansion, post‑expansion validation, and profile‑id validation with rollback safeguards.",
+  "methodology_ids": [
+    40126,
+    40252
+  ],
+  "missing_capabilities": [
+    "amt-hierarchy-mcp",
+    "build-mcp",
+    "container-registry-mcp",
+    "farm-profile-mcp",
+    "reexpansion-mcp",
+    "rollback-mcp",
+    "validation-mcp"
+  ],
+  "name": "AMT Re-Expansion Initial Build Blueprint",
+  "steps": [
+    {
+      "action": "resolve_container_and_verify_amt",
+      "args": null,
+      "context_requirements": [],
+      "depends_on": [],
+      "description": "Resolve target container 40211 by exact ID; verify container exists in registry and is classified under AMT; fail if container does not exist or is not AMT‑tagged.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r0"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 0,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "run_initial_build",
+      "args": null,
+      "context_requirements": [],
+      "depends_on": [],
+      "description": "Run initial build for the AMT within container 40211; do NOT proceed to re‑expansion until the build reports success with zero errors.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r1"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 1,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "inspect_or_set_main_amt",
+      "args": null,
+      "context_requirements": [],
+      "depends_on": [],
+      "description": "Inspect or establish that the AMT in container 40211 holds the 'main' designation; fail the workflow if the main AMT cannot be confirmed after resolution.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r2"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 2,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "execute_reexpansion",
+      "args": null,
+      "context_requirements": [],
+      "depends_on": [],
+      "description": "Execute re‑expansion using the build artifacts as the baseline; preserve the main AMT designation throughout the expansion; abort if expansion encounters an error mid‑way.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r3"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 3,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "validate_post_expansion_state",
+      "args": null,
+      "context_requirements": [],
+      "depends_on": [],
+      "description": "Validate that container 40211 is in a consistent post‑expansion state with the main AMT intact and sibling AMTs unaffected; report success or trigger automatic rollback to the pre‑expansion snapshot.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r4"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 4,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "validate_profile_and_invoke_farm_profile_start",
+      "args": null,
+      "context_requirements": [
+        "malformed",
+        "profile_id"
+      ],
+      "depends_on": [],
+      "description": "Validate profile_id format; if missing or malformed, abort the workflow immediately and roll back to the pre‑expansion snapshot. Retry up to three times with exponential backoff on transient provider failure; on persistent failure or malformed profile_id, abort and roll back; never proceed to re‑expansion with an invalid profile_id.",
+      "loop_config": null,
+      "max_retries": 3,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r5"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 5,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "rollback_to_pre_expansion_snapshot",
+      "args": null,
+      "context_requirements": [
+        "container",
+        "initialization"
+      ],
+      "depends_on": [],
+      "description": "Restore container 40211 to its pre‑expansion snapshot. Used after validation failure or persistent provider failure during farm_profile_start.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r5"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 6,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "execute_prompt",
+      "args": null,
+      "context_requirements": [
+        "re-expansion"
+      ],
+      "depends_on": [],
+      "description": "Address: re-expansion",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 7,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "execute_prompt",
+      "args": null,
+      "context_requirements": [
+        "re-expansion",
+        "initialbuild",
+        "container",
+        "40211",
+        "initial",
+        "main",
+        "this",
+        "project"
+      ],
+      "depends_on": [],
+      "description": "Address: AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40126,
+        40252
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 8,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    }
+  ],
+  "tool_manifest": [
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "container-registry-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to resolve and verify the existence and classification of the specified container ID",
+      "rule_index": 0,
+      "rule_ref": "m40126:r0",
+      "rule_text": "IF Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present THEN Resolve the target container by exact ID; verify the container exists in the registry and is classified under AMT; fail if the container does not exist or is not AMT-tagged.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "build-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to execute the initial build operation for the AMT in the target container",
+      "rule_index": 1,
+      "rule_ref": "m40126:r1",
+      "rule_text": "IF Container is resolved AND keyword 'initial build' is present THEN Run the initial build for the AMT within the target container; do NOT proceed to re-expansion until the build reports success with zero errors.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "amt-hierarchy-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to inspect or set the main AMT flag on the container",
+      "rule_index": 2,
+      "rule_ref": "m40126:r2",
+      "rule_text": "IF Keyword 'main amt' is present THEN Inspect or establish that the AMT in the target container holds the 'main' designation; fail the workflow if the main AMT cannot be confirmed after resolution.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "reexpansion-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to perform the re-expansion operation using build artifacts as baseline",
+      "rule_index": 3,
+      "rule_ref": "m40126:r3",
+      "rule_text": "IF Initial build completed successfully AND keyword 're-expansion' is present THEN Execute re-expansion using the build artifacts as the baseline; preserve the main AMT designation throughout the expansion; abort if expansion encounters an error mid-way.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "validation-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to verify final container state consistency and main AMT integrity",
+      "rule_index": 4,
+      "rule_ref": "m40126:r4",
+      "rule_text": "IF Re-expansion completed AND no error flags are set on the container THEN Validate that the container is in a consistent post-expansion state with the main AMT intact and sibling AMTs unaffected; report success or trigger automatic rollback to pre-expansion snapshot.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "farm-profile-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to validate the profile_id parameter and invoke farm_profile_start, distinguishing transient from persistent failures",
+      "rule_index": 5,
+      "rule_ref": "m40126:r5",
+      "rule_text": "IF farm_profile_start is required AND its input includes a profile_id parameter THEN Validate profile_id format; if missing or malformed, abort the workflow immediately and roll back to the pre-expansion snapshot. If a transient provider failure occurs, retry up to three times with exponential backoff; on persistent failure or malformed profile_id, abort and roll back; never proceed to re-expansion with an invalid profile_id.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "rollback-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to restore the container to its pre-expansion snapshot on validation failure or persistent provider failure",
+      "rule_index": 5,
+      "rule_ref": "m40126:r5",
+      "rule_text": "IF farm_profile_start is required AND its input includes a profile_id parameter THEN Validate profile_id format; if missing or malformed, abort the workflow immediately and roll back to the pre-expansion snapshot. If a transient provider failure occurs, retry up to three times with exponential backoff; on persistent failure or malformed profile_id, abort and roll back; never proceed to re-expansion with an invalid profile_id.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    }
+  ]
+}

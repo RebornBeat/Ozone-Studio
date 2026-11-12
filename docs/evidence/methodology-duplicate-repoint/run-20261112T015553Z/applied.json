@@ -1,0 +1,33 @@
+{
+ "pair": {
+  "dup": 40252,
+  "canon": 40305,
+  "citers": [
+   40255,
+   40253
+  ]
+ },
+ "at": "2026-11-12T01:55:53.733Z",
+ "citers": [
+  {
+   "id": 40253,
+   "context_arrays": 1,
+   "body": {
+    "file": "amt/amt_1794258230_22.json",
+    "arrays_changed": 1
+   }
+  },
+  {
+   "id": 40255,
+   "context_arrays": 1,
+   "body": {
+    "file": "blueprints/walk_1794258481774727006.json",
+    "arrays_changed": 2
+   }
+  }
+ ],
+ "deleted": true,
+ "delete_response": "{\"success\":true,\"result\":\"Success\",\"error\":null}",
+ "health_after": 200,
+ "canonical_version_after": 7
+}

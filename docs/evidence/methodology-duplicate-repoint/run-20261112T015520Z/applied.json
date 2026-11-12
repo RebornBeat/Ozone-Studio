@@ -1,0 +1,24 @@
+{
+ "pair": {
+  "dup": 40394,
+  "canon": 40396,
+  "citers": [
+   40397
+  ]
+ },
+ "at": "2026-11-12T01:55:21.201Z",
+ "citers": [
+  {
+   "id": 40397,
+   "context_arrays": 1,
+   "body": {
+    "file": "blueprints/walk_1794298398587540751.json",
+    "arrays_changed": 1
+   }
+  }
+ ],
+ "deleted": true,
+ "delete_response": "{\"success\":true,\"result\":\"Success\",\"error\":null}",
+ "health_after": 200,
+ "canonical_version_after": 7
+}

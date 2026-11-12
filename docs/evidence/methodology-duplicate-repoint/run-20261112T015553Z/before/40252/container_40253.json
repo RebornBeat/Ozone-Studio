@@ -1,0 +1,215 @@
+{
+ "result": {
+  "Container": {
+   "global_state": {
+    "child_count": 0,
+    "child_ids": [],
+    "container_id": 40253,
+    "parent_id": 0,
+    "version": 7
+   },
+   "local_state": {
+    "code_context": null,
+    "context": {
+     "categories": [],
+     "embedding": null,
+     "keyword_meta": {
+      "*": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 7,
+        "returned_traced": 7
+       },
+       "source": "",
+       "validated": null
+      },
+      "amt": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 2,
+        "returned_traced": 2
+       },
+       "source": "",
+       "validated": null
+      },
+      "amt-main": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 2,
+        "returned_traced": 2
+       },
+       "source": "",
+       "validated": null
+      },
+      "container": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 7,
+        "returned_traced": 7
+       },
+       "source": "",
+       "validated": null
+      },
+      "initial main": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 2,
+        "returned_traced": 2
+       },
+       "source": "",
+       "validated": null
+      },
+      "initialbuild": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 2,
+        "returned_traced": 2
+       },
+       "source": "",
+       "validated": null
+      },
+      "project": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 2,
+        "returned_traced": 2
+       },
+       "source": "",
+       "validated": null
+      },
+      "re-expansion": {
+       "hits": {
+        "applied": 0,
+        "dropped": 0,
+        "human": 0,
+        "kept": 0,
+        "packed": 0,
+        "returned": 2,
+        "returned_traced": 2
+       },
+       "source": "",
+       "validated": null
+      }
+     },
+     "keywords": [
+      "container",
+      "amt",
+      "project",
+      "initialbuild",
+      "40211",
+      "re-expansion",
+      "initial main",
+      "amt-main"
+     ],
+     "learned_associations": [],
+     "methodologies": [
+      40126,
+      40252
+     ],
+     "relationships": [],
+     "topics": [
+      "Initial build",
+      "AMT re-expansion",
+      "Container deployment",
+      "Project setup"
+     ]
+    },
+    "external_ref": null,
+    "file_context": null,
+    "hints": {
+     "access_frequency": 7,
+     "centroid": null,
+     "hotness_score": 0,
+     "last_accessed": 1794298398,
+     "ml_prediction_weight": 0
+    },
+    "integrity": {
+     "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "integrity_score": 1,
+     "last_verified": 1794258230,
+     "semantic_fingerprint": [],
+     "version_history": []
+    },
+    "metadata": {
+     "container_type": "Derived",
+     "created_at": 1794258230,
+     "materialized_path": null,
+     "modality": "Unknown",
+     "name": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+     "owner_id": 0,
+     "permissions": 0,
+     "provenance": "orchestrator:amt",
+     "updated_at": 1794298575
+    },
+    "storage": {
+     "compression_type": "None",
+     "db_shard_id": null,
+     "object_store_path": "amt/amt_1794258230_22.json",
+     "vector_index_ref": null
+    },
+    "text_context": null
+   }
+  }
+ }
+}

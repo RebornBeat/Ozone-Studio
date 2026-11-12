@@ -1,0 +1,399 @@
+{
+  "id": 22,
+  "node_type": "Root",
+  "content": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+  "source_chunk_indices": [
+    0
+  ],
+  "children": [
+    {
+      "id": 2,
+      "node_type": "Branch",
+      "content": "amt",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 12,
+          "node_type": "Leaf",
+          "content": "AMT re-expansion operation is being performed on container 40211",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "type": "detail",
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 3,
+      "node_type": "Branch",
+      "content": "container initialization",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 13,
+          "node_type": "Leaf",
+          "content": "Container ID 40211 is involved in the re-expansion process",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+            "type": "detail"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 4,
+      "node_type": "Branch",
+      "content": "farm_profile_start",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 14,
+          "node_type": "Leaf",
+          "content": "This is the initial main AMT for the project, indicating first-time or baseline deployment",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+            "type": "detail"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 5,
+      "node_type": "Branch",
+      "content": "initial build",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 15,
+          "node_type": "Leaf",
+          "content": "Operation is tagged as [InitialBuild], confirming this is the first build iteration",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "type": "detail",
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 6,
+      "node_type": "Branch",
+      "content": "input validation",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 16,
+          "node_type": "Leaf",
+          "content": "Container 40211 must be initialized as part of this re-expansion; no explicit validation rules are stated in this chunk",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+            "type": "requirement"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 7,
+      "node_type": "Branch",
+      "content": "main amt",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 17,
+          "node_type": "Leaf",
+          "content": "This chunk refers to the initial main AMT, establishing the primary AMT target for the project",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "type": "detail",
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 8,
+      "node_type": "Branch",
+      "content": "malformed profile_id",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 18,
+          "node_type": "Consideration",
+          "content": "No explicit mention of malformed profile_id handling in this chunk; the text does not reference profile_id validity",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project",
+            "type": "constraint"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 9,
+      "node_type": "Branch",
+      "content": "pre-expansion rollback",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 19,
+          "node_type": "Consideration",
+          "content": "No explicit mention of pre-expansion rollback logic in this chunk; the text does not reference rollback procedures",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "type": "constraint",
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 10,
+      "node_type": "Branch",
+      "content": "provider failure",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 20,
+          "node_type": "Consideration",
+          "content": "No explicit mention of provider failure handling in this chunk; the text does not reference provider status or failure conditions",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "type": "constraint",
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    },
+    {
+      "id": 11,
+      "node_type": "Branch",
+      "content": "re-expansion",
+      "source_chunk_indices": [
+        0
+      ],
+      "children": [
+        {
+          "id": 21,
+          "node_type": "Leaf",
+          "content": "The operation is explicitly labeled as 're-expansion', confirming the expansion context",
+          "source_chunk_indices": [
+            0
+          ],
+          "children": [],
+          "relationships": [],
+          "methodology_ids": [],
+          "metadata": {
+            "type": "detail",
+            "source_sentence_1": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+          },
+          "depth": 2,
+          "verified": true,
+          "confidence": 1.0
+        }
+      ],
+      "relationships": [],
+      "methodology_ids": [
+        40126
+      ],
+      "metadata": {
+        "source_sentence_0": "AMT re-expansion [InitialBuild] container 40211 — initial main AMT for this project"
+      },
+      "depth": 1,
+      "verified": true,
+      "confidence": 1.0
+    }
+  ],
+  "relationships": [],
+  "methodology_ids": [
+    40126,
+    40252
+  ],
+  "metadata": {},
+  "depth": 0,
+  "verified": true,
+  "confidence": 1.0
+}

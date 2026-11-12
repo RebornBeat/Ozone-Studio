@@ -1,0 +1,1231 @@
+{
+  "created_by": "orchestrator",
+  "description": "Comprehensive execution blueprint addressing all 29 branches of AMT re-expansion failure for container 3644, focusing on farm_profile_start MCP tool failure recovery, retry logic, validation, rollback, MCP capability verification, and canonical resolution. Each branch from the AMT root is explicitly addressed by dedicated steps following applicable methodology rules.",
+  "methodology_ids": [
+    40226,
+    40222,
+    40268,
+    30037,
+    40125,
+    40264,
+    40262,
+    40126,
+    40084,
+    40185,
+    40381,
+    40382,
+    40383,
+    40384,
+    40385,
+    40386,
+    40388,
+    40389,
+    40391,
+    40394,
+    40395,
+    40396
+  ],
+  "missing_capabilities": [
+    "amt-hierarchy-mcp",
+    "build-mcp",
+    "container-registry-mcp",
+    "farm-profile-mcp",
+    "reexpansion-mcp",
+    "rollback-mcp",
+    "validation-mcp"
+  ],
+  "name": "AMT Re-expansion Failure Recovery Blueprint for Container 3644",
+  "steps": [
+    {
+      "action": "ImplementRetryLogicExponentialBackoff",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [],
+      "description": "Implement retry logic with exponential backoff for farm_profile_start MCP tool failures during AMT re-expansion for container 3644. Following m40126:r5 and AMT Re-expansion MCP Tool Failure Handling methodology: retry up to 3 times with exponential backoff (1s, 2s, 4s) for transient errors (timeout, connection reset, provider unavailable). Do not retry with same malformed profile_id.",
+      "loop_config": null,
+      "max_retries": 3,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r5"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 0,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ValidateProfileIdFormatAndExistence",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        0
+      ],
+      "description": "Validate profile_id format and existence before initiating re-expansion for container 3644. Following m40126:r5: validate profile_id is non-empty string matching expected format (alphanumeric, hyphenated, or numeric). Normalize malformed values (trim whitespace, replace illegal characters with underscores, cast to string). Abort workflow immediately and roll back to pre-expansion snapshot if invalid or missing.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r5",
+        "amt-reexpansion-profile-resolution"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 1,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "DefineGracefulDegradationPath",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        1
+      ],
+      "description": "Define graceful degradation path when farm_profile_start fails during re-expansion for container 3644. Following Farm Profile Start Failure Recovery methodology: check farm_status and farm_profiles, reconcile state, use farm_profile_stop if profile shows 'running', 'starting', or 'paused', then retry start after 2 second delay. Check for farm-wide health before profile-specific actions.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "farm-profile-start-failure-recovery"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 2,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ImplementHttpResponseParsingRecovery",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        2
+      ],
+      "description": "Implement HTTP response parsing and recovery for farm_profile_start MCP tool errors. Following MCP Tool Failure & HTTP Response Recovery methodology: detect [object ob] in HTTP response body, abort parsing, mark operation as failed with reason 'http_object_error'. If same endpoint returns valid JSON on subsequent probe within 5 seconds, retry original call. If consistently malformed over 3 consecutive probes, mark as permanent failure and do not retry.",
+      "loop_config": null,
+      "max_retries": 3,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-tool-http-response-recovery"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 3,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "AddInputValidationFarmProfileStartParameters",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        3
+      ],
+      "description": "Add input validation for farm_profile_start parameters during initial build phase. Following amt-reexpansion-profile-resolution methodology: validate profile_id format at earliest possible point, reject missing or malformed values before invoking farm_profile_start to prevent invalid state propagation. Validate container_id format and existence for farm_profile_start calls using exact numeric ID, reject fuzzy/wildcard/pattern-based matching.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-reexpansion-profile-resolution"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 4,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "EstablishToolFallbackStrategyHierarchyConstruction",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        4
+      ],
+      "description": "Establish tool fallback strategy for hierarchy construction when primary MCP tools fail. Following AMT Hierarchy Initial Build via Registered Tools methodology: if amt-hierarchy-tool-v2 unavailable or returns persistent errors, fallback to amt-hierarchy-tool (v1). Retry once with same tool; if both fail, halt with partial-build status and log full error context. Switch between v2 and v1 on retry failure.",
+      "loop_config": null,
+      "max_retries": 2,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-hierarchy-tool-v2-fallback"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 5,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "DocumentReExpansionWorkflowFailureHandling",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        5
+      ],
+      "description": "Document re-expansion workflow with explicit failure handling steps for container 3644. Following amt-reexpansion-profile-resolution and AMT Re-expansion Initial Build Methodology: record explicit failure handling steps, coordination events (AMT re-expansion [CoordinationReceived]), profile_id resolution process, and all attempted operations for container 3644. Create audit trail for human intervention if needed.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-reexpansion-profile-resolution"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 6,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ImplementRegistryAccessFallbackContainer40211",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        6
+      ],
+      "description": "Implement registry access fallback for container 40211 during re-expansion initialization. Following AMT Re-Expansion Initial Build Container 40211 — Registry Access Methodology: if container-registry-mcp not installed, proceed using direct HTTP API calls with stored credentials. Document fallback path for audit purposes. First perform GET/HEAD request to confirm container 40211 exists with expected identity; only proceed if identity matches.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r0",
+        "amt-registry-access-40211"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 7,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "DefineRollbackProcedure farm_profile_startFailure",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        7
+      ],
+      "description": "Define rollback procedure triggered by farm_profile_start failure during re-expansion for container 3644. Following AMT Re-expansion Rollback Methodology: if rollback-mcp capability installed and container 40211 state snapshot exists, invoke rollback-mcp to revert to pre-expansion state. If snapshot missing, abort initial build expansion and perform fresh state capture before retrying. Perform capability check before initiating rollback.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40268:r0",
+        "amt-reexpansion-rollback-methodology"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 8,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "VerifyCanonicalContainerResolutionOrderIndependence",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        8
+      ],
+      "description": "Verify canonical container resolution for container 3644 is order-independent during AMT re-expansion. Following Canonical Container Resolution Must Be Order-Independent methodology: test container resolution across multiple sequential AMT re-expansion attempts for container 3644. Ensure resolution process does not depend on operation order. Flag any order-dependent behavior for correction.",
+      "loop_config": null,
+      "max_retries": 3,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "canonical-container-resolution-order-independent"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 9,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "EnsureStorageDeduplicationCanonicalOrderIndependent",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        9
+      ],
+      "description": "Ensure storage deduplication for container 3644 follows canonical order-independent process. Following Canonical Container Resolution Must Be Order-Independent methodology: validate storage deduplication process uses canonical order-independent algorithm. If process is order-dependent, implement order-independent deduplication and validate across all re-expansion sequences for container 3644.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "canonical-container-resolution-order-independent"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 10,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ValidateMcpCapabilityDeclarationsRegistry",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        10
+      ],
+      "description": "Validate MCP capability declarations for farm_profile_start tool in container 3644 registry. Following MCP Capability Declaration Verification methodology: verify manifest contains non-empty 'capabilities' array including all four categories (tools, resources, prompts, styles). Block updates to registry entry if capabilities field missing or empty. Require manifest update before allowing registry modifications.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 11,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "CheckMcpCapabilityCategoriesRequiredAmtReexpansion",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        11
+      ],
+      "description": "Check MCP capability categories required for AMT re-expansion are declared for container 3644. Following MCP Capability Declaration Verification methodology: verify all capability categories (tools, resources, prompts, styles) are present and non-empty in container 3644 registry entries. Fail if any category omitted. Instruct developer to complete missing category before re-submitting.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 12,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ClassifyMcpToolFailureTypes targetedRecovery",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        12
+      ],
+      "description": "Classify MCP tool failure types for farm_profile_start to enable targeted recovery during AMT re-expansion for container 3644. Following MCP Tool Failure & HTTP Response Recovery and Farm Profile Start Failure Recovery methodologies: classify failures as http_layer_failure (non-zero exit code with HTTP layer error), transient error (timeout, connection reset, provider unavailable), permanent failure, profile_id_missing_or_malformed, or farm 'default' class. Route to appropriate retry queue with exponential backoff starting at 1s.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-tool-http-response-recovery",
+        "farm-profile-start-failure-recovery"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 13,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ImplementManualReviewEscalationPath",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        13
+      ],
+      "description": "Implement manual review escalation path for unresolved farm_profile_start failures during AMT re-expansion for container 3644. Following amt-reexpansion-profile-resolution methodology: if profile_id persists across attempts after correction, halt automated processing. Log container id (3644), coordination id, and attempted profile_id values for human intervention. Do not proceed with any other re-expansion actions for this container until operator acknowledges resolution.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-reexpansion-profile-resolution"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 14,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ValidateContainerIdFormatAndExistence",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        14
+      ],
+      "description": "Validate container_id format and existence for farm_profile_start calls during AMT re-expansion for container 3644. Following amt-reexpansion-profile-resolution methodology: use exact container ID (3644) as sole targeting parameter; reject fuzzy, wildcard, or pattern-based matching. Verify container exists in registry and is classified under AMT. Fail if container does not exist or is not AMT-tagged.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r0",
+        "amt-reexpansion-profile-resolution"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 15,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ImplementContainerInitializationFailureHandling",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        15
+      ],
+      "description": "Implement container initialization failure handling for AMT re-expansion initial build for container 3644. Following AMT Initial Build & Re-expansion Procedure methodology: if previous build incomplete or corrupted, run diagnostic scan on prior state. If corruption detected, discard and perform fresh initial build. Mark SUCCESS only after all integration tests pass with zero errors before proceeding to re-expansion.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-initial-build-re-expansion-procedure"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 16,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ImplementTopDownHierarchyConstructionValidationGates",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        16
+      ],
+      "description": "Implement top-down hierarchy construction validation gates for AMT re-expansion for container 3644. Following AMT Hierarchy Initial Build via Registered Tools methodology: implement validation gates at each hierarchy depth level. If hierarchy depth reaches 6 levels, abort and escalate to project lead. Validate returned node ID against expected path /project/{code}/container/{suffix} before proceeding to next level. If node ID mismatch, halt build and report to audit log.",
+      "loop_config": null,
+      "max_retries": 2,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-hierarchy-tool-v2-create",
+        "m40126:r0"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 17,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "DefineExplicitInitialBuildProcedureSteps",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        17
+      ],
+      "description": "Define explicit initial build procedure steps for container 3644 AMT re-expansion. Following AMT Initial Build & Re-expansion Procedure methodology: execute INITIAL_BUILD mode if first-time setup or prior build corrupt. Allocate container, provision base config, run full integration suite. Mark SUCCESS only after all integration suite tests pass. Enable Main AMT runtime after SUCCESS marking. Log completion timestamp.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-initial-build-re-expansion-procedure"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 18,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ValidateProviderRegistrationContainer40211RegistryAccess",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        18
+      ],
+      "description": "Validate provider registration for container 40211 registry access during AMT re-expansion for container 3644. Following AMT Re-Expansion Initial Build Container 40211 — Registry Access Methodology: verify container-registry-mcp provider is installed and responding. If not installed, declare missing provider and document fallback path. If installed but returns authentication error, attempt credential refresh or token rotation via provider's configured credentials.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "m40126:r0",
+        "amt-registry-access-40211"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 19,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "PerformCapabilityCheckBeforeInitiatingRollback",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        19
+      ],
+      "description": "Perform capability check before initiating rollback for farm_profile_start failure during AMT re-expansion for container 3644. Following MCP Capability Declaration Verification methodology: verify required capabilities (rollback-mcp) are declared and operational before invoking rollback-mcp. If capabilities not available, install rollback-mcp provider package first, then re-check availability before proceeding with rollback.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 20,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "VerifyContainer3644IdentityResolutionConsistency",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        20
+      ],
+      "description": "Verify container 3644 identity resolution consistency across partial and full re-expansion sequences. Following general AMT re-expansion methodology: compare identity resolution across partial build state, full re-expansion, and post-expansion states. Ensure consistency of container identity mapping. Flag any discrepancies for manual review and do not proceed until resolved.",
+      "loop_config": null,
+      "max_retries": 2,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "amt-reexpansion-identity-consistency"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 21,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ImplementCanonicalContainerDeduplicationValidationRollback",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        21
+      ],
+      "description": "Implement canonical container deduplication validation for container 3644 during re-expansion rollback triggered by farm_profile_start failure. Following Canonical Container Resolution Must Be Order-Independent methodology: validate deduplication process during rollback is order-independent. Implement checks to prevent duplicate container entries across re-expansion attempts. Log any duplicate detections for correction.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "canonical-container-resolution-order-independent"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 22,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "VerifyFarmProfileStartMcpToolCapabilityDeclarationMatchesImplementation",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        22
+      ],
+      "description": "Verify farm_profile_start MCP tool capability declaration matches actual implementation interface for container 3644. Following MCP Capability Declaration Verification methodology: verify manifest capabilities array matches actual tool registration and runtime exposure. If server declares capabilities but runtime does not expose them (tools defined but not registered via initialize), fail container build and require server code to register each declared tool on startup.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 23,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "CheckMcpCapabilityVersionCompatibilityAcrossRegistryVersions",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        23
+      ],
+      "description": "Check MCP capability version compatibility for farm_profile_start across container 3644 registry versions during re-expansion. Following MCP Capability Declaration Verification methodology: compare capability versions across container 3644 registry versions during re-expansion. Ensure compatibility; if version gap exceeds one minor release, abort re-expansion and require INITIAL_BUILD instead. Log warning 'Version gap too large for safe re-expansion; fresh build required'.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 24,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "ValidateMcpCapabilityMetadataCompletenessAllAmtExpansionTools",
+      "args": null,
+      "context_requirements": [
+        "validate",
+        "profile_id",
+        "format",
+        "existence",
+        "before",
+        "initiating",
+        "re-expansion"
+      ],
+      "depends_on": [
+        24
+      ],
+      "description": "Validate MCP capability metadata completeness for all AMT re-expansion tools in container 3644 registry. Following MCP Capability Declaration Verification methodology: verify all AMT re-expansion tools in container 3644 registry have complete metadata (non-empty capabilities array covering tools, resources, prompts, and styles). Flag any incomplete entries for correction before proceeding with any re-expansion actions.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 25,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    },
+    {
+      "action": "EnsureMcpCapabilityDeclarationDriftDetectionDeploymentPipelines",
+      "args": null,
+      "context_requirements": [
+        "implement",
+        "retry",
+        "logic",
+        "with",
+        "exponential",
+        "backoff",
+        "farm_profile_start",
+        "tool",
+        "failures"
+      ],
+      "depends_on": [
+        25
+      ],
+      "description": "Ensure MCP capability declaration drift detection for container 3644 farm_profile_start tool across deployment pipelines. Following MCP Capability Declaration Verification methodology: implement drift detection across deployment pipelines. Compare declared capabilities against actual implementation at each pipeline stage. Flag and report any drift detected. Block deployment if drift detected until manifest corrected and re-deployed.",
+      "loop_config": null,
+      "max_retries": 1,
+      "methodology_ids": [
+        40222
+      ],
+      "model_override": null,
+      "optional": false,
+      "pipeline_id": 9,
+      "provider": null,
+      "rule_refs": [
+        "mcp-capability-declaration-verification"
+      ],
+      "source_chunk_indices": [
+        0
+      ],
+      "step_index": 26,
+      "step_type": "pipeline",
+      "sub_steps": [],
+      "timeout_ms": null,
+      "tool": null,
+      "wait_for_graph_update": false
+    }
+  ],
+  "tool_manifest": [
+    {
+      "kind": "provider",
+      "methodology_id": 40268,
+      "methodology_name": "AMT Re-expansion Rollback Methodology",
+      "name": "rollback-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "Provides the rollback capability needed to safely revert AMT re-expansion changes on container 40211",
+      "rule_index": 0,
+      "rule_ref": "m40268:r0",
+      "rule_text": "IF Request involves AMT re-expansion (InitialBuild) on container 40211 AND the rollback-mcp capability is not currently installed or not responding THEN Halt the request; require installation of the rollback-mcp provider package before any further action is taken on container 40211.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "container-registry-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to resolve and verify the existence and classification of the specified container ID",
+      "rule_index": 0,
+      "rule_ref": "m40126:r0",
+      "rule_text": "IF Input specifies a container ID (e.g., 40090) AND the keyword 'amt' is present THEN Resolve the target container by exact ID; verify the container exists in the registry and is classified under AMT; fail if the container does not exist or is not AMT-tagged.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "build-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to execute the initial build operation for the AMT in the target container",
+      "rule_index": 1,
+      "rule_ref": "m40126:r1",
+      "rule_text": "IF Container is resolved AND keyword 'initial build' is present THEN Run the initial build for the AMT within the target container; do NOT proceed to re-expansion until the build reports success with zero errors.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "amt-hierarchy-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to inspect or set the main AMT flag on the container",
+      "rule_index": 2,
+      "rule_ref": "m40126:r2",
+      "rule_text": "IF Keyword 'main amt' is present THEN Inspect or establish that the AMT in the target container holds the 'main' designation; fail the workflow if the main AMT cannot be confirmed after resolution.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "reexpansion-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to perform the re-expansion operation using build artifacts as baseline",
+      "rule_index": 3,
+      "rule_ref": "m40126:r3",
+      "rule_text": "IF Initial build completed successfully AND keyword 're-expansion' is present THEN Execute re-expansion using the build artifacts as the baseline; preserve the main AMT designation throughout the expansion; abort if expansion encounters an error mid-way.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "validation-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to verify final container state consistency and main AMT integrity",
+      "rule_index": 4,
+      "rule_ref": "m40126:r4",
+      "rule_text": "IF Re-expansion completed AND no error flags are set on the container THEN Validate that the container is in a consistent post-expansion state with the main AMT intact and sibling AMTs unaffected; report success or trigger automatic rollback to pre-expansion snapshot.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "farm-profile-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to validate the profile_id parameter and invoke farm_profile_start, distinguishing transient from persistent failures",
+      "rule_index": 5,
+      "rule_ref": "m40126:r5",
+      "rule_text": "IF farm_profile_start is required AND its input includes a profile_id parameter THEN Validate profile_id format; if missing or malformed, abort the workflow immediately and roll back to the pre-expansion snapshot. If a transient provider failure occurs, retry up to three times with exponential backoff; on persistent failure or malformed profile_id, abort and roll back; never proceed to re-expansion with an invalid profile_id.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    },
+    {
+      "kind": "provider",
+      "methodology_id": 40126,
+      "methodology_name": "AMT Re-Expansion Initial Build Methodology",
+      "name": "rollback-mcp",
+      "optional": false,
+      "provider": null,
+      "purpose": "to restore the container to its pre-expansion snapshot on validation failure or persistent provider failure",
+      "rule_index": 5,
+      "rule_ref": "m40126:r5",
+      "rule_text": "IF farm_profile_start is required AND its input includes a profile_id parameter THEN Validate profile_id format; if missing or malformed, abort the workflow immediately and roll back to the pre-expansion snapshot. If a transient provider failure occurs, retry up to three times with exponential backoff; on persistent failure or malformed profile_id, abort and roll back; never proceed to re-expansion with an invalid profile_id.",
+      "source": "methodology",
+      "status": "missing",
+      "tools": []
+    }
+  ]
+}
