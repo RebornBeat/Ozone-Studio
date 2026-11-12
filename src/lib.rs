@@ -313,6 +313,10 @@ impl OzoneRuntime {
     pub async fn new(config: OzoneConfig) -> Result<Self, OzoneError> {
         tracing::info!("Initializing Ozone Studio v{}", env!("CARGO_PKG_VERSION"));
 
+        // Crash-safe durable-write queue: enable the on-disk journal and re-queue writes that were still pending when the process last
+        // stopped (src/durable_write.rs). Before anything else writes.
+        durable_write::init_journal(&config.general.data_dir);
+
         // Run bootstrap if first time setup
         if !config.general.setup_complete {
             tracing::info!("First-time setup detected, running bootstrap...");
@@ -1641,13 +1645,23 @@ impl OzoneRuntime {
             served = grpc::start_server(runtime) => served?,
             _ = shutdown => {
                 tracing::info!("Shutdown signal received: draining ZSEI local-state writes");
-                zsei::drain_local_writes(std::time::Duration::from_secs(60))?;
+                // The ZSEI drain's error is held until the durable queue has ALSO been drained: a `?` here used to return before the
+                // durable drain ran at all (a timeout or a failed write in one queue starved the other).
+                let zsei_drain = zsei::drain_local_writes(std::time::Duration::from_secs(60));
                 // Drain the durable bookkeeping queue too (src/durable_write.rs): rows whose write is still being retried are written
-                // now if the disk allows; what is still pending is named, never silently lost.
-                let left = durable_write::flush_for(std::time::Duration::from_secs(30));
+                // now if the disk allows. Run on a blocking thread (it waits on a std Condvar for up to 30 s). What is still pending is
+                // named: it is kept in the on-disk journal and replayed at the next boot (when the journal itself is writable).
+                let left = match tokio::task::spawn_blocking(|| durable_write::flush_for(std::time::Duration::from_secs(30))).await {
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::error!(error = %e, "shutdown: the durable-write drain task failed");
+                        durable_write::pending()
+                    }
+                };
                 if left > 0 {
-                    tracing::error!(pending = left, "shutdown: durable writes still pending (the disk refused them) — they are lost with this process");
+                    tracing::error!(pending = left, "shutdown: durable writes still pending (the disk refused them) — they stay in the durable-write journal and replay at the next boot (memory-only, i.e. lost, only if the journal itself could not be written: see GET /durable_writes)");
                 }
+                zsei_drain?;
             }
         }
 
@@ -2026,6 +2040,12 @@ impl std::io::Write for PersistentLogWriter {
 /// The memory floor (MB): `OZONE_MIN_AVAIL_MB`, default 1536 — the one guard every walk-sized fan-out respects.
 pub(crate) fn mem_floor_mb() -> u64 {
     std::env::var("OZONE_MIN_AVAIL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1536)
+}
+
+/// True when MemAvailable is readable and below the floor (an unreadable `/proc/meminfo` reads 0 = not measurable = not "below").
+pub(crate) fn mem_below_floor() -> bool {
+    let avail = mem_available_mb();
+    avail != 0 && avail < mem_floor_mb()
 }
 
 /// MEMORY FLOOR WAIT (operator 2026-11-11): interactive walks respect the floor too — they PAUSE here until MemAvailable clears it and then

@@ -13,7 +13,7 @@ export interface DecisionReviewRow {
   model_used: string;
   tokens_used: number;
   decision: string;
-  confidence: number | null;
+  /** No confidence: a review verdict is yes/no (operator doctrine). Legacy rows may carry a `confidence` key on disk; it is ignored. */
   task_summary_preview: string;
   reasoning_preview: string;
   /** Optional: older lines predate it. */

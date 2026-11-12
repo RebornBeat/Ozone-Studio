@@ -136,7 +136,6 @@ fn executor_model_str(e: ExecutorModelKind) -> &'static str {
 /// wrapper). decision is lowercase "proceed" or "decline".
 pub(crate) struct DecisionReview {
     pub decision: String,
-    pub confidence: Option<f32>,
     pub reasoning: String,
     pub model_used: String,
 }
@@ -340,8 +339,11 @@ pub struct ThinkingEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GateResult {
     pub decision: String,
-    /// Captured when the gate pipeline reports it; None = not reported
-    /// (never fabricated).
+    /// RETIRED (no self-reported confidence — a gate verdict is yes/no).
+    /// Never populated and never serialized; kept only so legacy persisted
+    /// rows still deserialize (and until jurisdiction.rs, which still names
+    /// the field, can drop it — see docs/evidence/no-skip-sweep/REPORT_D6_FOLLOWUP.md).
+    #[serde(default, skip_serializing)]
     pub confidence: Option<f32>,
     pub reasoning: String,
 }

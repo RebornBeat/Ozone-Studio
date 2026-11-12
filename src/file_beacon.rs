@@ -99,7 +99,7 @@ async fn poll_once(store: &dyn StoreAccess, cache: &mut HashMap<u64, FileState>)
         if changed {
             // NATIVE FILE HISTORY (operator vision: git-like, per-file, all
             // changes, light on the graph): one JSONL row per change in
-            // file_history/<container_id>.jsonl + a capped content snapshot
+            // file_history/<container_id>.jsonl + a content snapshot (no cap, no eviction)
             // in file_history/snapshots/<container_id>/. The GRAPH carries
             // only the container (ripple below) — the history lives in
             // plain files, queryable through the git MCP.
@@ -186,42 +186,26 @@ fn history_dir() -> std::path::PathBuf {
     std::path::Path::new(&dir).join("file_history")
 }
 
-/// Append one history row + keep a bounded content snapshot. Snapshot
-/// naming: <unix_millis>_<size> so ordering is intrinsic; cap 10 per file,
-/// oldest evicted. Content-addressed-enough for diff-on-demand (the git
-/// MCP reads two snapshots and diffs) without storing every intermediate.
+/// Append one history row + keep a content snapshot. Snapshot naming:
+/// <unix_millis>_<size> so ordering is intrinsic; every snapshot is kept
+/// (no cap, no eviction). Content-addressed-enough for diff-on-demand (the
+/// git MCP reads two snapshots and diffs).
 fn record_history(container_id: &str, path: &str, modified: u64, size: u64) {
+    // The directory is created by the durable write itself (parents are created on every attempt and retried until they exist): a failing
+    // mkdir is a retried failure, never a silent `return` that loses the history row.
     let dir = history_dir().join("snapshots").join(container_id);
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    // Snapshot copy (bounded): read the real file once, write once.
+    // Snapshot copy: read the real file once, write once.
     if let Ok(content) = std::fs::read(path) {
         let snap = dir.join(format!("{}_{:x}.snap", millis, size));
         // Durable (src/durable_write.rs): retried until the snapshot is on disk.
-        crate::durable_write::replace(&snap, content.clone());
-        // Evict oldest beyond 10.
-        let mut snaps: Vec<_> = std::fs::read_dir(&dir)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .filter(|e| e.path().extension().map(|x| x == "snap").unwrap_or(false))
-                    .filter_map(|e| {
-                        e.metadata().ok().and_then(|m| {
-                            m.modified().ok().map(|t| (e.path(), t))
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        snaps.sort_by_key(|(_, t)| *t);
-        while snaps.len() > 10 {
-            let (oldest, _) = snaps.remove(0);
-            let _ = std::fs::remove_file(oldest);
-        }
+        crate::durable_write::replace(&snap, content);
+        // NO eviction (operator ruling 2026-11-11: no fixed limits, history is never deleted silently). A full disk is not hidden either:
+        // the write above is durable (src/durable_write.rs) — a failing snapshot is retried in order, surfaced in `GET /durable_writes`
+        // and the `durable_write_stalled` event until space exists. Reclaiming space is an explicit operator act.
     }
     let hist = history_dir().join(format!("{}.jsonl", container_id));
     {

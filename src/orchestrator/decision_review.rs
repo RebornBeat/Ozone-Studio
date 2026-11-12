@@ -28,7 +28,7 @@
 //!
 //! Every review is captured to
 //! `{data_dir}/model_calls/decision_review.jsonl` — timestamp, model used,
-//! tokens, decision, confidence, and the task summary — the
+//! tokens, decision, and the task summary (no confidence: yes/no only) — the
 //! context-provenance store for model switching (methodology 38: tune from
 //! measured numbers; methodology 43: every call leaves a truthful record).
 
@@ -74,10 +74,10 @@ fn response_text(result: &Result<serde_json::Value, String>) -> String {
 }
 
 /// One chunk's judgment: (normalized decision "proceed"/"decline",
-/// model-reported confidence if any, reasoning). `None` = unjudged
-/// (unparseable, placeholder reasoning, ambiguous decision word, or the
-/// model said NoJudgment).
-type ChunkJudgment = Option<(String, Option<f32>, String)>;
+/// reasoning). `None` = unjudged (unparseable, placeholder reasoning,
+/// ambiguous decision word, or the model said NoJudgment). No confidence
+/// anywhere: a judgment is yes/no (operator doctrine 2026-11-04).
+type ChunkJudgment = Option<(String, String)>;
 
 /// Stable identity of a review: hash of the review kind + the request text it
 /// judges. The same request re-submitted gets the same id, so an operator
@@ -116,39 +116,27 @@ fn wire_decision(canonical: &str) -> &'static str {
 }
 
 /// Merge per-chunk judgments. Safety-first and honest:
-/// - any Decline across chunks = Decline (confidence = highest reported
-///   among the declining chunks, or None);
-/// - Proceed requires EVERY chunk to have produced a valid judgment
-///   (confidence = lowest reported among them, or None) — one judged chunk
-///   no longer waves through chunks nobody judged;
+/// - any Decline across chunks = Decline;
+/// - Proceed requires EVERY chunk to have produced a valid judgment — one
+///   judged chunk no longer waves through chunks nobody judged;
 /// - anything else = review_pending (needs a human), never a default Proceed.
-/// Confidences are the models' own; nothing is fabricated.
-fn merge_judgments(judgments: &[ChunkJudgment]) -> (String, Option<f32>, String) {
+/// No confidence is carried or computed: the verdict is yes/no.
+fn merge_judgments(judgments: &[ChunkJudgment]) -> (String, String) {
     let total = judgments.len();
-    let judged: Vec<&(String, Option<f32>, String)> = judgments.iter().filter_map(|j| j.as_ref()).collect();
-    let declines: Vec<&&(String, Option<f32>, String)> = judged.iter().filter(|j| j.0 == "decline").collect();
+    let judged: Vec<&(String, String)> = judgments.iter().filter_map(|j| j.as_ref()).collect();
+    let declines: Vec<&&(String, String)> = judged.iter().filter(|j| j.0 == "decline").collect();
     if !declines.is_empty() {
-        let conf = declines
-            .iter()
-            .filter_map(|j| j.1)
-            .fold(None, |acc: Option<f32>, c| Some(acc.map_or(c, |a| a.max(c))));
-        let reason = declines.last().map(|j| j.2.clone()).unwrap_or_default();
-        return ("decline".to_string(), conf, format!("Declined based on chunk review: {}", reason));
+        let reason = declines.last().map(|j| j.1.clone()).unwrap_or_default();
+        return ("decline".to_string(), format!("Declined based on chunk review: {}", reason));
     }
     if total > 0 && judged.len() == total {
-        let conf = judged
-            .iter()
-            .filter_map(|j| j.1)
-            .fold(None, |acc: Option<f32>, c| Some(acc.map_or(c, |a| a.min(c))));
         return (
             "proceed".to_string(),
-            conf,
             format!("All {} chunk(s) reviewed, no concerns found", total),
         );
     }
     (
         "review_pending".to_string(),
-        None,
         format!(
             "Only {} of {} chunk(s) produced a valid judgment — needs human review (an unjudged chunk is never waved through)",
             judged.len(),
@@ -162,7 +150,7 @@ fn chunk_cache_path(data_dir: &str) -> String {
 }
 
 /// A previously JUDGED chunk (Proceed/Decline with the model's own values).
-fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, Option<f32>, String)> {
+fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, String)> {
     let text = std::fs::read_to_string(chunk_cache_path(data_dir)).ok()?;
     let mut found = None;
     for line in text.lines() {
@@ -170,7 +158,7 @@ fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, Option<f32>
             if v.get("key").and_then(|k| k.as_str()) == Some(key) {
                 found = Some((
                     v.get("decision").and_then(|d| d.as_str()).unwrap_or("").to_string(),
-                    None, // confidence retired (cached rows from before 2026-11-04 may carry one; it is ignored)
+                    // Legacy cached rows may still carry a `confidence` key: it is ignored on read (never recomputed, never surfaced).
                     v.get("reasoning").and_then(|r| r.as_str()).unwrap_or("").to_string(),
                 ));
             }
@@ -179,8 +167,8 @@ fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, Option<f32>
     found.filter(|f| !f.0.is_empty())
 }
 
-fn save_chunk_judgment(data_dir: &str, key: &str, j: &(String, Option<f32>, String)) {
-    let row = serde_json::json!({"key": key, "decision": j.0, "confidence": j.1, "reasoning": j.2});
+fn save_chunk_judgment(data_dir: &str, key: &str, j: &(String, String)) {
+    let row = serde_json::json!({"key": key, "decision": j.0, "reasoning": j.1});
     // Durable (src/durable_write.rs): retried in order until written.
     crate::durable_write::append_json(chunk_cache_path(data_dir), &row);
 }
@@ -478,7 +466,7 @@ Return ONLY valid JSON:
 
             // Extract candidates (balanced-scan, skip empties)
             let candidates = extract_all_json_objects(response);
-            let mut chunk_decision: Option<(String, Option<f32>, String)> = None;
+            let mut chunk_decision: Option<(String, String)> = None;
 
             for cand in &candidates {
                 let parsed: serde_json::Value = match serde_json::from_str(cand) {
@@ -502,21 +490,20 @@ Return ONLY valid JSON:
                 if reasoning.is_empty() || reasoning == "..." || reasoning == "…" {
                     continue;
                 }
-                // CONFIDENCE RETIRED (operator doctrine 2026-11-04: a model's self-reported confidence is false confidence — the verdict is yes/no and
-                // the strength-N loop + any-Decline-wins merge are the validation). Never requested, never read: always None.
-                let confidence: Option<f32> = None;
-                chunk_decision = Some((normalized, confidence, reasoning));
+                // No confidence anywhere (operator doctrine 2026-11-04: a model's self-reported confidence is false confidence — the verdict is
+                // yes/no and the strength-N loop + any-Decline-wins merge are the validation).
+                chunk_decision = Some((normalized, reasoning));
                 break;
             }
 
             let meta = Some((review_id, review_kind));
             match &chunk_decision {
-                Some((dec, conf, reason)) => {
+                Some((dec, reason)) => {
                     self.capture_meta(
                         meta,
                         false,
                         &format!("{} [chunk {}/{}]", task_summary.chars().take(200).collect::<String>(), chunk_idx + 1, total_chunks),
-                        model_used, tokens, dec, *conf, reason, response,
+                        model_used, tokens, dec, reason, response,
                     );
                 }
                 None => {
@@ -525,7 +512,7 @@ Return ONLY valid JSON:
                         meta,
                         false,
                         &format!("{} [chunk {}/{}]", task_summary.chars().take(200).collect::<String>(), chunk_idx + 1, total_chunks),
-                        model_used, tokens, "chunk-no-judgment", None,
+                        model_used, tokens, "chunk-no-judgment",
                         "model could not produce a coherent judgment for this chunk",
                         response,
                     );
@@ -539,9 +526,8 @@ Return ONLY valid JSON:
 
         // MERGE (see merge_judgments): any Decline = Decline; Proceed only
         // when EVERY chunk produced a valid judgment; otherwise
-        // review_pending — never a default Proceed, and confidences are the
-        // models' own (None when none were reported), never constants.
-        let (final_decision, final_confidence, final_reasoning) = merge_judgments(&judgments);
+        // review_pending — never a default Proceed. No confidence is carried.
+        let (final_decision, final_reasoning) = merge_judgments(&judgments);
 
         let merged_model = models_used.join("+");
         self.capture_meta(
@@ -551,7 +537,6 @@ Return ONLY valid JSON:
             &merged_model,
             total_tokens,
             &final_decision,
-            final_confidence,
             &final_reasoning,
             "",
         );
@@ -563,7 +548,6 @@ Return ONLY valid JSON:
 
         Ok(DecisionReview {
             decision: final_decision,
-            confidence: final_confidence,
             reasoning: final_reasoning,
             model_used: merged_model,
         })
@@ -589,7 +573,6 @@ Return ONLY valid JSON:
         Ok(serde_json::json!({
             "gate": {
                 "decision": wire_decision(&review.decision),
-                "confidence": review.confidence,
                 "reasoning": review.reasoning,
                 "review_id": review_id,
             },
@@ -608,11 +591,10 @@ Return ONLY valid JSON:
         model_used: &str,
         tokens_used: u64,
         decision: &str,
-        confidence: Option<f32>,
         reasoning: &str,
         raw_response: &str,
     ) {
-        self.capture_meta(None, false, task_summary, model_used, tokens_used, decision, confidence, reasoning, raw_response);
+        self.capture_meta(None, false, task_summary, model_used, tokens_used, decision, reasoning, raw_response);
     }
 
     /// `capture` plus the review identity: `meta` = (review_id, review_kind),
@@ -628,7 +610,6 @@ Return ONLY valid JSON:
         model_used: &str,
         tokens_used: u64,
         decision: &str,
-        confidence: Option<f32>,
         reasoning: &str,
         raw_response: &str,
     ) {
@@ -641,7 +622,6 @@ Return ONLY valid JSON:
                 "model_used": model_used,
                 "tokens_used": tokens_used,
                 "decision": decision,
-                "confidence": confidence,
                 "task_summary_preview": cut(task_summary),
                 "reasoning_preview": cut(reasoning),
                 "raw_response_preview": cut(raw_response),
@@ -679,7 +659,6 @@ impl PipelineExecutor for DecisionReviewExecutor {
                 return Ok(serde_json::json!({
                     "gate": {
                         "decision": decision,
-                        "confidence": serde_json::Value::Null,
                         "reasoning": format!("operator-resolved review {}: {}", review_id, note),
                         "review_id": review_id,
                         "resolved": true,
@@ -709,14 +688,12 @@ impl PipelineExecutor for DecisionReviewExecutor {
                         "none (all models failed)",
                         0,
                         "review-failed",
-                        None,
                         &e,
                         "(no raw response — review failed before generation)",
                     );
                     Ok(serde_json::json!({
                         "gate": {
                             "decision": "ReviewPending",
-                            "confidence": serde_json::Value::Null,
                             "reasoning": format!("all review models unavailable — needs human review: {}", e),
                             "review_id": review_id,
                         },
@@ -929,31 +906,25 @@ Your Task: {"decision": "Accept", "confidence": 0.5, "reasoning": "final answer"
     }
 
     #[test]
-    fn merge_requires_every_chunk_judged_and_carries_real_confidences() {
-        let p = |c: Option<f32>| Some(("proceed".to_string(), c, "fine".to_string()));
-        let d = |c: Option<f32>| Some(("decline".to_string(), c, "bad".to_string()));
+    fn merge_requires_every_chunk_judged_and_carries_no_confidence() {
+        let p = || Some(("proceed".to_string(), "fine".to_string()));
+        let d = || Some(("decline".to_string(), "bad".to_string()));
 
-        // all judged Proceed: confidence = lowest reported, not a constant
-        let (dec, conf, _) = merge_judgments(&[p(Some(0.9)), p(Some(0.6)), p(None)]);
+        // all judged Proceed
+        let (dec, _) = merge_judgments(&[p(), p(), p()]);
         assert_eq!(dec, "proceed");
-        assert_eq!(conf, Some(0.6));
 
         // one unjudged chunk: pending, never a pass
-        let (dec, conf, _) = merge_judgments(&[p(Some(0.9)), None]);
+        let (dec, _) = merge_judgments(&[p(), None]);
         assert_eq!(dec, "review_pending");
-        assert_eq!(conf, None);
 
-        // any Decline wins even with unjudged chunks; confidence = highest
-        let (dec, conf, _) = merge_judgments(&[d(Some(0.4)), None, d(Some(0.8))]);
+        // any Decline wins even with unjudged chunks
+        let (dec, reason) = merge_judgments(&[d(), None, d()]);
         assert_eq!(dec, "decline");
-        assert_eq!(conf, Some(0.8));
-
-        // Proceed with no model-reported confidence stays None (not 0.8)
-        let (dec, conf, _) = merge_judgments(&[p(None)]);
-        assert_eq!((dec.as_str(), conf), ("proceed", None));
+        assert!(reason.contains("bad"));
 
         // nothing judged
-        let (dec, _, _) = merge_judgments(&[None, None]);
+        let (dec, _) = merge_judgments(&[None, None]);
         assert_eq!(dec, "review_pending");
     }
 

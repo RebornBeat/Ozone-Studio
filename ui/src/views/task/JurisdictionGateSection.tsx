@@ -37,7 +37,6 @@ interface JurisdictionRule {
 }
 interface GateResultLike {
   decision?: string;
-  confidence?: number;
   reasoning?: string;
   [k: string]: unknown;
 }
@@ -182,9 +181,6 @@ export const JurisdictionGateSection: React.FC<JurisdictionGateSectionProps> = (
                       >
                         {result.decision}
                       </span>
-                    )}
-                    {typeof result?.confidence === "number" && (
-                      <span style={{ color: C_MUTED }}> ({result.confidence.toFixed(2)})</span>
                     )}
                     {result?.reasoning && <div style={{ color: C_MUTED, marginLeft: 4 }}>{result.reasoning}</div>}
                   </div>

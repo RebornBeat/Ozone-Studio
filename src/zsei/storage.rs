@@ -22,12 +22,14 @@ use std::path::PathBuf;
 // WRITE-BEHIND QUEUE for local-state JSON files (see store_local). One
 // dedicated thread applies every local-state write and removal in submission
 // order, so the storage write guard never covers disk IO and no write can be
-// overtaken by an older one. The pending count bounds the queue: a caller that
-// finds the bound reached WAITS for the writer to catch up; it never writes
-// inline, which would reorder writes. A write that fails after one retry is
+// overtaken by an older one. There is NO fixed count bound (operator ruling
+// 2026-11-11: no fixed limits): backpressure is the host's memory floor
+// (`OZONE_MIN_AVAIL_MB`) — while MemAvailable is below it and writes are
+// still queued, a caller WAITS for the writer to catch up; it never writes
+// inline (which would reorder writes), never drops, and never waits on an
+// empty queue (nothing would release it). A write that fails after one retry is
 // recorded and reported by drain_local_writes (called from sync(), from Drop,
 // and at process shutdown), so it is never dropped silently.
-const LOCAL_WRITE_MAX_PENDING: usize = 10_000;
 const LOCAL_WRITE_RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(50);
 const LOCAL_WRITE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -131,8 +133,9 @@ fn local_writer() -> Option<&'static std::sync::mpsc::Sender<LocalOp>> {
 }
 
 /// Queue one local-state operation behind every earlier one, waiting first if
-/// the queue is at its bound. Errors are returned to the caller; queued
-/// failures are reported by drain_local_writes.
+/// host memory is below the floor while earlier writes are still queued (no
+/// fixed count). Errors are returned to the caller; queued failures are
+/// reported by drain_local_writes.
 fn enqueue_local_op(op: LocalOp) -> OzoneResult<()> {
     let Some(tx) = local_writer() else {
         // No writer thread exists, so nothing is queued and an inline write
@@ -144,8 +147,12 @@ fn enqueue_local_op(op: LocalOp) -> OzoneResult<()> {
     {
         let (count, signal) = &LOCAL_WRITE_PENDING;
         let mut n = lock_ignoring_poison(count);
-        while *n >= LOCAL_WRITE_MAX_PENDING {
-            n = signal.wait(n).unwrap_or_else(|e| e.into_inner());
+        // Memory-based backpressure. The timeout lets a recovery in MemAvailable (not only a queue change) release the wait.
+        while *n > 0 && crate::mem_below_floor() {
+            n = signal
+                .wait_timeout(n, std::time::Duration::from_millis(500))
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
         }
         *n += 1;
     }
@@ -814,7 +821,7 @@ impl ContainerStorage {
     /// Store local state to JSON file
     ///
     /// Write-behind: the write is queued on the ordered writer thread (see
-    /// LOCAL_WRITE_MAX_PENDING above), so the storage write guard held by the
+    /// the memory-floor backpressure above), so the storage write guard held by the
     /// caller never covers disk IO. The cache is updated here, before the
     /// write lands, so reads in this process see the new state at once.
     fn store_local(&mut self, id: ContainerID, state: &LocalState) -> OzoneResult<()> {

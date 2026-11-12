@@ -2990,14 +2990,6 @@ Return JSON:
             .and_then(|d| d.as_str())
             .unwrap_or("Decline");
 
-        // Captured from the gate pipeline when it reports one — absence is
-        // None, never a fabricated default.
-        let confidence: Option<f32> = result
-            .get("gate")
-            .and_then(|g| g.get("confidence"))
-            .and_then(|c| c.as_f64())
-            .map(|c| c as f32);
-
         let reasoning = result
             .get("gate")
             .and_then(|g| g.get("reasoning"))
@@ -3007,7 +2999,7 @@ Return JSON:
 
         state.gate_result = Some(GateResult {
             decision: decision.to_string(),
-            confidence,
+            confidence: None, // retired: yes/no verdict only (operator doctrine); field kept until jurisdiction.rs releases its claim
             reasoning: reasoning.clone(),
         });
 
@@ -3015,16 +3007,13 @@ Return JSON:
             return Err(format!("Consciousness gate declined: {}", reasoning));
         }
 
-        let confidence_txt = confidence
-            .map(|c| format!(" ({:.0}%)", c * 100.0))
-            .unwrap_or_default();
         self.emit_marker(state, "[8.3]", &format!("decision: {}", decision));
         self.record_stage_timed(
             state,
             8,
             "Consciousness Gate",
             true,
-            &format!("Decision: {}{} [gate-reported]", decision, confidence_txt),
+            &format!("Decision: {} [gate-reported]", decision),
             stage_start.elapsed().as_millis() as u64,
         );
 

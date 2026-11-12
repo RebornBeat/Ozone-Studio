@@ -474,13 +474,19 @@ async fn create_global_amt(store: &dyn StoreAccess) -> Result<u64, String> {
     };
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let store_dir = std::path::PathBuf::from(&data_dir).join("shared_context");
-    std::fs::create_dir_all(&store_dir).map_err(|e| e.to_string())?;
     let rel_path = "shared_context/global_findings_amt.json".to_string();
-    std::fs::write(
-        std::path::PathBuf::from(&data_dir).join(&rel_path),
-        serde_json::to_string_pretty(&root_node).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let body_path = std::path::PathBuf::from(&data_dir).join(&rel_path);
+    let body = serde_json::to_string_pretty(&root_node).map_err(|e| e.to_string())?;
+    // No skip: a failing directory/body write PAUSES here and is retried until it succeeds (src/durable_write.rs), so the container
+    // below never points at a body that was not written and the error is not dropped by the caller.
+    crate::durable_write::retry_until_ok("global findings AMT body", || {
+        let (dir, path, body) = (store_dir.clone(), body_path.clone(), body.clone());
+        async move {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&path, body)
+        }
+    })
+    .await;
 
     let container = Container {
         global_state: GlobalState {
@@ -587,13 +593,19 @@ async fn resolve_or_create_finding_target(
     };
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let rel_dir = "shared_context/findings".to_string();
-    std::fs::create_dir_all(std::path::PathBuf::from(&data_dir).join(&rel_dir)).map_err(|e| e.to_string())?;
     let rel_path = format!("{}/{}_{}.json", rel_dir, route, digest);
-    std::fs::write(
-        std::path::PathBuf::from(&data_dir).join(&rel_path),
-        serde_json::to_string_pretty(&root_node).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    let dir_path = std::path::PathBuf::from(&data_dir).join(&rel_dir);
+    let body_path = std::path::PathBuf::from(&data_dir).join(&rel_path);
+    let body = serde_json::to_string_pretty(&root_node).map_err(|e| e.to_string())?;
+    // No skip: pause and retry until the finding body is on disk (see create_global_amt).
+    crate::durable_write::retry_until_ok("global finding body", || {
+        let (dir, path, body) = (dir_path.clone(), body_path.clone(), body.clone());
+        async move {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&path, body)
+        }
+    })
+    .await;
     let container = Container {
         global_state: GlobalState {
             container_id: 0,
@@ -1234,7 +1246,9 @@ pub fn spawn_sensor_tick(
             };
             {
                 let z = zsei.read().await;
-                let _ = crate::context_mirror::mirror(&z, &data_dir, &req).await;
+                // No skip: a failed mirror PAUSES this tick's reporting and is retried until it is mirrored (src/durable_write.rs).
+                let _mirrored_container: u64 =
+                    crate::durable_write::retry_until_ok("sensor tick mirror", || crate::context_mirror::mirror(&z, &data_dir, &req)).await;
             }
             if !result.success {
                 tracing::info!(

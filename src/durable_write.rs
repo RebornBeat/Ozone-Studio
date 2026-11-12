@@ -18,9 +18,19 @@
 //!     discarded only when a NEWER snapshot of the same path has already been applied — a newer whole file supersedes an older
 //!     one, which is not a dropped write.
 //!
-//! What it does NOT do: survive the process dying while a job is still pending (the queue is in memory; a dead disk cannot hold
-//! its own retry journal). [`flush_for`] is called on graceful shutdown to drain what it can and reports what is still pending.
+//! JOURNAL (operator 2026-11-11: the queue must survive a process death). Every job that has to wait (its first attempt failed, or it
+//! queued behind one that did) is also appended to `<data_dir>/durable_write_journal.jsonl` — an append-only `put` line (path, kind,
+//! payload; whole-file snapshots base64) — and a `done` line is appended once that job is applied (or superseded by a newer snapshot).
+//! [`init_journal`] runs at boot: it reads the journal, drops everything with a `done`, rewrites the file with only what is still pending
+//! (atomic rename), and re-queues those jobs in their original per-path order (replayed appends start with a newline so a torn tail can
+//! never glue to a row). When every queue is idle the journal is truncated. Semantics are AT-LEAST-ONCE: a crash in the window between a
+//! job being applied and its `done` line reaching disk replays that one job (an appended row may then appear twice; a whole-file
+//! snapshot is idempotent). The journal itself failing is NOT hidden and NOT fatal: its lines wait in memory, are retried every worker
+//! turn, and a loud `durable_write_journal_failing` error/event says the queue is memory-only until the journal is writable again (a
+//! disk that refuses both the file and the journal has nowhere to keep a retry record — that is the one case left, and it is named).
+//! [`flush_for`] is still called on graceful shutdown to drain what it can and reports what is still pending.
 
+use base64::Engine as _;
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -39,6 +49,8 @@ enum Body {
 struct Job {
     seq: u64,
     body: Body,
+    /// Journal id (`<boot-epoch-millis>-<seq>`); the journal `done` line carries it.
+    jid: Option<String>,
 }
 
 struct PathQ {
@@ -132,7 +144,9 @@ fn submit(path: PathBuf, body: Body) {
             if let Body::Replace(b) = &body {
                 q.latest = Some((seq, b.clone()));
             }
-            push(q, Job { seq, body });
+            let jid = new_jid(seq);
+            journal_put(&jid, &path, &body);
+            push(q, Job { seq, body, jid: Some(jid) });
             s.wake.notify_all();
             return;
         }
@@ -160,7 +174,9 @@ fn submit(path: PathBuf, body: Body) {
             if let Body::Replace(b) = &body {
                 q.latest = Some((seq, b.clone()));
             }
-            push(q, Job { seq, body });
+            let jid = new_jid(seq);
+            journal_put(&jid, &path, &body);
+            push(q, Job { seq, body, jid: Some(jid) });
             s.wake.notify_all();
         }
     }
@@ -193,6 +209,10 @@ fn push(q: &mut PathQ, job: Job) {
     if matches!(job.body, Body::Replace(_)) {
         if let Some(back) = q.jobs.back_mut() {
             if matches!(back.body, Body::Replace(_)) {
+                // The older queued snapshot is superseded: its journal entry is finished.
+                if let Some(old) = back.jid.take() {
+                    journal_done(&old);
+                }
                 *back = job;
                 SUPERSEDED.fetch_add(1, Ordering::Relaxed);
                 return;
@@ -256,8 +276,17 @@ fn worker() {
         let Some(path) = ready else {
             if g.values().all(|q| q.jobs.is_empty() && !q.inflight) {
                 s.idle.notify_all();
-                drop(s.wake.wait(g).unwrap_or_else(|e| e.into_inner()));
+                if journal_has_unwritten() {
+                    // The journal itself is failing: keep retrying it (spacing only), never park while a line is unwritten.
+                    journal_retry();
+                    drop(s.wake.wait_timeout(g, FIRST_DELAY).unwrap_or_else(|e| e.into_inner()).0);
+                } else {
+                    // Everything applied and every `done` line written: the journal holds nothing pending, so it is truncated.
+                    journal_compact_idle();
+                    drop(s.wake.wait(g).unwrap_or_else(|e| e.into_inner()));
+                }
             } else {
+                journal_retry();
                 let earliest = g.values().filter(|q| !q.jobs.is_empty() && !q.inflight).map(|q| q.next_try).min();
                 let wait = earliest.map(|t| t.saturating_duration_since(now)).unwrap_or(FIRST_DELAY);
                 drop(s.wake.wait_timeout(g, wait).unwrap_or_else(|e| e.into_inner()).0);
@@ -281,6 +310,9 @@ fn worker() {
         q.inflight = false;
         match res {
             Ok(()) => {
+                if let Some(id) = &job.jid {
+                    journal_done(id);
+                }
                 if superseded {
                     SUPERSEDED.fetch_add(1, Ordering::Relaxed);
                 } else {
@@ -321,6 +353,246 @@ fn worker() {
             s.idle.notify_all();
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// JOURNAL. Lock order is always queues -> journal; the journal lock never takes the queues lock.
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+struct Journal {
+    /// `None` until [`init_journal`] runs (unit tests, tools): then the queue is memory-only by construction.
+    path: Option<PathBuf>,
+    /// Lines that could not be written yet (the journal itself failing), in order.
+    unwritten: VecDeque<String>,
+    /// Lines currently in the journal file (so an idle queue knows whether to truncate it).
+    on_disk_lines: u64,
+    failing: bool,
+    replayed: u64,
+}
+
+fn journal() -> &'static Mutex<Journal> {
+    static J: OnceLock<Mutex<Journal>> = OnceLock::new();
+    J.get_or_init(|| Mutex::new(Journal { path: None, unwritten: VecDeque::new(), on_disk_lines: 0, failing: false, replayed: 0 }))
+}
+
+fn jlock() -> std::sync::MutexGuard<'static, Journal> {
+    journal().lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn epoch_millis() -> u128 {
+    static E: OnceLock<u128> = OnceLock::new();
+    *E.get_or_init(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0))
+}
+
+fn new_jid(seq: u64) -> String {
+    format!("{}-{}", epoch_millis(), seq)
+}
+
+struct JournalEntry {
+    id: String,
+    path: PathBuf,
+    body: Body,
+}
+
+fn journal_append_line(path: &Path, line: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir)?;
+        }
+    }
+    let mut buf = String::with_capacity(line.len() + 1);
+    buf.push_str(line);
+    buf.push('\n');
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    f.write_all(buf.as_bytes())
+}
+
+/// Write the journal lines that are waiting, in order. A failure stops here (the rest stay queued in memory) and is loud once.
+fn journal_flush_locked(j: &mut Journal) {
+    let Some(path) = j.path.clone() else { return };
+    loop {
+        let res = match j.unwritten.front() {
+            Some(line) => journal_append_line(&path, line),
+            None => break,
+        };
+        match res {
+            Ok(()) => {
+                j.unwritten.pop_front();
+                j.on_disk_lines += 1;
+                if j.failing && j.unwritten.is_empty() {
+                    j.failing = false;
+                    tracing::info!(path = %path.display(), "durable write journal is writable again; the queue is crash-safe again");
+                }
+            }
+            Err(e) => {
+                if !j.failing {
+                    j.failing = true;
+                    tracing::error!(path = %path.display(), error = %e, "durable write JOURNAL is failing: pending writes are memory-only until it is writable (retried every worker turn)");
+                    crate::graph_events::emit(
+                        "durable_write_journal_failing",
+                        0,
+                        0,
+                        format!("durable_write_journal:{}", path.display()),
+                        "durable_write",
+                        vec![e.to_string()],
+                    );
+                }
+                return;
+            }
+        }
+    }
+}
+
+fn journal_emit(line: String) {
+    let mut j = jlock();
+    if j.path.is_none() {
+        return;
+    }
+    j.unwritten.push_back(line);
+    journal_flush_locked(&mut j);
+}
+
+fn journal_put(jid: &str, path: &Path, body: &Body) {
+    let (kind, data) = match body {
+        Body::Append(line) => ("append", line.clone()),
+        Body::Replace(bytes) => ("replace", base64::engine::general_purpose::STANDARD.encode(bytes.as_slice())),
+    };
+    let line = serde_json::json!({"op": "put", "id": jid, "path": path.to_string_lossy(), "kind": kind, "data": data}).to_string();
+    journal_emit(line);
+}
+
+fn journal_done(jid: &str) {
+    journal_emit(serde_json::json!({"op": "done", "id": jid}).to_string());
+}
+
+fn journal_has_unwritten() -> bool {
+    let j = jlock();
+    j.path.is_some() && !j.unwritten.is_empty()
+}
+
+fn journal_retry() {
+    let mut j = jlock();
+    if j.path.is_some() && !j.unwritten.is_empty() {
+        journal_flush_locked(&mut j);
+    }
+}
+
+/// Every queue is idle and every `done` line is written: nothing in the journal is pending, so it is truncated (compaction).
+fn journal_compact_idle() {
+    let mut j = jlock();
+    let Some(path) = j.path.clone() else { return };
+    if !j.unwritten.is_empty() || j.on_disk_lines == 0 {
+        return;
+    }
+    match std::fs::File::create(&path) {
+        Ok(_) => j.on_disk_lines = 0,
+        Err(e) => tracing::warn!(path = %path.display(), error = %e, "durable write journal could not be truncated (it stays; replay ignores finished entries)"),
+    }
+}
+
+fn journal_stats() -> serde_json::Value {
+    let j = jlock();
+    serde_json::json!({
+        "enabled": j.path.is_some(),
+        "path": j.path.as_ref().map(|p| p.display().to_string()),
+        "failing": j.failing,
+        "unwritten_lines": j.unwritten.len(),
+        "lines_on_disk": j.on_disk_lines,
+        "replayed_at_boot": j.replayed,
+    })
+}
+
+/// Pending entries of a journal file, in file order: every `put` without a later `done`. An unreadable line (a torn tail from a crash
+/// mid-write) is skipped.
+fn journal_load_pending(path: &Path) -> Vec<JournalEntry> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let mut order: Vec<String> = Vec::new();
+    let mut map: HashMap<String, JournalEntry> = HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let Some(id) = v.get("id").and_then(|x| x.as_str()).map(|x| x.to_string()) else { continue };
+        match v.get("op").and_then(|x| x.as_str()) {
+            Some("put") => {
+                let Some(p) = v.get("path").and_then(|x| x.as_str()) else { continue };
+                let data = v.get("data").and_then(|x| x.as_str()).unwrap_or("");
+                let body = match v.get("kind").and_then(|x| x.as_str()) {
+                    Some("append") => Body::Append(data.to_string()),
+                    Some("replace") => match base64::engine::general_purpose::STANDARD.decode(data) {
+                        Ok(b) => Body::Replace(Arc::new(b)),
+                        Err(_) => continue,
+                    },
+                    _ => continue,
+                };
+                order.push(id.clone());
+                map.insert(id.clone(), JournalEntry { id, path: PathBuf::from(p), body });
+            }
+            Some("done") => {
+                map.remove(&id);
+            }
+            _ => {}
+        }
+    }
+    order.into_iter().filter_map(|id| map.remove(&id)).collect()
+}
+
+/// Boot step (called once from `OzoneStudio::new`): enable the journal at `<dir>/durable_write_journal.jsonl`, compact it to what is
+/// still pending, and re-queue those jobs in their original per-path order. Safe to call again (later calls do nothing).
+pub fn init_journal(dir: impl AsRef<Path>) {
+    static ONCE: Once = Once::new();
+    let path = dir.as_ref().join("durable_write_journal.jsonl");
+    ONCE.call_once(|| {
+        let pending = journal_load_pending(&path);
+        // Compact: the file keeps only the pending `put` lines (atomic rename). If that fails the old file stays; the replayed jobs keep
+        // their ids, so their `done` lines still match.
+        let mut lines_on_disk = std::fs::read_to_string(&path).map(|t| t.lines().count() as u64).unwrap_or(0);
+        if lines_on_disk > 0 {
+            let mut out = String::new();
+            for e in &pending {
+                let (kind, data) = match &e.body {
+                    Body::Append(line) => ("append", line.clone()),
+                    Body::Replace(bytes) => ("replace", base64::engine::general_purpose::STANDARD.encode(bytes.as_slice())),
+                };
+                out.push_str(&serde_json::json!({"op": "put", "id": e.id, "path": e.path.to_string_lossy(), "kind": kind, "data": data}).to_string());
+                out.push('\n');
+            }
+            let tmp = path.with_extension("jsonl.compact");
+            match std::fs::write(&tmp, out.as_bytes()).and_then(|_| std::fs::rename(&tmp, &path)) {
+                Ok(()) => lines_on_disk = pending.len() as u64,
+                Err(e) => tracing::warn!(path = %path.display(), error = %e, "durable write journal could not be compacted at boot; replaying from the existing file"),
+            }
+        }
+        {
+            let mut j = jlock();
+            j.path = Some(path.clone());
+            j.on_disk_lines = lines_on_disk;
+            j.replayed = pending.len() as u64;
+        }
+        if pending.is_empty() {
+            return;
+        }
+        tracing::warn!(pending = pending.len(), path = %path.display(), "durable write journal: re-queuing writes that were still pending when the process last stopped");
+        let s = shared();
+        {
+            let mut g = lock(s);
+            for e in pending {
+                let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+                let q = g.entry(e.path.clone()).or_insert_with(PathQ::new);
+                if matches!(e.body, Body::Append(_)) {
+                    q.dirty = true; // the interrupted attempt may have left a torn tail
+                }
+                if let Body::Replace(b) = &e.body {
+                    q.latest = Some((seq, b.clone()));
+                }
+                q.last_error = "replayed from the journal after a restart".to_string();
+                push(q, Job { seq, body: e.body, jid: Some(e.id) });
+            }
+        }
+        s.wake.notify_all();
+    });
 }
 
 /// Run a fallible async store/IO operation until it SUCCEEDS (2 s, doubling, held at 60 s between attempts): the no-skip form of
@@ -383,6 +655,7 @@ pub fn stats() -> serde_json::Value {
         "retries": RETRIES.load(Ordering::Relaxed),
         "superseded_snapshots": SUPERSEDED.load(Ordering::Relaxed),
         "stalled_paths": paths,
+        "journal": journal_stats(),
     })
 }
 
@@ -413,6 +686,7 @@ pub fn flush_for(timeout: Duration) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine as _;
 
     fn tmpdir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("durable_write_{tag}_{}", std::process::id()));
@@ -453,6 +727,32 @@ mod tests {
         let text = std::fs::read_to_string(&log).unwrap();
         let rows: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
         assert_eq!(rows, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn journal_pending_is_every_put_without_a_done_in_order() {
+        let d = tmpdir("journal");
+        let jf = d.join("durable_write_journal.jsonl");
+        let b64 = base64::engine::general_purpose::STANDARD.encode(b"snap");
+        let lines = vec![
+            serde_json::json!({"op": "put", "id": "1-1", "path": "/x/a.jsonl", "kind": "append", "data": "row one"}).to_string(),
+            serde_json::json!({"op": "put", "id": "1-2", "path": "/x/s.json", "kind": "replace", "data": b64}).to_string(),
+            serde_json::json!({"op": "put", "id": "1-3", "path": "/x/a.jsonl", "kind": "append", "data": "row two"}).to_string(),
+            serde_json::json!({"op": "done", "id": "1-1"}).to_string(),
+            "{\"op\": \"put\", \"id\": \"1-4\", \"path\"".to_string(), // torn tail: skipped
+        ];
+        std::fs::write(&jf, lines.join("\n")).unwrap();
+        let pending = journal_load_pending(&jf);
+        let ids: Vec<&str> = pending.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, vec!["1-2", "1-3"]);
+        match &pending[0].body {
+            Body::Replace(b) => assert_eq!(b.as_slice(), b"snap"),
+            _ => panic!("expected a replace entry"),
+        }
+        match &pending[1].body {
+            Body::Append(l) => assert_eq!(l, "row two"),
+            _ => panic!("expected an append entry"),
+        }
     }
 
     #[test]

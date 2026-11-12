@@ -1,5 +1,5 @@
 /**
- * H7 — Consciousness gate result per task (decision/confidence/reasoning),
+ * H7 — Consciousness gate result per task (decision/reasoning),
  * from the real `decision_review.jsonl` store (S10) behind `DecisionReviewExecutor`
  * (src/orchestrator/decision_review.rs, pipeline 39's real replacement for the
  * old hardcoded-Evaluate stub — jurisdiction confirmation reviews and the
@@ -8,7 +8,7 @@
  * NO RELIABLE PER-TASK CORRELATION KEY EXISTS. Verified directly against the
  * real capture site (`DecisionReviewExecutor::capture`, decision_review.rs
  * ~317-345) and the live host (`GET /capture/decision-reviews`): every row
- * carries only `ts`/`model_used`/`tokens_used`/`decision`/`confidence`/
+ * carries only `ts`/`model_used`/`tokens_used`/`decision`/
  * `task_summary_preview`/`reasoning_preview`/`raw_response_preview` — no
  * `task_id`, no `project_id`, nothing an id-based join could use. The real
  * `TaskInfo` shape this section receives (`TaskDetailPanel.tsx`) has no
@@ -20,10 +20,9 @@
  * task. It states the gap plainly and, for context only, offers the most
  * recent reviews clearly labeled as global activity, not this task's.
  *
- * Real decision/confidence semantics reused from E2/E4's already-verified
+ * Real decision semantics reused from E2/E4's already-verified
  * findings, not re-derived: "proceed"/"decline" are real per-chunk or merged
- * judgments (merged-row confidence is the hardcoded constant 0.8/0.7, not a
- * model score); "chunk-no-judgment" and "review_pending" mean no chunk
+ * judgments (no confidence is recorded: yes/no only); "chunk-no-judgment" and "review_pending" mean no chunk
  * produced a usable decision; "review-failed" means every review model
  * failed before generating (methodology 43: the failure itself is captured).
  */

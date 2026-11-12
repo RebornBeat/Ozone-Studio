@@ -22,9 +22,9 @@
 | S5 | **Jurisdiction gate result** | `state.jurisdiction_gate_result` | stage 0 | matched rules (condition/action/source), warnings, confirmation reviews |
 | S6 | **Methodology rule text** | containers via `load_methodology_rules_full` | stage 3 match, grown mid-request by §4 of BUILDER_REGISTRY | the rules plans are drafted under |
 | S7 | **Simulation predictions** | stage 7 output (registry #11) → thinking log / step context | stage 7 | feasibility, risks, per-step predictions |
-| S8 | **Consciousness gate result** | `state.gate_result` | stage 8 | decision/confidence/reasoning (stub until the real review lands) |
+| S8 | **Consciousness gate result** | `state.gate_result` | stage 8 | decision/reasoning (confidence RETIRED 2026-11-11: yes/no only) |
 | S9 | **Coordination events** | /SharedContext containers | both agents, any time | handoffs, claims, findings — mirrored with scope keywords |
-| S10 | **Decision-review capture store** | `{data_dir}/model_calls/decision_review.jsonl` | every real gate review | 8 fields: ts/model/tokens/decision/confidence/task_summary_preview/reasoning_preview/**raw_response_preview** (500 chars) — the full provenance chain per review |
+| S10 | **Decision-review capture store** | `{data_dir}/model_calls/decision_review.jsonl` | every real gate review | 7 fields: ts/model/tokens/decision/task_summary_preview/reasoning_preview/**raw_response_preview** (500 chars) — the full provenance chain per review |
 | S11 | **General zero-shot capture store** | `{data_dir}/model_calls/zero_shot_calls.jsonl` | every call through `metered_execute_resilient` | call_site/model/tokens/retries/used_fallback/success/response_preview (500 chars) + **context markers**: amt_container_id, blueprint_id, project_id, prompt_preview — every raw thought correlated to its graph position |
 | S12 | **Pipeline zero-shot capture store** (C6-minimal, 2026-09-27) | `{data_dir}/model_calls/pipeline_zero_shot_calls.jsonl` | every model call made INSIDE a modality pipeline binary (`assets/pipelines/shared/capture.rs`, `#[path]`-embedded; text wired at its single `llm_execute` choke point — all 13 extractor/vote sites, each retry attempt its own row; math wired at its one dead-code E7 site; code dormant, zero calls) | ts/pipeline/call_site/model/tokens/success/response_preview/prompt_preview — closes the invisible-failure class where a failed/confetti extraction used to leave ONE stderr line, an empty keyword list in the persisted graph, and a downstream isolation failure with no upstream record. Read side: `GET /capture/pipeline-zero-shot-calls?pipeline=&call_site=&model_used=&success=` (`success=false` IS the invisible-failure view). Data-dir note: pipelines resolve `OZONE_CAPTURE_DATA_DIR` → `OZONE_ZSEI_DATA_DIR` → `"zsei_data"`; identical to the host's `general.data_dir` under the normal layout, and the split is visible in the path itself if an operator ever diverges them |
 
@@ -95,7 +95,7 @@ This is the honest answer to "did we wire the mixing between all of them?":
    real bug, now genuinely re-deriving per attempt as originally intended.
 3. **Capture proves arrival — two real stores now, not one.**
    `{data_dir}/model_calls/decision_review.jsonl` records per pipeline-39
-   review: `ts`/`model_used`/`tokens_used`/`decision`/`confidence`/
+   review: `ts`/`model_used`/`tokens_used`/`decision`/
    `task_summary_preview`/`reasoning_preview` — exactly 7 fields, verified
    directly against `decision_review.rs`'s real `capture()`; no AMT/
    blueprint/rule context markers exist in it yet (a real, open

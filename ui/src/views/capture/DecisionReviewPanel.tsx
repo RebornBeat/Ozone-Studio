@@ -9,8 +9,7 @@
  *    "proceed" | "decline" (per chunk and merged), "chunk-no-judgment" (a chunk's response had no usable
  *    decision), "review_pending" (no chunk produced a judgment — never a default Proceed) and
  *    "review-failed" (every review model failed before generating; methodology 43: failures leave records).
- *    Merge rule: ANY chunk decline => overall decline; the merged row's confidence is the constants 0.7
- *    (decline) / 0.8 (proceed) set in code, not a model-reported number.
+ *    Merge rule: ANY chunk decline => overall decline. No confidence is recorded (yes/no doctrine).
  *  - capture() cuts task_summary/reasoning/raw_response to 500 characters, so previews may be truncated.
  *  - The store is a flat append-only file: it emits no graph events, so there is no live push — use Reload.
  *    It has no project key, so `projectId` cannot filter anything (stated in the UI, not faked).
@@ -49,14 +48,14 @@ function decisionInfo(decision: string): DecisionInfo {
         label: "proceed",
         tone: "proceed",
         explain:
-          "A review model judged the task raises no concern. Overall Proceed requires that no chunk declined and at least one chunk produced a valid judgment. On the merged row the confidence is the constant 0.8 set in code, not a model-reported value.",
+          "A review model judged the task raises no concern. Overall Proceed requires that no chunk declined and at least one chunk produced a valid judgment.",
       };
     case "decline":
       return {
         label: "decline",
         tone: "decline",
         explain:
-          "A review model judged the task should be declined. Safety-first merge: any Decline across chunks makes the overall result Decline. On the merged row the confidence is the constant 0.7 set in code, not a model-reported value.",
+          "A review model judged the task should be declined. Safety-first merge: any Decline across chunks makes the overall result Decline.",
       };
     case "review_pending":
       return {

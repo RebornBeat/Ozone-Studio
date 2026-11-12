@@ -28,9 +28,9 @@
  * (src/orchestrator/decision_review.rs ~317-345) called from `multi_pass_review`
  * and `execute`. Real `decision` values:
  *   - "proceed" / "decline": a valid judgment. Per-chunk rows carry the model's
- *     own confidence and a "[chunk i/n]" suffix on task_summary_preview; the
- *     MERGED final row (no chunk marker, raw response "") carries a fixed
- *     merge-rule confidence (0.8 proceed / 0.7 decline), not a model score.
+ *     decision and a "[chunk i/n]" suffix on task_summary_preview; the
+ *     MERGED final row (no chunk marker, raw response "") carries the merged
+ *     yes/no result. No confidence is recorded or shown (yes/no doctrine).
  *   - "chunk-no-judgment": that chunk's response had no candidate with a valid
  *     decision + real reasoning (placeholder "..." rejected) — an unusable call.
  *   - "review_pending": merged result when NO chunk produced a valid judgment;
@@ -402,12 +402,8 @@ export function classifyDecisionReview(row: DecisionReviewRow): CaptureStatus {
       const reasons: string[] = [];
       if (merged) {
         reasons.push("Merged final result across chunks (safety-first: any Decline ⇒ Decline).");
-        const c = row.confidence;
-        if (typeof c === "number" && (Math.abs(c - 0.8) < 1e-3 || Math.abs(c - 0.7) < 1e-3)) {
-          reasons.push(`Confidence ${c.toFixed(2)} is the merge rule's fixed value (0.8 proceed / 0.7 decline), not a model-reported score.`);
-        }
       } else if (chunkText) {
-        reasons.push(`Model judgment for ${chunkText}${typeof row.confidence === "number" ? ` (model-reported confidence ${row.confidence.toFixed(2)})` : ""}.`);
+        reasons.push(`Model judgment for ${chunkText}.`);
       }
       if (model.includes("+")) reasons.push(`Models involved: ${model}.`);
       reasons.push(...modelNote);

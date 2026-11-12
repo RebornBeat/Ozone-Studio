@@ -29,8 +29,6 @@ struct CaptureRow {
     model_used: String,
     tokens_used: u64,
     decision: String,
-    #[serde(default)]
-    confidence: Option<f32>,
     task_summary_preview: String,
     reasoning_preview: String,
 }

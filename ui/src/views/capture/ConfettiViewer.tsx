@@ -338,7 +338,6 @@ const Candidates: React.FC<{ a: Analyzed }> = ({ a }) => {
       {a.candidates.map((c) => {
         const p = c.shape === "object" ? (c.parsed as Record<string, unknown>) : null;
         const decision = p && typeof p.decision === "string" ? p.decision : null;
-        const confidence = p && typeof p.confidence === "number" ? p.confidence : null;
         const reasoning = p && typeof p.reasoning === "string" ? p.reasoning : null;
         const committed =
           reasoningCommitted !== null && reasoning !== null && reasoning.trim().slice(0, 500) === reasoningCommitted;
@@ -353,7 +352,6 @@ const Candidates: React.FC<{ a: Analyzed }> = ({ a }) => {
                 <b>{JSON.stringify(decision)}</b>
               </>
             )}
-            {confidence !== null && ` · confidence ${confidence}`}
             {reasoning !== null && <div style={{ color: C_MUTED }}>reasoning: {reasoning || "(empty)"}</div>}
             {decision === null && reasoning === null && (
               <div style={{ color: C_MUTED }}>{c.text.length > 140 ? `${c.text.slice(0, 140)}…` : c.text}</div>
@@ -584,7 +582,7 @@ export const ConfettiViewer: React.FC<ConfettiViewerProps> = ({ projectId }) => 
           <div style={{ color: C_TEXT, fontWeight: 600, marginBottom: 4 }}>No confetti bursts in the stored data.</div>
           <div style={{ color: C_MUTED }}>
             None of the {visible.length} scanned row{visible.length === 1 ? "" : "s"} contain more than one non-empty JSON candidate under the real rule.
-            A burst would appear here with its stored raw response, every parsed candidate (decision, confidence, reasoning) colour-segmented against the
+            A burst would appear here with its stored raw response, every parsed candidate (decision, reasoning) colour-segmented against the
             surrounding prose, the candidate the gate committed to (when it can be matched exactly), and the model that produced it. Look for a stored
             response containing several conflicting JSON objects in a row — the documented Decide → Reject → Proceed → Fail → Accept sequence.
           </div>
