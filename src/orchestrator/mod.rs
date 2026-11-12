@@ -41,6 +41,14 @@ mod response;
 mod voice;
 mod stages;
 mod graphs;
+
+/// Boot hook (src/lib.rs): re-run stage-13 link passes interrupted by a restart (see graphs::resume_link_passes).
+pub async fn resume_link_passes(
+    store: std::sync::Arc<dyn StoreAccess>,
+    task_manager: std::sync::Arc<tokio::sync::RwLock<crate::task::TaskManager>>,
+) {
+    graphs::resume_link_passes(store, task_manager).await
+}
 pub mod meta_loop;
 pub mod amt_loop;
 pub mod dispatch;

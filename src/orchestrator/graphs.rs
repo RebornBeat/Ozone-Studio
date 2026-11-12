@@ -945,10 +945,15 @@ impl PromptOrchestrator {
         self.stage_11_response_delivery(state).await?;
         match child {
             Some(child_id) => {
+                // DURABLE (operator 2026-11-12, "lost link pass on process death"): the pass inputs are journaled BEFORE the background task
+                // starts, and a `done` row is appended after the item is ticked. `resume_link_passes` (boot) re-runs every opened-but-not-done
+                // pass, so a restart mid-pass no longer parks the walk forever. The edge writes are idempotent, so a re-run is safe.
+                link_journal_open(child_id, &ids, &prompt_terms, blueprint_assigned);
                 let (store, tm) = (self.store.clone(), self.task_manager.clone());
                 tokio::spawn(async move {
                     let (wired, n) = run_link_pass(store, ids, prompt_terms, blueprint_assigned).await;
                     tm.read().await.complete_item(child_id, "link", &format!("{wired} edges wired across {n} containers"), "walk-link").await;
+                    link_journal_done(child_id);
                 });
             }
             None => {
@@ -959,6 +964,59 @@ impl PromptOrchestrator {
             }
         }
         Ok(())
+    }
+}
+
+const LINK_JOURNAL: &str = "link_pass_pending.jsonl";
+
+fn link_journal_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string())).join(LINK_JOURNAL)
+}
+
+/// Journal one background link pass (append-only, durable, ordered): its `wo_link` child id and the inputs needed to re-run it.
+fn link_journal_open(child_id: u64, ids: &[u64], prompt_terms: &[String], blueprint_assigned: bool) {
+    crate::durable_write::append_json(
+        link_journal_path(),
+        &serde_json::json!({ "op": "open", "child": child_id, "ids": ids, "terms": prompt_terms, "blueprint": blueprint_assigned }),
+    );
+}
+
+fn link_journal_done(child_id: u64) {
+    crate::durable_write::append_json(link_journal_path(), &serde_json::json!({ "op": "done", "child": child_id }));
+}
+
+/// Boot: re-run every journaled link pass that was opened but never finished (the process died mid-pass), then tick its `wo_link` item.
+/// A child whose task no longer exists is closed in the journal without running. Operator cancel is unaffected: a cancelled/settled child
+/// simply ignores the tick (`complete_item` is idempotent and never reopens anything).
+pub(crate) async fn resume_link_passes(
+    store: std::sync::Arc<dyn crate::orchestrator::StoreAccess>,
+    task_manager: std::sync::Arc<tokio::sync::RwLock<crate::task::TaskManager>>,
+) {
+    let Ok(text) = std::fs::read_to_string(link_journal_path()) else { return };
+    let mut open: std::collections::BTreeMap<u64, (Vec<u64>, Vec<String>, bool)> = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let Some(child) = v["child"].as_u64() else { continue };
+        match v["op"].as_str() {
+            Some("open") => {
+                let ids = v["ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default();
+                let terms = v["terms"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+                open.insert(child, (ids, terms, v["blueprint"].as_bool().unwrap_or(false)));
+            }
+            Some("done") => {
+                open.remove(&child);
+            }
+            _ => {}
+        }
+    }
+    for (child, (ids, terms, bp)) in open {
+        tracing::info!(child, "resuming an interrupted walk-content link pass");
+        let exists = task_manager.read().await.get_task(child).await.is_some();
+        if exists {
+            let (wired, n) = run_link_pass(store.clone(), ids, terms, bp).await;
+            task_manager.read().await.complete_item(child, "link", &format!("{wired} edges wired across {n} containers (resumed after restart)"), "walk-link").await;
+        }
+        link_journal_done(child);
     }
 }
 

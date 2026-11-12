@@ -215,7 +215,20 @@ pub struct JurisdictionPolicy {
     /// `Some(vec![])` = the operator explicitly clears the list.
     #[serde(default)]
     pub tool_egress: Option<Vec<ToolEgressRule>>,
+    /// What the gate does with personal-data SHAPES in content bound for an agent that runs on its OWN terms (region `agent_own_terms`):
+    /// `allow_logged` (default: the shape check runs and is recorded in the decision log, the call proceeds) | `await_operator` | `block`.
+    /// Instance-region agreements and third-country holds do not apply to such agents; the operator can still tighten per agent by listing
+    /// a `providers` row for it with another region, or tighten all of them with this key.
+    #[serde(default)]
+    pub agent_own_terms_on_personal_data: String,
 }
+
+/// Region label of an agent that runs on its own terms (a coding assistant the operator itself uses: Claude Code, ZCode). Only the GLOBAL
+/// rule gate and the recorded shape check apply; no instance-region agreement, no third-country hold.
+pub const REGION_AGENT_OWN_TERMS: &str = "agent_own_terms";
+/// Agent endpoints that are `agent_own_terms` even when a saved policy predates the shipped provider rows (an operator row for the same
+/// agent, listed in `providers`, wins).
+const OWN_TERMS_AGENTS: [&str; 3] = ["agent:claude-code", "agent:zcode", "agent:*"];
 
 fn default_detection() -> DetectionPolicy {
     DetectionPolicy {
@@ -281,6 +294,7 @@ pub fn shipped_defaults() -> JurisdictionPolicy {
             p2p: default_p2p(),
             exempt_pipelines: Vec::new(),
             tool_egress: None,
+            agent_own_terms_on_personal_data: "allow_logged".into(),
         }
     });
     p.origin = "defaults".to_string();
@@ -828,7 +842,9 @@ pub async fn check_outbound_to_agent(
         .find(|p| !p.endpoint_contains.is_empty() && lower.contains(&p.endpoint_contains.to_lowercase()))
         .map(|p| p.region.clone())
         .unwrap_or_else(|| {
-            if policy.default_region_unlisted_endpoint.is_empty() {
+            if OWN_TERMS_AGENTS.iter().any(|a| lower == *a) {
+                REGION_AGENT_OWN_TERMS.to_string()
+            } else if policy.default_region_unlisted_endpoint.is_empty() {
                 "third_country_unverified".to_string()
             } else {
                 policy.default_region_unlisted_endpoint.clone()
@@ -1050,8 +1066,12 @@ async fn check_outbound_inner(
     let content_hash = hash_hex(text.as_bytes())[..32].to_string();
     let dd = data_dir();
 
+    // An agent on its OWN terms (operator ruling 2026-11-12): instance-region agreements and third-country holds do not apply; the GLOBAL
+    // rule gate still ran at the plan stages, and the personal-data SHAPE check below still runs and is recorded.
+    let own_terms = region == REGION_AGENT_OWN_TERMS;
+
     // 1. Agreements: a third-country / unverified transfer needs the operator's acceptance of every current requirement.
-    if policy.require_agreements_before_outbound {
+    if policy.require_agreements_before_outbound && !own_terms {
         let missing = unaccepted_requirements(&policy);
         if !missing.is_empty() {
             let subject = format!("agreements:{}", policy_fingerprint(&policy));
@@ -1105,7 +1125,7 @@ async fn check_outbound_inner(
         // Content that is personal data by its nature (a voice recording is biometric): no detector needed, the kind is recorded.
         kinds.push(fk.to_string());
     }
-    if kinds.is_empty() && policy.detection.vote {
+    if kinds.is_empty() && policy.detection.vote && !own_terms {
         let voter_region_ok = !policy.detection.vote_model.is_empty()
             && policy
                 .allow_personal_data_regions
@@ -1162,8 +1182,17 @@ async fn check_outbound_inner(
         };
     }
 
-    // 4. Policy action.
-    match policy.on_personal_data_outbound.as_str() {
+    // 4. Policy action (an agent on its own terms: its own key, default allow_logged = shape recorded, call proceeds).
+    let action: &str = if own_terms {
+        if policy.agent_own_terms_on_personal_data.is_empty() {
+            "allow_logged"
+        } else {
+            policy.agent_own_terms_on_personal_data.as_str()
+        }
+    } else {
+        policy.on_personal_data_outbound.as_str()
+    };
+    match action {
         "allow_logged" => {
             record_decision(
                 "outbound",

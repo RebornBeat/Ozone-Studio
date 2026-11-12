@@ -14,6 +14,9 @@
     { "endpoint_contains": "api.z.ai", "region": "third_country_unverified", "note": "z.ai API (paid; selectable only with allow_paid_models); the serving region is not verified by this instance" },
     { "endpoint_contains": "api.minimax.io", "region": "third_country_unverified", "note": "MiniMax API (paid; selectable only with allow_paid_models); the serving region is not verified by this instance" },
     { "endpoint_contains": "api.minimaxi.com", "region": "third_country_unverified", "note": "MiniMax API, alternate host (paid; selectable only with allow_paid_models); the serving region is not verified by this instance" },
+    { "endpoint_contains": "agent:claude-code", "region": "agent_own_terms", "note": "Claude Code participating through ozone-mcp: runs on its own terms. Only the GLOBAL rule gate and the recorded personal-data shape check apply (no instance-region agreement, no third-country hold). To tighten, list this agent with another region or set agent_own_terms_on_personal_data" },
+    { "endpoint_contains": "agent:zcode", "region": "agent_own_terms", "note": "ZCode participating through ozone-mcp: runs on its own terms (same semantics as agent:claude-code)" },
+    { "endpoint_contains": "agent:*", "region": "agent_own_terms", "note": "any participant of the walk (an agent offered as agent:*): own terms, global gate + recorded shape check only. An agent not listed by name and offering as agent:<other> is an unverified region until listed" },
     { "endpoint_contains": "cli:codex", "region": "third_country_unverified", "note": "host-managed Codex CLI agent: the prompt goes to the vendor behind the operator's own CLI login. The CLI's vendor and region are not verified by this instance" },
     { "endpoint_contains": "cli:claude", "region": "third_country_unverified", "note": "host-managed Claude Code CLI agent (also matches cli:claude-code): the prompt goes to the vendor behind the operator's own CLI login" },
     { "endpoint_contains": "cli:zcode", "region": "third_country_unverified", "note": "host-managed ZCode CLI agent: the prompt goes to the vendor behind the operator's own CLI login" }
@@ -21,6 +24,7 @@
   "default_region_unlisted_endpoint": "third_country_unverified",
   "allow_personal_data_regions": ["local", "eea"],
   "on_personal_data_outbound": "await_operator",
+  "agent_own_terms_on_personal_data": "allow_logged",
   "unknown_jurisdiction": "global_only_flagged",
   "conflict_resolution": "strictest",
   "require_agreements_before_outbound": true,

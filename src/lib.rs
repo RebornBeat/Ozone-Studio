@@ -1463,6 +1463,11 @@ impl OzoneRuntime {
             // external file-change -> live-graph ripple for registered
             // FileReference containers. Same store_adapter, same
             // boot-spawn convention as the two loops above.
+            // LINK-PASS RESUME (2026-11-12): a background stage-13 link pass interrupted by a restart is journaled; re-run it now.
+            {
+                let (lp_store, lp_tm) = (store_adapter.clone(), runtime.read().await.task_manager.clone());
+                tokio::spawn(async move { crate::orchestrator::resume_link_passes(lp_store, lp_tm).await });
+            }
             crate::file_beacon::spawn(store_adapter);
 
             // SENSOR TICK (actors.rs): the actors' eyes — every 15 min one
