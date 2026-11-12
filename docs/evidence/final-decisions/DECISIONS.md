@@ -40,3 +40,9 @@ Quotes are the operator's words; "you decide" items were delegated and decided b
 | Step index assigned centrally by position at population; duplicates normalized, never replanned or failed | operator: "work should be done to prevent this error not a fail or retry" |
 | No skip: every failure is fixed or the task pauses and retries; nothing recorded-and-moved-on | operator doctrine restated |
 | No "unreadable" files: acceptance == readability; unreadable extensions rejected at link time with reason; corrupted files fail validation at link time | operator: "there shouldn't be any to link it has to be an accepted modality" |
+
+## Addendum 2026-11-11 (sensor modalities)
+| Decision | Basis |
+|---|---|
+| Sensor-modality raw-input path DEFERRED: sensor extensions (imu, iq, radar, sonar, hyperspectral, haptic, bci, pts/e57, etc.) stay rejected at link time with the exact reason; acceptance == readability stays enforced. Not forgotten: tracked as open in CHECKLIST (no-skip-sweep / modality readers) | operator: "sensor modalities no continue with all minus this but yes ensure captured" |
+| True test totals captured by static count (not run): 611 tests in 101 files (src 287/58, tests 5/2, shared 24/4, modality pipelines 267/31, general pipelines 17/5, shared pipelines 11/1); passing totals only from a real run | operator: "capture true test totals" |
